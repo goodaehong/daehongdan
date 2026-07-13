@@ -102,7 +102,11 @@ void CameraStream::readLoop()
                 continue;
             }
 
-            cap.set(CAP_PROP_BUFFERSIZE, 1);
+            if (!cap.set(CAP_PROP_BUFFERSIZE, 1))
+            {
+                cout << "Camera buffer size option is not supported by this backend" << endl;
+            }
+
             opened = true;
 
             cout << "Camera connected" << endl;

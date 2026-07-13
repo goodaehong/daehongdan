@@ -12,7 +12,7 @@ public:
     void reset();
 
 private:
-    cv::Mat makeFireColorMask(const cv::Mat& frame) const;
+    cv::Mat makeFireColorMask(const cv::Mat& frame, const cv::Mat& hsv) const;
     cv::Mat makeForegroundMask(const cv::Mat& frame, const cv::Mat& gray);
     cv::Mat makeSkinMask(const cv::Mat& frame, const cv::Mat& hsv) const;
 
@@ -37,5 +37,4 @@ private:
 
     // 직전 화염 후보의 위치와 박스를 잠깐 유지한다.
     cv::Rect previousCandidateBox;
-    std::vector<DetectionBox> lastCandidateBoxes;
 };

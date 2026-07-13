@@ -13,17 +13,19 @@ namespace
     const int DETECT_WIDTH = 960;
     const int DETECT_HEIGHT = 540;
 
-    const int FIRE_CONFIRM_FRAMES = 4;
-    const int FIRE_DECAY = 1;
-
+    const int FIRE_CONFIRM_FRAMES = 3;
     // 라이터처럼 작은 화염은 한두 프레임 후보가 끊길 수 있다.
     // 최대 2회의 미검출은 같은 화염의 일시적 누락으로 허용한다.
     const int MAX_CANDIDATE_MISSES = 2;
 
-    // 낮은 점수 후보도 후보로는 유지하되, 화재 확정에는 더 강한 증거를 요구한다.
-    const double NEW_TRACK_MIN_SCORE = 0.45;
-    const double STRONG_FIRE_SCORE = 0.68;
-    const double KEEP_FIRE_SCORE = 0.62;
+    // 화재 확정 전에는 한 번의 순간 미검출을 허용한다.
+    // 실제 불꽃이 한 프레임씩 끊겨도 누적 상태가 전부 초기화되지 않게 한다.
+    const int MAX_PRECONFIRM_MISSES = 1;
+
+    // 민감도를 소폭 높이되, 반사광 후보에는 별도의 더 강한 확정 조건을 적용한다.
+    const double NEW_TRACK_MIN_SCORE = 0.42;
+    const double STRONG_FIRE_SCORE = 0.65;
+    const double KEEP_FIRE_SCORE = 0.59;
     const int STRONG_CONFIRM_FRAMES = 2;
     const int MAX_WEAK_KEEP_FRAMES = 2;
 
@@ -81,7 +83,6 @@ void FireDetector::reset()
     weakKeepCount = 0;
     fireConfirmed = false;
     previousCandidateBox = Rect();
-    lastCandidateBoxes.clear();
 }
 
 
@@ -281,16 +282,11 @@ Mat FireDetector::makeSkinMask(
     return skinMask;
 }
 
-Mat FireDetector::makeFireColorMask(const Mat& frame) const
+Mat FireDetector::makeFireColorMask(
+    const Mat& frame,
+    const Mat& hsv
+) const
 {
-    Mat hsv;
-
-    cvtColor(
-        frame,
-        hsv,
-        COLOR_BGR2HSV
-    );
-
     vector<Mat> hsvCh;
 
     split(
@@ -709,7 +705,8 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
 
     Mat fireColorMask =
         makeFireColorMask(
-            frame
+            frame,
+            hsv
         );
 
     // 피부색 영역은 화염색 마스크에서 먼저 제거한다.
@@ -760,6 +757,12 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
     Mat flowX;
     Mat flowY;
 
+    // 현재 버전에서는 Optical Flow를 계산하지 않는다.
+    // Flow가 실제로 채워진 경우에만 아래 Flow 기반 제거 조건을 적용한다.
+    const bool hasFlowData =
+        !flowX.empty() &&
+        !flowY.empty();
+
     // ==================================================
     // 4. contour 추출
     // ==================================================
@@ -784,7 +787,7 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
         }
     );
 
-    const size_t MAX_CONTOURS_TO_CHECK = 12;
+    const size_t MAX_CONTOURS_TO_CHECK = 20;
     const double MIN_CONTOUR_AREA = 10.0;
 
     const size_t contourLimit =
@@ -793,7 +796,6 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
             MAX_CONTOURS_TO_CHECK
         );
 
-    bool hasFireCandidate = false;
     bool hasFlickerLikeMotion = false;
 
     double totalFireArea = 0.0;
@@ -817,9 +819,6 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
             boundingRect(
                 contours[i]
             );
-
-        if (box.y < static_cast<int>(frame.rows * 0.08))
-            continue;
 
         if (box.width < 3 ||
             box.height < 3)
@@ -1275,16 +1274,70 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
         const int haloRedOrangePixelCount =
             countNonZero(haloRedOrange);
 
+        // 손가락 반사광도 피부색 주위에 흰 중심과 주황 테두리가 생겨
+        // 기존 coreHaloEvidence를 통과할 수 있다. 따라서 화염 고리 픽셀이
+        // 피부 마스크 안쪽인지, 피부 밖의 독립적인 화염색인지 구분한다.
+        Mat haloRedOrangeSkin;
+        Mat notComponentSkin;
+        Mat haloRedOrangeNonSkin;
+
+        bitwise_and(
+            haloRedOrange,
+            componentSkin,
+            haloRedOrangeSkin
+        );
+
+        bitwise_not(
+            componentSkin,
+            notComponentSkin
+        );
+
+        bitwise_and(
+            haloRedOrange,
+            notComponentSkin,
+            haloRedOrangeNonSkin
+        );
+
+        const int haloRedOrangeSkinPixelCount =
+            countNonZero(haloRedOrangeSkin);
+
+        const int haloRedOrangeNonSkinPixelCount =
+            countNonZero(haloRedOrangeNonSkin);
+
         const double haloSupportRatio =
             safeRatio(
                 static_cast<double>(haloRedOrangePixelCount),
                 static_cast<double>(haloRingPixelCount)
             );
 
-        const bool coreHaloEvidence =
+        const double haloSkinRatio =
+            safeRatio(
+                static_cast<double>(haloRedOrangeSkinPixelCount),
+                static_cast<double>(haloRedOrangePixelCount)
+            );
+
+        const double nonSkinHaloRatio =
+            safeRatio(
+                static_cast<double>(haloRedOrangeNonSkinPixelCount),
+                static_cast<double>(haloRedOrangePixelCount)
+            );
+
+        // 피부 후보에서 고리 전체가 피부색이면 손가락 반사광일 가능성이 높다.
+        // 피부 후보일 때는 최소한 일부 고리가 피부 밖 화염색으로 분리돼야 한다.
+        const bool skinSeparatedHaloEvidence =
+            haloRedOrangeNonSkinPixelCount >= 4 &&
+            nonSkinHaloRatio >= 0.30;
+
+        const bool rawCoreHaloEvidence =
             whiteCorePixelCount >= 3 &&
             haloRedOrangePixelCount >= 6 &&
             haloSupportRatio >= 0.16;
+
+        // 피부 마스크는 따뜻한 색의 실제 화염까지 피부로 잡는 경우가 있다.
+        // 따라서 core-halo 자체를 피부 마스크 때문에 무효화하지 않는다.
+        // 피부 연결성은 아래 fingerLikeCandidate 판정에서 보조 조건으로만 사용한다.
+        const bool coreHaloEvidence =
+            rawCoreHaloEvidence;
 
         const double redOrangeRatio =
             safeRatio(
@@ -1349,6 +1402,64 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
             safeRatio(
                 static_cast<double>(countNonZero(componentSkin)),
                 static_cast<double>(componentPixelCount)
+            );
+
+        // 후보 박스 바로 주변이 피부 마스크로 이어지는지 확인한다.
+        // 손가락 끝의 반사광은 후보 자체뿐 아니라 주변도 피부로 연결되지만,
+        // 라이터 불꽃은 일반적으로 피부 영역과 공간적으로 분리된다.
+        const int skinContextPadX =
+            max(6, box.width / 2);
+
+        const int skinContextPadY =
+            max(6, box.height / 2);
+
+        Rect skinContextBox(
+            max(0, box.x - skinContextPadX),
+            max(0, box.y - skinContextPadY),
+            min(frame.cols, box.x + box.width + skinContextPadX) -
+            max(0, box.x - skinContextPadX),
+            min(frame.rows, box.y + box.height + skinContextPadY) -
+            max(0, box.y - skinContextPadY)
+        );
+
+        Mat skinContextRing =
+            Mat::ones(
+                skinContextBox.size(),
+                CV_8UC1
+            ) * 255;
+
+        Rect localCandidateBox(
+            box.x - skinContextBox.x,
+            box.y - skinContextBox.y,
+            box.width,
+            box.height
+        );
+
+        localCandidateBox &=
+            Rect(
+                0,
+                0,
+                skinContextRing.cols,
+                skinContextRing.rows
+            );
+
+        if (!localCandidateBox.empty())
+        {
+            skinContextRing(localCandidateBox).setTo(0);
+        }
+
+        Mat surroundingSkin;
+
+        bitwise_and(
+            skinMask(skinContextBox),
+            skinContextRing,
+            surroundingSkin
+        );
+
+        const double surroundingSkinRatio =
+            safeRatio(
+                static_cast<double>(countNonZero(surroundingSkin)),
+                static_cast<double>(countNonZero(skinContextRing))
             );
 
         // 작은 후보는 1~2개의 압축 노이즈 픽셀만으로도 비율이 크게 나올 수 있다.
@@ -1535,8 +1646,7 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
         double meanMag = 0.0;
         double flowDisorder = 0.0;
 
-        if (!flowX.empty() &&
-            !flowY.empty() &&
+        if (hasFlowData &&
             flowX.size() == gray.size() &&
             flowY.size() == gray.size())
         {
@@ -1616,14 +1726,14 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
         const bool dynamicEnough =
             smallRegion ?
             (
-                dynamicScore > 0.08 ||
-                brightnessDiffMean > 2.0 ||
-                maskChangeRatio > 0.025
+                dynamicScore > 0.07 ||
+                brightnessDiffMean > 1.7 ||
+                maskChangeRatio > 0.020
                 ) :
             (
-                dynamicScore > 0.18 ||
-                brightnessDiffMean > 4.0 ||
-                maskChangeRatio > 0.060
+                dynamicScore > 0.15 ||
+                brightnessDiffMean > 3.5 ||
+                maskChangeRatio > 0.050
                 );
 
         if (frameIndex > 3 &&
@@ -1632,7 +1742,8 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
             continue;
         }
 
-        if (!smallRegion &&
+        if (hasFlowData &&
+            !smallRegion &&
             flowDisorder < 0.20 &&
             flickerScore < 0.25)
         {
@@ -1661,6 +1772,36 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
                 brightnessDiffMean >= (smallRegion ? 3.0 : 5.0)
                 );
 
+        // 밝은 배경에서는 화염의 주황/빨강 층과 흰 중심 대비가 약해질 수 있다.
+        // 이 경우 색상 기준을 전역으로 낮추지 않고, 후보 자체의 지속적인
+        // 밝기·형태 변화가 있을 때만 보조 화염 증거로 인정한다.
+        const bool skinSafeBrightBackground =
+            candidateSkinRatio < 0.48 ||
+            rawCoreHaloEvidence ||
+            skinSeparatedHaloEvidence;
+
+        const bool brightBackgroundEvidence =
+            meanV[0] >= 185.0 &&
+            redOrangePixelCount >= (smallRegion ? 5 : 10) &&
+            skinSafeBrightBackground &&
+            (
+                maskChangeRatio >= (smallRegion ? 0.055 : 0.080) ||
+                brightnessDiffMean >= (smallRegion ? 3.5 : 5.5)
+                );
+
+        // 반사광은 흰색 중심은 강하지만, 화염 특유의 적색 층·중심 주변 고리와
+        // 복합적인 시간 변화가 약한 경우가 많다. 이런 후보는 점수와 확정 기준을
+        // 별도로 강화한다.
+        const bool reflectionLikeCandidate =
+            whiteCoreRatio >= (smallRegion ? 0.10 : 0.14) &&
+            !coreHaloEvidence &&
+            !reliablePureRed &&
+            pureRedRatio < (smallRegion ? 0.045 : 0.060) &&
+            redOrangeRatio < (smallRegion ? 0.32 : 0.36) &&
+            vStd < (smallRegion ? 30.0 : 34.0) &&
+            !hasComplexFlameVariation &&
+            !brightBackgroundEvidence;
+
         // 기존 500px 기준은 사진처럼 약 20~30px 크기의 손가락 박스를
         // 일반 후보로 분류할 수 있었다. 작은 후보 범위를 넓혀 별도 확정
         // 기준을 적용한다.
@@ -1677,9 +1818,77 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
             candidateSkinRatio >
             (tinyCandidate ? 0.12 : 0.35);
 
+        // 피부 마스크는 실제 화염의 주황색까지 피부로 분류할 수 있으므로,
+        // 단순히 피부와 겹친다는 이유만으로 손가락이라고 판단하지 않는다.
+        // 중심-고리 구조, 순수 적색층 또는 강한 시간 변화가 있으면
+        // 피부 근처에 있더라도 실제 화염 구조로 구제한다.
+        const bool independentFlameEvidence =
+            (
+                rawCoreHaloEvidence &&
+                (
+                    reliablePureRed ||
+                    hasComplexFlameVariation ||
+                    brightnessDiffMean >= 2.8 ||
+                    maskChangeRatio >= 0.035
+                    )
+                ) ||
+            (
+                reliableWhiteCore &&
+                reliablePureRed
+                ) ||
+            brightBackgroundEvidence;
+
+        const bool skinConnectedCandidate =
+            candidateSkinRatio >= 0.45 &&
+            haloSkinRatio >= 0.70 &&
+            surroundingSkinRatio >= 0.20;
+
+        const bool skinSeparatedFlameEvidence =
+            skinSeparatedHaloEvidence ||
+            independentFlameEvidence;
+
+        // 손가락 판정은 피부 연결 조건을 모두 만족하고,
+        // 실제 화염 독립 증거가 없을 때만 적용한다.
+        const bool fingerLikeCandidate =
+            tinyCandidate &&
+            skinConnectedCandidate &&
+            !independentFlameEvidence;
+
+        // 손가락 또는 반사광 위험 후보라고 해서 강한 화염 증거를
+        // 무조건 제거하지 않는다. 실제 화염 구조와 시간 변화가 함께
+        // 확인될 때만 제한적으로 구제하며, 이후 확정 단계에서 더 높은
+        // 점수와 더 긴 연속 프레임 수를 요구한다.
+        const bool reflectionFlameRescueEvidence =
+            reflectionLikeCandidate &&
+            redOrangePixelCount >= (smallRegion ? 6 : 12) &&
+            redOrangeRatio >= (smallRegion ? 0.24 : 0.28) &&
+            (
+                brightnessDiffMean >= (smallRegion ? 2.8 : 4.0) ||
+                maskChangeRatio >= (smallRegion ? 0.040 : 0.060)
+                );
+
+        const bool fingerFlameRescueEvidence =
+            fingerLikeCandidate &&
+            skinSeparatedFlameEvidence &&
+            (
+                coreHaloEvidence ||
+                reliablePureRed ||
+                (
+                    redOrangeRatio >= 0.28 &&
+                    (
+                        brightnessDiffMean >= 2.8 ||
+                        maskChangeRatio >= 0.040
+                        )
+                    )
+                );
+
         bool strongFireEvidence =
             hasColorLayerEvidence ||
-            hasComplexFlameVariation;
+            hasComplexFlameVariation ||
+            rawCoreHaloEvidence ||
+            brightBackgroundEvidence ||
+            reflectionFlameRescueEvidence ||
+            fingerFlameRescueEvidence;
 
         // 피부처럼 보이는 작은 후보는 단순한 빨강/흰색 픽셀 몇 개만으로
         // 화재 확정을 허용하지 않는다. 흰 중심을 주황/빨강 고리가 둘러싼
@@ -1687,11 +1896,17 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
         if (skinLikeCandidate && tinyCandidate)
         {
             const bool strongTinyFlameStructure =
-                coreHaloEvidence ||
+                independentFlameEvidence ||
+                (
+                    coreHaloEvidence &&
+                    redOrangePixelCount >= 6
+                    ) ||
                 (
                     reliableWhiteCore &&
-                    reliablePureRed &&
-                    hasComplexFlameVariation
+                    (
+                        reliablePureRed ||
+                        hasComplexFlameVariation
+                        )
                     );
 
             if (!strongTinyFlameStructure)
@@ -1715,6 +1930,11 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
         }
 
         double yellowPenalty = 0.0;
+        const double reflectionPenalty =
+            reflectionLikeCandidate ? 0.12 : 0.0;
+
+        const double fingerPenalty =
+            fingerLikeCandidate ? 0.10 : 0.0;
 
         if (yellowDominant && weakFlameColorLayer)
         {
@@ -1760,6 +1980,8 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
 
         finalScore -= skinPenalty;
         finalScore -= yellowPenalty;
+        finalScore -= reflectionPenalty;
+        finalScore -= fingerPenalty;
 
         if (smallRegion)
         {
@@ -1773,16 +1995,14 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
 
         if (smallRegion)
         {
-            if (finalScore < 0.30)
+            if (finalScore < 0.27)
                 continue;
         }
         else
         {
-            if (finalScore < 0.38)
+            if (finalScore < 0.35)
                 continue;
         }
-
-        hasFireCandidate = true;
 
         if (flickerScore > 0.22 ||
             flowScore > 0.30)
@@ -1856,7 +2076,18 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
         detBox.tinyCandidate = tinyCandidate;
         detBox.skinLikeCandidate = skinLikeCandidate;
         detBox.coreHaloEvidence = coreHaloEvidence;
+        detBox.reflectionLikeCandidate = reflectionLikeCandidate;
+        detBox.brightBackgroundEvidence = brightBackgroundEvidence;
+        detBox.fingerLikeCandidate = fingerLikeCandidate;
+        detBox.skinSeparatedFlameEvidence = skinSeparatedFlameEvidence;
+        detBox.brightnessDiffMean = brightnessDiffMean;
+        detBox.maskChangeRatio = maskChangeRatio;
+        detBox.whiteCoreRatio = whiteCoreRatio;
+        detBox.redOrangeRatio = redOrangeRatio;
+        detBox.pureRedRatio = pureRedRatio;
         detBox.candidateSkinRatio = candidateSkinRatio;
+        detBox.surroundingSkinRatio = surroundingSkinRatio;
+        detBox.haloSkinRatio = haloSkinRatio;
         detBox.boxAreaPixels = boxArea;
         detBox.firePixelCount = firePixelCount;
         detBox.pureRedPixelCount = pureRedPixelCount;
@@ -1874,38 +2105,69 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
     const DetectionBox* trackedCandidate = nullptr;
     const DetectionBox* bestCandidate = nullptr;
 
-    // 전체 후보 중 점수가 가장 높은 후보를 찾는다.
+    const auto continuesPreviousTrack =
+        [&](const DetectionBox& candidateBox)
+        {
+            return
+                !previousCandidateBox.empty() &&
+                isSameCandidate(
+                    previousCandidateBox,
+                    candidateBox.box
+                );
+        };
+
+    const auto requiredNewTrackScore =
+        [](const DetectionBox& candidateBox)
+        {
+            if (candidateBox.fingerLikeCandidate)
+                return 0.92;
+
+            if (candidateBox.reflectionLikeCandidate)
+                return 0.70;
+
+            if (candidateBox.tinyCandidate)
+                return 0.55;
+
+            return NEW_TRACK_MIN_SCORE;
+        };
+
+    const auto canStartOrContinueTrack =
+        [&](const DetectionBox& candidateBox)
+        {
+            if (continuesPreviousTrack(candidateBox))
+                return true;
+
+            return
+                candidateBox.score >=
+                requiredNewTrackScore(candidateBox);
+        };
+
+    // 후보별 새 트랙 기준을 먼저 적용한 뒤 최고 점수를 고른다.
+    // 최고 점수 후보가 자기 기준을 통과하지 못했다고 해서 그보다 점수가
+    // 조금 낮은 실제 화염 후보까지 함께 버리지 않도록 한다.
     for (const DetectionBox& candidateBox : acceptedBoxes)
     {
+        if (!canStartOrContinueTrack(candidateBox))
+            continue;
+
         if (highestCandidate == nullptr ||
             candidateBox.score > highestCandidate->score)
         {
             highestCandidate = &candidateBox;
         }
-    }
 
-    // 직전 위치와 이어지는 후보 중 점수가 가장 높은 후보를 찾는다.
-    if (!previousCandidateBox.empty())
-    {
-        for (const DetectionBox& candidateBox : acceptedBoxes)
+        if (continuesPreviousTrack(candidateBox) &&
+            (
+                trackedCandidate == nullptr ||
+                candidateBox.score > trackedCandidate->score
+                ))
         {
-            if (!isSameCandidate(
-                previousCandidateBox,
-                candidateBox.box))
-            {
-                continue;
-            }
-
-            if (trackedCandidate == nullptr ||
-                candidateBox.score > trackedCandidate->score)
-            {
-                trackedCandidate = &candidateBox;
-            }
+            trackedCandidate = &candidateBox;
         }
     }
 
     // 기존 추적 후보를 기본으로 유지하되, 새 후보 점수가 확실히 높으면
-    // 실제 불꽃으로 즉시 추적 대상을 전환한다.
+    // 실제 불꽃으로 추적 대상을 전환한다.
     constexpr double TRACK_SWITCH_SCORE_MARGIN = 0.12;
 
     if (trackedCandidate != nullptr &&
@@ -1930,27 +2192,6 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
         bestCandidate = highestCandidate;
     }
 
-    // 새 위치에서 추적을 시작할 때는 낮은 점수 후보를 허용하지 않는다.
-    // 이미 같은 위치를 추적 중인 후보는 기존 임계값으로 유지한다.
-    if (bestCandidate != nullptr)
-    {
-        const bool continuesPreviousTrack =
-            !previousCandidateBox.empty() &&
-            isSameCandidate(
-                previousCandidateBox,
-                bestCandidate->box
-            );
-
-        const double requiredNewTrackScore =
-            bestCandidate->tinyCandidate ? 0.62 : NEW_TRACK_MIN_SCORE;
-
-        if (!continuesPreviousTrack &&
-            bestCandidate->score < requiredNewTrackScore)
-        {
-            bestCandidate = nullptr;
-        }
-    }
-
     int requiredConfirmFramesForUi = FIRE_CONFIRM_FRAMES;
     int requiredStrongFramesForUi = STRONG_CONFIRM_FRAMES;
 
@@ -1960,10 +2201,18 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
             bestCandidate->box;
 
         requiredConfirmFramesForUi =
-            bestCandidate->tinyCandidate ? 5 : FIRE_CONFIRM_FRAMES;
+            bestCandidate->fingerLikeCandidate ? 9 :
+            (
+                bestCandidate->reflectionLikeCandidate ? 7 :
+                (bestCandidate->tinyCandidate ? 4 : FIRE_CONFIRM_FRAMES)
+                );
 
         requiredStrongFramesForUi =
-            bestCandidate->tinyCandidate ? 3 : STRONG_CONFIRM_FRAMES;
+            bestCandidate->fingerLikeCandidate ? 6 :
+            (
+                bestCandidate->reflectionLikeCandidate ? 4 :
+                (bestCandidate->tinyCandidate ? 2 : STRONG_CONFIRM_FRAMES)
+                );
 
         const bool sameTrack =
             isSameCandidate(
@@ -1973,10 +2222,17 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
 
         if (sameTrack)
         {
+            // 후보 유형별 요구 프레임보다 카운터 상한이 낮아지는 모순을 막는다.
+            const int confirmCounterLimit =
+                max(
+                    FIRE_CONFIRM_FRAMES + 4,
+                    requiredConfirmFramesForUi + 2
+                );
+
             fireConfirmCount =
                 min(
                     fireConfirmCount + 1,
-                    FIRE_CONFIRM_FRAMES + 4
+                    confirmCounterLimit
                 );
         }
         else
@@ -1995,7 +2251,11 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
             // 손 후보가 0.5~0.6 정도로 반복되더라도 화재로 확정되지 않도록
             // 0.68 이상의 강한 점수가 최소 2번 필요하다.
             const double requiredStrongScore =
-                bestCandidate->tinyCandidate ? 0.80 : STRONG_FIRE_SCORE;
+                bestCandidate->fingerLikeCandidate ? 0.92 :
+                (
+                    bestCandidate->reflectionLikeCandidate ? 0.82 :
+                    (bestCandidate->tinyCandidate ? 0.72 : STRONG_FIRE_SCORE)
+                    );
 
             const int requiredStrongFrames =
                 requiredStrongFramesForUi;
@@ -2006,16 +2266,38 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
             const bool passesTinySkinStructure =
                 !bestCandidate->tinyCandidate ||
                 !bestCandidate->skinLikeCandidate ||
-                bestCandidate->coreHaloEvidence;
+                bestCandidate->coreHaloEvidence ||
+                bestCandidate->brightBackgroundEvidence;
+
+            const bool reflectionDynamicRescue =
+                bestCandidate->reflectionLikeCandidate &&
+                bestCandidate->score >= 0.86 &&
+                bestCandidate->redOrangeRatio >= 0.24 &&
+                (
+                    bestCandidate->brightnessDiffMean >= 2.8 ||
+                    bestCandidate->maskChangeRatio >= 0.040
+                    );
+
+            const bool passesReflectionStructure =
+                !bestCandidate->reflectionLikeCandidate ||
+                bestCandidate->coreHaloEvidence ||
+                bestCandidate->brightBackgroundEvidence ||
+                reflectionDynamicRescue;
+
+            const bool passesFingerStructure =
+                !bestCandidate->fingerLikeCandidate ||
+                bestCandidate->skinSeparatedFlameEvidence;
 
             if (bestCandidate->score >= requiredStrongScore &&
                 bestCandidate->strongFireEvidence &&
-                passesTinySkinStructure)
+                passesTinySkinStructure &&
+                passesReflectionStructure &&
+                passesFingerStructure)
             {
                 strongFireCount =
                     min(
                         strongFireCount + 1,
-                        8
+                        max(8, requiredStrongFrames + 2)
                     );
             }
             else
@@ -2039,16 +2321,42 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
             // 확정 후에는 점수가 잠깐 내려가도 2회까지 유지하되,
             // 손 수준의 낮은 점수가 계속되면 화재 상태를 해제한다.
             const double requiredKeepScore =
-                bestCandidate->tinyCandidate ? 0.74 : KEEP_FIRE_SCORE;
+                bestCandidate->fingerLikeCandidate ? 0.86 :
+                (
+                    bestCandidate->reflectionLikeCandidate ? 0.74 :
+                    (bestCandidate->tinyCandidate ? 0.66 : KEEP_FIRE_SCORE)
+                    );
 
             const bool keepsTinySkinStructure =
                 !bestCandidate->tinyCandidate ||
                 !bestCandidate->skinLikeCandidate ||
-                bestCandidate->coreHaloEvidence;
+                bestCandidate->coreHaloEvidence ||
+                bestCandidate->brightBackgroundEvidence;
+
+            const bool reflectionDynamicKeep =
+                bestCandidate->reflectionLikeCandidate &&
+                bestCandidate->score >= 0.78 &&
+                bestCandidate->redOrangeRatio >= 0.22 &&
+                (
+                    bestCandidate->brightnessDiffMean >= 2.2 ||
+                    bestCandidate->maskChangeRatio >= 0.032
+                    );
+
+            const bool keepsReflectionStructure =
+                !bestCandidate->reflectionLikeCandidate ||
+                bestCandidate->coreHaloEvidence ||
+                bestCandidate->brightBackgroundEvidence ||
+                reflectionDynamicKeep;
+
+            const bool keepsFingerStructure =
+                !bestCandidate->fingerLikeCandidate ||
+                bestCandidate->skinSeparatedFlameEvidence;
 
             if (bestCandidate->score >= requiredKeepScore &&
                 bestCandidate->strongFireEvidence &&
-                keepsTinySkinStructure)
+                keepsTinySkinStructure &&
+                keepsReflectionStructure &&
+                keepsFingerStructure)
             {
                 weakKeepCount = 0;
             }
@@ -2069,19 +2377,31 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
         previousCandidateBox =
             currentCandidateBox;
 
-        lastCandidateBoxes =
-            acceptedBoxes;
     }
     else
     {
         if (!fireConfirmed)
         {
-            fireConfirmCount = 0;
-            strongFireCount = 0;
-            weakKeepCount = 0;
-            candidateMissCount = 0;
-            previousCandidateBox = Rect();
-            lastCandidateBoxes.clear();
+            ++candidateMissCount;
+
+            // 확정 전 실제 화염이 한 번 끊겼다고 모든 누적값을 바로 지우지 않는다.
+            // 한 번까지는 감쇠만 적용하고, 두 번 연속 누락되면 새 후보로 초기화한다.
+            if (candidateMissCount <= MAX_PRECONFIRM_MISSES &&
+                !previousCandidateBox.empty() &&
+                fireConfirmCount > 0)
+            {
+                fireConfirmCount = max(0, fireConfirmCount - 1);
+                strongFireCount = max(0, strongFireCount - 1);
+                weakKeepCount = 0;
+            }
+            else
+            {
+                fireConfirmCount = 0;
+                strongFireCount = 0;
+                weakKeepCount = 0;
+                candidateMissCount = 0;
+                previousCandidateBox = Rect();
+            }
         }
         else
         {
@@ -2095,7 +2415,6 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
                 weakKeepCount = 0;
                 candidateMissCount = 0;
                 previousCandidateBox = Rect();
-                lastCandidateBoxes.clear();
             }
         }
     }
@@ -2115,9 +2434,11 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
 
     // 왼쪽 상단의 FIRE CANDIDATE 문구는 후보가 하나 생겼다고 바로 띄우지 않는다.
     // 정상 후보는 4회 중 3회 + 강한 증거 2회 중 1회,
-    // 작은 후보는 5회 중 4회 + 강한 증거 3회 중 2회까지 왔을 때만 표시한다.
+    // 작은 후보는 4회 중 3회 + 강한 증거 2회 중 1회까지 왔을 때만 표시한다.
     result.candidateDisplayReady =
         hasCurrentCandidate &&
+        bestCandidate != nullptr &&
+        !bestCandidate->fingerLikeCandidate &&
         !detectedFire &&
         fireConfirmCount >= max(1, requiredConfirmFramesForUi - 1) &&
         strongFireCount >= max(1, requiredStrongFramesForUi - 1);
