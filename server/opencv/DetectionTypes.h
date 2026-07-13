@@ -34,6 +34,23 @@ struct DetectionBox
     bool tinyCandidate = false;
     bool skinLikeCandidate = false;
     bool coreHaloEvidence = false;
+
+    // 반사광과 밝은 배경 화염을 구분하기 위한 정보
+    bool reflectionLikeCandidate = false;
+    bool brightBackgroundEvidence = false;
+
+    // 손가락 끝 반사광과 실제 화염을 구분하기 위한 정보
+    bool fingerLikeCandidate = false;
+    bool skinSeparatedFlameEvidence = false;
+    double surroundingSkinRatio = 0.0;
+    double haloSkinRatio = 0.0;
+
+    double brightnessDiffMean = 0.0;
+    double maskChangeRatio = 0.0;
+    double whiteCoreRatio = 0.0;
+    double redOrangeRatio = 0.0;
+    double pureRedRatio = 0.0;
+
     double candidateSkinRatio = 0.0;
     double boxAreaPixels = 0.0;
     int firePixelCount = 0;

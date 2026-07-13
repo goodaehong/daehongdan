@@ -111,15 +111,23 @@ namespace
 
 int main()
 {
+#if RTSP_USE_UDP
+    const char* ffmpegCaptureOptions =
+        "rtsp_transport;udp|fflags;nobuffer|flags;low_delay|max_delay;0|analyzeduration;0|probesize;2048";
+#else
+    const char* ffmpegCaptureOptions =
+        "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay|max_delay;100000|analyzeduration;0|probesize;4096";
+#endif
+
 #ifdef _WIN32
     _putenv_s(
         "OPENCV_FFMPEG_CAPTURE_OPTIONS",
-        "rtsp_transport;udp|fflags;nobuffer|flags;low_delay|max_delay;0|analyzeduration;0|probesize;2048"
+        ffmpegCaptureOptions
     );
 #else
     setenv(
         "OPENCV_FFMPEG_CAPTURE_OPTIONS",
-        "rtsp_transport;udp|fflags;nobuffer|flags;low_delay|max_delay;0|analyzeduration;0|probesize;2048",
+        ffmpegCaptureOptions,
         1
     );
 #endif
@@ -169,7 +177,7 @@ int main()
     }
 
     cout << "Camera frame receive success" << endl;
-    cout << "Fire Detector Build: V14_FINAL_ALARM_GATE" << endl;
+    cout << "Fire Detector Build: V19_TRACK_TIME_RECONNECT_FIX" << endl;
 
     // ==================================================
     // 화염 검출 작업 스레드용 공유 상태
@@ -180,14 +188,20 @@ int main()
     condition_variable jobCondition;
     Mat pendingFrame;
     uint64_t pendingFrameId = 0;
+    uint64_t pendingStreamEpoch = 0;
+    chrono::steady_clock::time_point pendingFrameTime;
     bool jobReady = false;
     atomic<bool> detectorRunning{ true };
+    atomic<bool> detectorResetRequested{ false };
+    atomic<uint64_t> streamEpoch{ 0 };
 
     mutex resultMutex;
     DetectionResult latestFireResult;
     uint64_t latestResultFrameId = 0;
+    uint64_t latestResultStreamEpoch = 0;
     double latestDetectMs = 0.0;
-    chrono::steady_clock::time_point latestResultTime;
+    chrono::steady_clock::time_point latestResultSourceTime;
+    chrono::steady_clock::time_point latestResultCompletedTime;
     bool hasDetectionResult = false;
 
     thread detectorThread(
@@ -197,6 +211,8 @@ int main()
             {
                 Mat detectFrame;
                 uint64_t detectFrameId = 0;
+                uint64_t detectStreamEpoch = 0;
+                chrono::steady_clock::time_point detectFrameTime;
 
                 {
                     unique_lock<mutex> lock(jobMutex);
@@ -215,11 +231,18 @@ int main()
                     // 큐를 쌓지 않고 가장 최신 프레임 하나만 가져간다.
                     detectFrame = pendingFrame;
                     detectFrameId = pendingFrameId;
+                    detectStreamEpoch = pendingStreamEpoch;
+                    detectFrameTime = pendingFrameTime;
                     jobReady = false;
                 }
 
                 if (detectFrame.empty())
                     continue;
+
+                if (detectorResetRequested.exchange(false))
+                {
+                    fireDetector.reset();
+                }
 
                 const auto detectStart =
                     chrono::steady_clock::now();
@@ -232,12 +255,18 @@ int main()
                         chrono::steady_clock::now() - detectStart
                     ).count();
 
+                // 연결이 끊기기 전 프레임을 처리한 결과는 새 연결에 넘기지 않는다.
+                if (detectStreamEpoch != streamEpoch.load())
+                    continue;
+
                 {
                     lock_guard<mutex> lock(resultMutex);
                     latestFireResult = std::move(result);
                     latestResultFrameId = detectFrameId;
+                    latestResultStreamEpoch = detectStreamEpoch;
                     latestDetectMs = detectMs;
-                    latestResultTime = chrono::steady_clock::now();
+                    latestResultSourceTime = detectFrameTime;
+                    latestResultCompletedTime = chrono::steady_clock::now();
                     hasDetectionResult = true;
                 }
             }
@@ -255,9 +284,15 @@ int main()
     // FireDetector의 순간 오탐을 바로 최종 경보로 사용하지 않고,
     // 서로 다른 검출 결과에서 일정 시간 이상 지속될 때만 확정한다.
     // ==================================================
-    constexpr double FINAL_CONFIRM_MS = 600.0;
-    constexpr double FINAL_RELEASE_MS = 250.0;
+    constexpr double FINAL_CONFIRM_MS = 350.0;
+    constexpr double FINAL_RELEASE_MS = 350.0;
     constexpr int MIN_RAW_FIRE_RESULTS = 2;
+
+    // 피부색 또는 노랑/주황색 비율이 높고 실제 화염 중심 구조가 약한 후보는
+    // 순간 오탐 가능성이 높으므로 더 오래, 더 여러 번 확인한다.
+    constexpr double AMBIGUOUS_CONFIRM_MS = 900.0;
+    constexpr int MIN_AMBIGUOUS_RAW_FIRE_RESULTS = 3;
+    constexpr double AMBIGUOUS_MIN_SCORE = 0.78;
 
     bool finalFireAlarm = false;
     bool rawFireTiming = false;
@@ -266,8 +301,25 @@ int main()
     int rawFireResultCount = 0;
     uint64_t lastAlarmProcessedResultFrameId = 0;
 
+    double activeConfirmMs = FINAL_CONFIRM_MS;
+    int activeMinRawFireResults = MIN_RAW_FIRE_RESULTS;
+    bool activeAmbiguousWarmObject = false;
+
     auto rawFireStartTime = chrono::steady_clock::now();
     auto rawFireLostStartTime = chrono::steady_clock::now();
+
+    bool cameraConnectionWasOpen = true;
+
+    const auto resetFinalAlarmState = [&]()
+        {
+            finalFireAlarm = false;
+            rawFireTiming = false;
+            rawFireLostTiming = false;
+            rawFireResultCount = 0;
+            activeConfirmMs = FINAL_CONFIRM_MS;
+            activeMinRawFireResults = MIN_RAW_FIRE_RESULTS;
+            activeAmbiguousWarmObject = false;
+        };
 
     while (true)
     {
@@ -275,6 +327,22 @@ int main()
 
         if (!camera.getLatestFrame(frame, lastFrameId))
         {
+            if (!camera.isOpened() && cameraConnectionWasOpen)
+            {
+                cameraConnectionWasOpen = false;
+                streamEpoch.fetch_add(1);
+                detectorResetRequested = true;
+                resetFinalAlarmState();
+                lastAlarmProcessedResultFrameId = 0;
+
+                lock_guard<mutex> lock(resultMutex);
+                latestFireResult = DetectionResult{};
+                latestResultFrameId = 0;
+                latestResultStreamEpoch = streamEpoch.load();
+                latestDetectMs = 0.0;
+                hasDetectionResult = false;
+            }
+
             const char key =
                 static_cast<char>(waitKey(1));
 
@@ -291,6 +359,12 @@ int main()
         if (frame.empty())
             continue;
 
+        if (!cameraConnectionWasOpen)
+        {
+            cameraConnectionWasOpen = true;
+            detectorResetRequested = true;
+        }
+
         const auto now =
             chrono::steady_clock::now();
 
@@ -305,6 +379,8 @@ int main()
             lock_guard<mutex> lock(jobMutex);
             pendingFrame = frame;
             pendingFrameId = lastFrameId;
+            pendingStreamEpoch = streamEpoch.load();
+            pendingFrameTime = now;
             jobReady = true;
         }
 
@@ -313,23 +389,32 @@ int main()
         // 검출 스레드가 마지막으로 완료한 결과를 가져온다.
         DetectionResult displayResult;
         uint64_t resultFrameId = 0;
+        uint64_t resultStreamEpoch = 0;
         double detectMs = 0.0;
-        chrono::steady_clock::time_point resultTime;
+        chrono::steady_clock::time_point resultSourceTime;
+        chrono::steady_clock::time_point resultCompletedTime;
         bool hasResult = false;
 
         {
             lock_guard<mutex> lock(resultMutex);
             displayResult = latestFireResult;
             resultFrameId = latestResultFrameId;
+            resultStreamEpoch = latestResultStreamEpoch;
             detectMs = latestDetectMs;
-            resultTime = latestResultTime;
-            hasResult = hasDetectionResult;
+            resultSourceTime = latestResultSourceTime;
+            resultCompletedTime = latestResultCompletedTime;
+            hasResult =
+                hasDetectionResult &&
+                resultStreamEpoch == streamEpoch.load();
         }
 
-        averageDetectMs =
-            averageDetectMs <= 0.0
-            ? detectMs
-            : averageDetectMs * 0.90 + detectMs * 0.10;
+        if (hasResult && detectMs > 0.0)
+        {
+            averageDetectMs =
+                averageDetectMs <= 0.0
+                ? detectMs
+                : averageDetectMs * 0.90 + detectMs * 0.10;
+        }
 
         const double displayIntervalSec =
             chrono::duration<double>(
@@ -350,30 +435,37 @@ int main()
 
         Mat displaySource = frame.clone();
 
-        // 검출 결과의 유효성을 프레임 개수가 아니라 실제 시간으로 판단한다.
-        // 검출 처리시간이 길면 프레임 번호 차이는 쉽게 10을 넘기 때문에
-        // 기존 resultAge <= 10 조건은 정상 검출 결과까지 버릴 수 있었다.
-        const uint64_t resultAgeFrames =
-            lastFrameId >= resultFrameId
-            ? lastFrameId - resultFrameId
-            : 0;
-
+        // 결과 완료 시각이 아니라 검출에 사용된 원본 프레임의 전달 시각을
+        // 기준으로 나이를 계산한다. 처리시간이 긴 결과를 최신 영상으로
+        // 오인하여 현재 화면에 과거 박스를 그리는 문제를 막는다.
         const double resultAgeMs =
             hasResult
-            ? chrono::duration<double, milli>(now - resultTime).count()
+            ? chrono::duration<double, milli>(now - resultSourceTime).count()
             : 0.0;
 
-        // 경보 문구는 최대 1초간 유지하되, 박스는 훨씬 짧게 유지한다.
-        // 검출 시간이 긴 환경에서도 박스가 깜빡이지 않도록
-        // 최근 평균 검출시간의 1.4배를 사용하되 180~450ms로 제한한다.
-        const bool resultIsFresh =
-            hasResult && resultAgeMs <= 1000.0;
+        const double completedAgeMs =
+            hasResult
+            ? chrono::duration<double, milli>(now - resultCompletedTime).count()
+            : 0.0;
 
+        const double resultFreshLimitMs =
+            std::clamp(
+                averageDetectMs * 2.2 + 300.0,
+                1000.0,
+                2500.0
+            );
+
+        const bool resultIsFresh =
+            hasResult && resultAgeMs <= resultFreshLimitMs;
+
+        // 원본 프레임 기준 나이를 사용하므로 검출 처리시간 자체를 표시 허용
+        // 시간에 포함한다. 그렇지 않으면 검출이 450ms를 넘을 때 박스가
+        // 완료되는 순간부터 이미 만료되는 문제가 생긴다.
         const double boxFreshLimitMs =
             std::clamp(
-                averageDetectMs * 1.4,
-                180.0,
-                450.0
+                averageDetectMs * 1.6 + 120.0,
+                300.0,
+                1200.0
             );
 
         // ==================================================
@@ -389,22 +481,126 @@ int main()
         {
             lastAlarmProcessedResultFrameId = resultFrameId;
 
+            const DetectionBox* primaryBox =
+                !displayResult.boxes.empty()
+                ? &displayResult.boxes.front()
+                : nullptr;
+
+            const bool reflectionRisk =
+                primaryBox != nullptr &&
+                primaryBox->reflectionLikeCandidate;
+
+            const bool fingerRisk =
+                primaryBox != nullptr &&
+                primaryBox->fingerLikeCandidate;
+
+            const bool ambiguousWarmObject =
+                primaryBox != nullptr &&
+                (
+                    fingerRisk ||
+                    (
+                        !primaryBox->coreHaloEvidence &&
+                        (
+                            reflectionRisk ||
+                            primaryBox->skinLikeCandidate ||
+                            primaryBox->candidateSkinRatio >= 0.35 ||
+                            primaryBox->yellowDominantRatio >= 0.40
+                            )
+                        )
+                    );
+
+            // 피부/노랑/주황 계열의 애매한 후보는 점수까지 충분히 높아야
+            // 최종 경보 누적에 참여할 수 있다.
+            const bool reflectionDynamicRescue =
+                primaryBox != nullptr &&
+                reflectionRisk &&
+                primaryBox->score >= 0.86 &&
+                primaryBox->redOrangeRatio >= 0.24 &&
+                (
+                    primaryBox->brightnessDiffMean >= 2.8 ||
+                    primaryBox->maskChangeRatio >= 0.040
+                    );
+
+            const bool passesReflectionGate =
+                primaryBox != nullptr &&
+                (
+                    !reflectionRisk ||
+                    (
+                        primaryBox->strongFireEvidence &&
+                        (
+                            primaryBox->coreHaloEvidence ||
+                            primaryBox->brightBackgroundEvidence ||
+                            reflectionDynamicRescue
+                            )
+                        )
+                    );
+
+            // 손가락 후보는 점수가 높더라도 피부 밖에서 분리된 화염색 층이
+            // 확인되지 않으면 최종 경보 누적에서 제외한다.
+            const bool passesFingerGate =
+                primaryBox != nullptr &&
+                (
+                    !fingerRisk ||
+                    (
+                        primaryBox->score >= 0.90 &&
+                        primaryBox->strongFireEvidence &&
+                        primaryBox->skinSeparatedFlameEvidence
+                        )
+                    );
+
+            const bool passesRiskGate =
+                primaryBox != nullptr &&
+                passesReflectionGate &&
+                passesFingerGate &&
+                (
+                    !ambiguousWarmObject ||
+                    (
+                        primaryBox->score >= AMBIGUOUS_MIN_SCORE &&
+                        primaryBox->strongFireEvidence
+                        )
+                    );
+
             const bool rawFireDetected =
                 resultIsFresh &&
                 displayResult.detected &&
-                !displayResult.boxes.empty();
+                primaryBox != nullptr &&
+                passesRiskGate;
 
             if (rawFireDetected)
             {
+                const double requiredConfirmMs =
+                    ambiguousWarmObject
+                    ? AMBIGUOUS_CONFIRM_MS
+                    : FINAL_CONFIRM_MS;
+
+                const int requiredRawResults =
+                    ambiguousWarmObject
+                    ? MIN_AMBIGUOUS_RAW_FIRE_RESULTS
+                    : MIN_RAW_FIRE_RESULTS;
+
                 if (!rawFireTiming)
                 {
                     rawFireTiming = true;
                     rawFireStartTime = now;
                     rawFireResultCount = 1;
+                    activeConfirmMs = requiredConfirmMs;
+                    activeMinRawFireResults = requiredRawResults;
+                    activeAmbiguousWarmObject = ambiguousWarmObject;
                 }
                 else
                 {
                     ++rawFireResultCount;
+
+                    // 확인 도중 피부/노랑 계열 위험 후보가 한 번이라도 섞이면
+                    // 해당 경보 사이클 전체에 더 엄격한 조건을 적용한다.
+                    activeConfirmMs =
+                        max(activeConfirmMs, requiredConfirmMs);
+
+                    activeMinRawFireResults =
+                        max(activeMinRawFireResults, requiredRawResults);
+
+                    activeAmbiguousWarmObject =
+                        activeAmbiguousWarmObject || ambiguousWarmObject;
                 }
 
                 // 음성 결과가 잠깐 들어왔다가 다시 화염으로 돌아오면
@@ -415,9 +611,13 @@ int main()
             {
                 if (!finalFireAlarm)
                 {
-                    // 확정 전 후보가 끊기면 처음부터 다시 확인한다.
+                    // 확정 전 후보가 끊기거나 위험 게이트를 통과하지 못하면
+                    // 처음부터 다시 확인한다.
                     rawFireTiming = false;
                     rawFireResultCount = 0;
+                    activeConfirmMs = FINAL_CONFIRM_MS;
+                    activeMinRawFireResults = MIN_RAW_FIRE_RESULTS;
+                    activeAmbiguousWarmObject = false;
                 }
                 else if (!rawFireLostTiming)
                 {
@@ -440,8 +640,8 @@ int main()
 
         if (!finalFireAlarm &&
             rawFireTiming &&
-            rawFireResultCount >= MIN_RAW_FIRE_RESULTS &&
-            pendingFireMs >= FINAL_CONFIRM_MS)
+            rawFireResultCount >= activeMinRawFireResults &&
+            pendingFireMs >= activeConfirmMs)
         {
             finalFireAlarm = true;
             rawFireLostTiming = false;
@@ -460,16 +660,16 @@ int main()
                 rawFireTiming = false;
                 rawFireLostTiming = false;
                 rawFireResultCount = 0;
+                activeConfirmMs = FINAL_CONFIRM_MS;
+                activeMinRawFireResults = MIN_RAW_FIRE_RESULTS;
+                activeAmbiguousWarmObject = false;
             }
         }
 
         // 검출 결과가 장시간 갱신되지 않으면 경보 상태도 해제한다.
         if (!resultIsFresh)
         {
-            finalFireAlarm = false;
-            rawFireTiming = false;
-            rawFireLostTiming = false;
-            rawFireResultCount = 0;
+            resetFinalAlarmState();
         }
 
         const bool boxIsFresh =
@@ -517,7 +717,8 @@ int main()
                 displayResult.candidateDisplayReady ||
                 (
                     rawFireTiming &&
-                    pendingFireMs >= FINAL_CONFIRM_MS * 0.65
+                    pendingFireMs >= activeConfirmMs *
+                    (activeAmbiguousWarmObject ? 0.80 : 0.65)
                     )
                 )
             )
@@ -545,19 +746,22 @@ int main()
             );
         }
 
-        char performanceText[160];
+        char performanceText[220];
 
         snprintf(
             performanceText,
             sizeof(performanceText),
-            "Display %.1f FPS | Detect %.1f ms | Result %.0f ms | Confirm %d | Alarm %.0f/%.0f ms | Raw %d",
+            "Display %.1f FPS | Detect %.1f ms | Source %.0f ms | Done %.0f ms | Confirm %d | Alarm %.0f/%.0f ms | Raw %d/%d | Risk %s",
             averageDisplayFps,
             averageDetectMs,
             resultAgeMs,
+            completedAgeMs,
             displayResult.confirmCount,
             pendingFireMs,
-            FINAL_CONFIRM_MS,
-            rawFireResultCount
+            activeConfirmMs,
+            rawFireResultCount,
+            activeMinRawFireResults,
+            activeAmbiguousWarmObject ? "WARM" : "NORMAL"
         );
 
         putText(
