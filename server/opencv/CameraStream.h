@@ -8,10 +8,19 @@
 #include <string>
 #include <thread>
 
+enum class StreamSourceType
+{
+    RtspCamera,
+    VideoFile
+};
+
 class CameraStream
 {
 private:
-    std::string url;
+    std::string source;
+    StreamSourceType sourceType;
+    bool loopVideoFile;
+
     cv::VideoCapture cap;
 
     std::thread readerThread;
@@ -26,9 +35,15 @@ private:
 
 private:
     void readLoop();
+    bool openSource();
 
 public:
-    explicit CameraStream(const std::string& rtspUrl);
+    CameraStream(
+        const std::string& source,
+        StreamSourceType sourceType,
+        bool loopVideoFile = true
+    );
+
     ~CameraStream();
 
     bool start();

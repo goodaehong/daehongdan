@@ -1477,6 +1477,22 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
                 static_cast<double>(countNonZero(skinContextRing))
             );
 
+        // 피부색은 실제 화염의 주황/노란 영역과 크게 겹친다.
+        // 따라서 피부 마스크와 겹친다는 이유만으로 큰 화염을 제거하지 않고,
+        // 작은 후보이면서 주변 피부 영역과 연결된 경우에만 피부 후보로 취급한다.
+        const int candidateShortSide =
+            min(box.width, box.height);
+
+        const bool tinyCandidate =
+            boxArea < 1500.0 ||
+            candidateShortSide < 28 ||
+            firePixelCount < 100;
+
+        const bool connectedSkinCandidate =
+            tinyCandidate &&
+            candidateSkinRatio >= 0.20 &&
+            surroundingSkinRatio >= 0.08;
+
         // 작은 후보는 1~2개의 압축 노이즈 픽셀만으로도 비율이 크게 나올 수 있다.
         // 따라서 비율뿐 아니라 절대 픽셀 수도 함께 요구한다.
         const bool reliableWhiteCore =
@@ -1494,7 +1510,8 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
 
         // 피부가 후보 대부분을 차지하고 화염 중심 증거가 약하면 제거한다.
         // 피부색만 보고 바로 제거하지 않아 실제 라이터 불꽃 손실은 줄인다.
-        if (candidateSkinRatio > 0.60 &&
+        if (connectedSkinCandidate &&
+            candidateSkinRatio > 0.60 &&
             !hasStrongFlameCore &&
             redOrangeRatio < 0.35)
         {
@@ -1503,12 +1520,14 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
 
         double skinPenalty = 0.0;
 
-        if (candidateSkinRatio > 0.50 &&
+        if (connectedSkinCandidate &&
+            candidateSkinRatio > 0.50 &&
             !hasStrongFlameCore)
         {
             skinPenalty = 0.12;
         }
-        else if (candidateSkinRatio > 0.35 &&
+        else if (connectedSkinCandidate &&
+            candidateSkinRatio > 0.35 &&
             whiteCoreRatio < 0.015 &&
             pureRedRatio < 0.050)
         {
@@ -1791,6 +1810,7 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
         // 이 경우 색상 기준을 전역으로 낮추지 않고, 후보 자체의 지속적인
         // 밝기·형태 변화가 있을 때만 보조 화염 증거로 인정한다.
         const bool skinSafeBrightBackground =
+            !connectedSkinCandidate ||
             candidateSkinRatio < 0.48 ||
             rawCoreHaloEvidence ||
             skinSeparatedHaloEvidence;
@@ -1817,21 +1837,10 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
             !hasComplexFlameVariation &&
             !brightBackgroundEvidence;
 
-        // 기존 500px 기준은 사진처럼 약 20~30px 크기의 손가락 박스를
-        // 일반 후보로 분류할 수 있었다. 작은 후보 범위를 넓혀 별도 확정
-        // 기준을 적용한다.
-        const int candidateShortSide =
-            min(box.width, box.height);
-
-        const bool tinyCandidate =
-            boxArea < 1500.0 ||
-            candidateShortSide < 28 ||
-            firePixelCount < 100;
-
-        // 작은 후보는 피부 마스크가 완벽하지 않아도 손가락일 가능성이 높다.
+        // 피부 억제는 작은 후보이면서 주변 피부와 연결된 경우에만 적용한다.
+        // 큰 불꽃은 피부색 범위와 겹치는 것이 정상적이므로 피부 후보로 보지 않는다.
         const bool skinLikeCandidate =
-            candidateSkinRatio >
-            (tinyCandidate ? 0.12 : 0.35);
+            connectedSkinCandidate;
 
         // 피부 근처 후보는 밝기 변화만으로 구제하지 않는다.
         // 손가락 반사광도 밝기와 마스크 변화가 크게 나올 수 있으므로,
@@ -1872,7 +1881,7 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
                 );
 
         const bool skinConnectedCandidate =
-            candidateSkinRatio >= 0.35 &&
+            connectedSkinCandidate &&
             (
                 haloSkinRatio >= 0.55 ||
                 surroundingSkinRatio >= 0.12
@@ -1921,20 +1930,10 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
             reflectionFlameRescueEvidence ||
             fingerFlameRescueEvidence;
 
-        // 피부처럼 보이는 작은 후보는 단순한 빨강/흰색 픽셀 몇 개만으로
-        // 화재 확정을 허용하지 않는다. 흰 중심을 주황/빨강 고리가 둘러싼
-        // 실제 화염 구조가 있거나, 색상층과 복합 변화가 동시에 있어야 한다.
-        if (skinLikeCandidate && tinyCandidate)
-        {
-            // 작은 피부 후보는 흰 점이나 주황색 몇 픽셀만으로 구제하지 않는다.
-            // 피부 밖에 분리된 화염층이 확인된 경우에만 강한 화염 증거로 인정한다.
-            if (!skinSeparatedFlameEvidence)
-            {
-                strongFireEvidence = false;
-            }
-        }
-        else if (skinLikeCandidate &&
-            !(reliableWhiteCore && reliablePureRed))
+        // 작은 피부 연결 후보만 엄격하게 차단한다.
+        // 큰 화염은 Skin mask와 겹치더라도 이 조건으로 강한 화염 증거를 잃지 않는다.
+        if (skinLikeCandidate &&
+            !skinSeparatedFlameEvidence)
         {
             strongFireEvidence = false;
         }
