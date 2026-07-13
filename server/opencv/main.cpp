@@ -111,6 +111,16 @@ namespace
 
 int main()
 {
+    string source;
+    StreamSourceType sourceType = StreamSourceType::RtspCamera;
+
+#if USE_VIDEO_FILE
+    source = VIDEO_FILE_PATH;
+    sourceType = StreamSourceType::VideoFile;
+
+    cout << "Input mode: VIDEO FILE" << endl;
+    cout << "Video path: " << source << endl;
+#else
 #if RTSP_USE_UDP
     const char* ffmpegCaptureOptions =
         "rtsp_transport;udp|fflags;nobuffer|flags;low_delay|max_delay;0|analyzeduration;0|probesize;2048";
@@ -137,20 +147,35 @@ int main()
     cout << "Camera IP 입력: ";
     cin >> cameraIp;
 
-    const string url =
-        "rtsp://admin:5hanwha!@" +
+    source =
+        string("rtsp://") +
+        RTSP_USERNAME +
+        ":" +
+        RTSP_PASSWORD +
+        "@" +
         cameraIp +
-        ":554/0/profile2/media.smp";
+        ":554" +
+        RTSP_PROFILE_PATH;
 
-    CameraStream camera(url);
+    sourceType = StreamSourceType::RtspCamera;
+
+    cout << "Input mode: RTSP CAMERA" << endl;
+    cout << "RTSP URL: " << source << endl;
+#endif
+
+    CameraStream camera(
+        source,
+        sourceType,
+        VIDEO_FILE_LOOP != 0
+    );
 
     if (!camera.start())
     {
-        cerr << "Camera thread start failed" << endl;
+        cerr << "Input stream thread start failed" << endl;
         return -1;
     }
 
-    cout << "Waiting for camera frame..." << endl;
+    cout << "Waiting for first frame..." << endl;
 
     Mat firstFrame;
     uint64_t lastFrameId = 0;
@@ -171,13 +196,13 @@ int main()
 
     if (firstFrame.empty())
     {
-        cerr << "Camera frame receive failed" << endl;
+        cerr << "First frame receive failed" << endl;
         camera.stop();
         return -1;
     }
 
-    cout << "Camera frame receive success" << endl;
-    cout << "Fire Detector Build: V19_TRACK_TIME_RECONNECT_FIX" << endl;
+    cout << "First frame receive success" << endl;
+    cout << "Fire Detector Build: V20_SKIN_FIRE_SEPARATION" << endl;
 
     // ==================================================
     // 화염 검출 작업 스레드용 공유 상태
@@ -494,6 +519,19 @@ int main()
                 primaryBox != nullptr &&
                 primaryBox->fingerLikeCandidate;
 
+            // 큰 실제 화염도 색상상 Skin mask와 많이 겹칠 수 있다.
+            // 작은 후보이면서 주변 피부와 연결된 경우에만 피부 위험 후보로 본다.
+            const bool skinRisk =
+                primaryBox != nullptr &&
+                primaryBox->tinyCandidate &&
+                (
+                    primaryBox->skinLikeCandidate ||
+                    (
+                        primaryBox->candidateSkinRatio >= 0.35 &&
+                        primaryBox->surroundingSkinRatio >= 0.08
+                        )
+                    );
+
             const bool ambiguousWarmObject =
                 primaryBox != nullptr &&
                 (
@@ -502,8 +540,7 @@ int main()
                         !primaryBox->coreHaloEvidence &&
                         (
                             reflectionRisk ||
-                            primaryBox->skinLikeCandidate ||
-                            primaryBox->candidateSkinRatio >= 0.35 ||
+                            skinRisk ||
                             primaryBox->yellowDominantRatio >= 0.40
                             )
                         )
