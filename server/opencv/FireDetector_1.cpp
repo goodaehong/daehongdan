@@ -1398,10 +1398,25 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
         // ==================================================
         // 7. 피부/사람 오검출 제거
         // ==================================================
+        // contour 내부 전체를 분모로 사용하면 후보 사이의 빈 영역이나
+        // 주변 피부까지 함께 계산되어 실제 화염도 피부 비율이 과도하게
+        // 높아질 수 있다. 실제 화염 후보 픽셀과 피부 마스크가 겹치는
+        // 픽셀만 계산한다.
+        Mat candidateSkinOverlap;
+
+        bitwise_and(
+            componentSkin,
+            componentCandidate,
+            candidateSkinOverlap
+        );
+
+        const int candidateSkinPixelCount =
+            countNonZero(candidateSkinOverlap);
+
         const double candidateSkinRatio =
             safeRatio(
-                static_cast<double>(countNonZero(componentSkin)),
-                static_cast<double>(componentPixelCount)
+                static_cast<double>(candidateSkinPixelCount),
+                static_cast<double>(candidatePixelCount)
             );
 
         // 후보 박스 바로 주변이 피부 마스크로 이어지는지 확인한다.
@@ -1818,41 +1833,63 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
             candidateSkinRatio >
             (tinyCandidate ? 0.12 : 0.35);
 
-        // 피부 마스크는 실제 화염의 주황색까지 피부로 분류할 수 있으므로,
-        // 단순히 피부와 겹친다는 이유만으로 손가락이라고 판단하지 않는다.
-        // 중심-고리 구조, 순수 적색층 또는 강한 시간 변화가 있으면
-        // 피부 근처에 있더라도 실제 화염 구조로 구제한다.
+        // 피부 근처 후보는 밝기 변화만으로 구제하지 않는다.
+        // 손가락 반사광도 밝기와 마스크 변화가 크게 나올 수 있으므로,
+        // 피부 밖에 분리된 적색/주황색 층과 실제 화염 중심 구조를 함께 요구한다.
+        const bool strictSkinSeparatedFlameEvidence =
+            skinSeparatedHaloEvidence &&
+            haloRedOrangeNonSkinPixelCount >= (smallRegion ? 5 : 10) &&
+            (
+                (
+                    rawCoreHaloEvidence &&
+                    reliableWhiteCore &&
+                    redOrangePixelCount >= (smallRegion ? 10 : 18)
+                    ) ||
+                (
+                    reliablePureRed &&
+                    hasComplexFlameVariation
+                    )
+                );
+
         const bool independentFlameEvidence =
             (
                 rawCoreHaloEvidence &&
+                reliablePureRed &&
                 (
-                    reliablePureRed ||
                     hasComplexFlameVariation ||
-                    brightnessDiffMean >= 2.8 ||
-                    maskChangeRatio >= 0.035
+                    brightnessDiffMean >= 3.2 ||
+                    maskChangeRatio >= 0.045
                     )
                 ) ||
             (
                 reliableWhiteCore &&
-                reliablePureRed
+                reliablePureRed &&
+                hasComplexFlameVariation
                 ) ||
-            brightBackgroundEvidence;
+            (
+                brightBackgroundEvidence &&
+                candidateSkinRatio < 0.20
+                );
 
         const bool skinConnectedCandidate =
-            candidateSkinRatio >= 0.45 &&
-            haloSkinRatio >= 0.70 &&
-            surroundingSkinRatio >= 0.20;
+            candidateSkinRatio >= 0.35 &&
+            (
+                haloSkinRatio >= 0.55 ||
+                surroundingSkinRatio >= 0.12
+                );
 
         const bool skinSeparatedFlameEvidence =
-            skinSeparatedHaloEvidence ||
-            independentFlameEvidence;
+            strictSkinSeparatedFlameEvidence ||
+            (
+                candidateSkinRatio < 0.20 &&
+                independentFlameEvidence
+                );
 
-        // 손가락 판정은 피부 연결 조건을 모두 만족하고,
-        // 실제 화염 독립 증거가 없을 때만 적용한다.
+        // 피부와 연결된 작은 후보는 우선 손가락 위험 후보로 분류한다.
+        // 실제 화염이면 아래의 엄격한 피부 분리 증거를 통해서만 구제된다.
         const bool fingerLikeCandidate =
             tinyCandidate &&
-            skinConnectedCandidate &&
-            !independentFlameEvidence;
+            skinConnectedCandidate;
 
         // 손가락 또는 반사광 위험 후보라고 해서 강한 화염 증거를
         // 무조건 제거하지 않는다. 실제 화염 구조와 시간 변화가 함께
@@ -1869,17 +1906,11 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
 
         const bool fingerFlameRescueEvidence =
             fingerLikeCandidate &&
-            skinSeparatedFlameEvidence &&
+            strictSkinSeparatedFlameEvidence &&
+            reliableWhiteCore &&
             (
-                coreHaloEvidence ||
                 reliablePureRed ||
-                (
-                    redOrangeRatio >= 0.28 &&
-                    (
-                        brightnessDiffMean >= 2.8 ||
-                        maskChangeRatio >= 0.040
-                        )
-                    )
+                hasComplexFlameVariation
                 );
 
         bool strongFireEvidence =
@@ -1895,21 +1926,9 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
         // 실제 화염 구조가 있거나, 색상층과 복합 변화가 동시에 있어야 한다.
         if (skinLikeCandidate && tinyCandidate)
         {
-            const bool strongTinyFlameStructure =
-                independentFlameEvidence ||
-                (
-                    coreHaloEvidence &&
-                    redOrangePixelCount >= 6
-                    ) ||
-                (
-                    reliableWhiteCore &&
-                    (
-                        reliablePureRed ||
-                        hasComplexFlameVariation
-                        )
-                    );
-
-            if (!strongTinyFlameStructure)
+            // 작은 피부 후보는 흰 점이나 주황색 몇 픽셀만으로 구제하지 않는다.
+            // 피부 밖에 분리된 화염층이 확인된 경우에만 강한 화염 증거로 인정한다.
+            if (!skinSeparatedFlameEvidence)
             {
                 strongFireEvidence = false;
             }
@@ -2266,8 +2285,7 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
             const bool passesTinySkinStructure =
                 !bestCandidate->tinyCandidate ||
                 !bestCandidate->skinLikeCandidate ||
-                bestCandidate->coreHaloEvidence ||
-                bestCandidate->brightBackgroundEvidence;
+                bestCandidate->skinSeparatedFlameEvidence;
 
             const bool reflectionDynamicRescue =
                 bestCandidate->reflectionLikeCandidate &&
@@ -2330,8 +2348,7 @@ DetectionResult FireDetector::detect(const Mat& inputFrame)
             const bool keepsTinySkinStructure =
                 !bestCandidate->tinyCandidate ||
                 !bestCandidate->skinLikeCandidate ||
-                bestCandidate->coreHaloEvidence ||
-                bestCandidate->brightBackgroundEvidence;
+                bestCandidate->skinSeparatedFlameEvidence;
 
             const bool reflectionDynamicKeep =
                 bestCandidate->reflectionLikeCandidate &&
