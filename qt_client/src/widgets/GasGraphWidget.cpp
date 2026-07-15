@@ -1,4 +1,4 @@
-#include "gasgraphwidget.h"
+#include "GasGraphWidget.h"
 
 #include <QPainter>
 #include <QPainterPath>
