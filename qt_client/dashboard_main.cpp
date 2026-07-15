@@ -1,5 +1,5 @@
-#include "loginwindow.h"
-#include "mainwindow.h"
+#include "src/pages/LoginPage.h"
+#include "src/core/MainWindow.h"
 
 #include <QApplication>
 
@@ -18,8 +18,8 @@ void showDashboard()
 
 void showLogin()
 {
-    auto *login = new LoginWindow;
-    QObject::connect(login, &LoginWindow::loginSucceeded, login, [login]() {
+    auto *login = new LoginPage;
+    QObject::connect(login, &LoginPage::loginSucceeded, login, [login]() {
         showDashboard();
         login->close();
         login->deleteLater();

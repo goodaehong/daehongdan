@@ -1,17 +1,17 @@
-#ifndef LOGINWINDOW_H
-#define LOGINWINDOW_H
+#ifndef LOGINPAGE_H
+#define LOGINPAGE_H
 
 #include <QWidget>
 
 class QLineEdit;
 class QLabel;
 
-class LoginWindow : public QWidget
+class LoginPage : public QWidget
 {
     Q_OBJECT
 
 public:
-    explicit LoginWindow(QWidget *parent = nullptr);
+    explicit LoginPage(QWidget *parent = nullptr);
 
 signals:
     void loginSucceeded();
@@ -25,4 +25,4 @@ private:
     QLabel *errorLabel;
 };
 
-#endif // LOGINWINDOW_H
+#endif // LOGINPAGE_H

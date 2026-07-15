@@ -1,4 +1,4 @@
-#include "loginwindow.h"
+#include "LoginPage.h"
 
 #include <QLineEdit>
 #include <QLabel>
@@ -20,7 +20,7 @@ const QString kTextSecondary = "#8d87a0";
 const QString kAccent = "#8b7cf6";
 }
 
-LoginWindow::LoginWindow(QWidget *parent)
+LoginPage::LoginPage(QWidget *parent)
     : QWidget(parent)
 {
     setWindowTitle("공장 가스·화재 조기감지 및 자동대응 시스템 - 로그인");
@@ -116,11 +116,11 @@ LoginWindow::LoginWindow(QWidget *parent)
 
     outer->addWidget(box);
 
-    connect(loginButton, &QPushButton::clicked, this, &LoginWindow::onLoginClicked);
-    connect(pwEdit, &QLineEdit::returnPressed, this, &LoginWindow::onLoginClicked);
+    connect(loginButton, &QPushButton::clicked, this, &LoginPage::onLoginClicked);
+    connect(pwEdit, &QLineEdit::returnPressed, this, &LoginPage::onLoginClicked);
 }
 
-void LoginWindow::onLoginClicked()
+void LoginPage::onLoginClicked()
 {
     if (idEdit->text() == kValidId && pwEdit->text() == kValidPw) {
         errorLabel->clear();
