@@ -49,7 +49,7 @@ public:
     bool start();
     void stop();
 
-    // 새 프레임일 때만 true를 반환한다.
+    //    true .
     bool getLatestFrame(
         cv::Mat& outFrame,
         std::uint64_t& lastFrameId
