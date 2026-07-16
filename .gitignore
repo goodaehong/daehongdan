@@ -60,6 +60,3 @@ build_check/
 *.user
 .qtcreator/
 CMakeLists.txt.user*
-
-# Windows shell folder settings
-desktop.ini
