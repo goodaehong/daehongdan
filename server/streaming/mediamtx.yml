@@ -824,16 +824,16 @@ pathDefaults:
 
 paths:
   cam1:
-    source: rtsp://admin:5hanwha!@172.20.35.13:554/0/profile2/media.smp
+    source: rtsp://admin:5hanwha!@172.20.35.43:554/0/profile2/media.smp
     rtspTransport: tcp
   cam2:
-    source: rtsp://admin:5hanwha!@172.20.35.13:554/1/profile2/media.smp
+    source: rtsp://admin:5hanwha!@172.20.35.43:554/1/profile2/media.smp
     rtspTransport: tcp
   cam3:
-    source: rtsp://admin:5hanwha!@172.20.35.13:554/2/profile2/media.smp
+    source: rtsp://admin:5hanwha!@172.20.35.43:554/2/profile2/media.smp
     rtspTransport: tcp
   cam4:
-    source: rtsp://admin:5hanwha!@172.20.35.13:554/3/profile2/media.smp
+    source: rtsp://admin:5hanwha!@172.20.35.43:554/3/profile2/media.smp
     rtspTransport: tcp
 
   # example:
