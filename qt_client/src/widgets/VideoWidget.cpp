@@ -4,7 +4,6 @@
 #include <QLabel>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
-#include <QResizeEvent>
 
 VideoWidget::VideoWidget(int channel, QWidget *parent)
     : QWidget(parent)
@@ -44,23 +43,7 @@ void VideoWidget::setZoneName(const QString &zoneName)
 
 void VideoWidget::showPlaceholder(const QString &text)
 {
-    lastFrame = QPixmap();
     placeholderLabel->setText(text);
     placeholderLabel->show();
     video->hide();
-}
-
-void VideoWidget::showFrame(const QImage &frame)
-{
-    video->hide();
-    lastFrame = QPixmap::fromImage(frame);
-    placeholderLabel->setPixmap(lastFrame.scaled(placeholderLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    placeholderLabel->show();
-}
-
-void VideoWidget::resizeEvent(QResizeEvent *event)
-{
-    QWidget::resizeEvent(event);
-    if (!lastFrame.isNull())
-        placeholderLabel->setPixmap(lastFrame.scaled(placeholderLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
 }
