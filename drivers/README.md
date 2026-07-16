@@ -12,9 +12,9 @@
 
 ## 개발 환경
 
-- Target: Raspberry Pi 4 (kernel 6.1.21-v8+)
+- Target: Raspberry Pi 4 (kernel 6.18.34+rpt-rpi-v8)
 - Cross-compile: Ubuntu VM
-- 커널 헤더 경로: `/lib/modules/6.1.21-v8+/build`
+- 커널 헤더 경로: `/lib/modules/6.18.34+rpt-rpi-v8/build`
 
 ## 빌드 방법
 
