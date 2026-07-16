@@ -30,7 +30,7 @@ void StreamReceiver::setVideoOutput(QVideoWidget *videoWidget)
 
 void StreamReceiver::connectToChannel(const QString &host, const QString &user, const QString &pass, int channelIndex)
 {
-    const QString url = QString("rtsp://%1:%2@%3:554/%4/profile2/media.smp")
+    const QString url = QString("rtsp://%1:%2@%3:554/%4/profile3/media.smp")
                              .arg(user, pass, host, QString::number(channelIndex));
     player->setSource(QUrl(url));
     player->play();

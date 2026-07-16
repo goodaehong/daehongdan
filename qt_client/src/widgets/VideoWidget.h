@@ -2,6 +2,8 @@
 #define VIDEOWIDGET_H
 
 #include <QWidget>
+#include <QImage>
+#include <QPixmap>
 
 class QLabel;
 class QVideoWidget;
@@ -16,13 +18,18 @@ public:
 
     void setZoneName(const QString &zoneName);
     void showPlaceholder(const QString &text);
+    void showFrame(const QImage &frame);
     QVideoWidget *videoOutput() const { return video; }
+
+protected:
+    void resizeEvent(QResizeEvent *event) override;
 
 private:
     int channelNumber;
     QLabel *titleLabel;
     QVideoWidget *video;
     QLabel *placeholderLabel;
+    QPixmap lastFrame;
 };
 
 #endif // VIDEOWIDGET_H
