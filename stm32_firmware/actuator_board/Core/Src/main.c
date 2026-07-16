@@ -301,10 +301,6 @@ static void MX_TIM4_Init(void)
   {
     Error_Handler();
   }
-  if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
-  {
-    Error_Handler();
-  }
   /* USER CODE BEGIN TIM4_Init 2 */
 
   /* USER CODE END TIM4_Init 2 */
@@ -367,16 +363,16 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOC, RELAY_WARN_Pin|RELAY_VALVE_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, LD2_Pin|FAN_DIR_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, PUMP_CTRL_Pin|PUMP_DIR_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(PUMP_CTRL_GPIO_Port, PUMP_CTRL_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : B1_Pin */
-  GPIO_InitStruct.Pin = B1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  /*Configure GPIO pin : RESET_BT_Pin */
+  GPIO_InitStruct.Pin = RESET_BT_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(RESET_BT_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : RELAY_WARN_Pin RELAY_VALVE_Pin */
   GPIO_InitStruct.Pin = RELAY_WARN_Pin|RELAY_VALVE_Pin;
@@ -385,19 +381,32 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : LD2_Pin FAN_DIR_Pin */
-  GPIO_InitStruct.Pin = LD2_Pin|FAN_DIR_Pin;
+  /*Configure GPIO pin : LD2_Pin */
+  GPIO_InitStruct.Pin = LD2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PUMP_CTRL_Pin PUMP_DIR_Pin */
-  GPIO_InitStruct.Pin = PUMP_CTRL_Pin|PUMP_DIR_Pin;
+  /*Configure GPIO pin : FAN_TACH_Pin */
+  GPIO_InitStruct.Pin = FAN_TACH_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(FAN_TACH_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PUMP_CTRL_Pin */
+  GPIO_InitStruct.Pin = PUMP_CTRL_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+  HAL_GPIO_Init(PUMP_CTRL_GPIO_Port, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+
+  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -554,6 +563,29 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
     }
   // 다음 1바이트 수신을 위해 인터럽트 다시 장전 (필수!)
   HAL_UART_Receive_IT(&huart2, &rx_byte, 1);
+  }
+}
+
+// 외부 인터럽트(핀 상태 변화)가 발생하면 자동으로 호출되는 콜백 함수
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  // 방금 눌린 핀이 파란색 버튼(PC13)인지 확인
+  if(GPIO_Pin == GPIO_PIN_13)
+  {
+      // --------------------------------------------------
+      // 여기에 레귤레이터 초기화 코드를 작성합니다.
+      // --------------------------------------------------
+      
+      // 예시 1: 펌프 릴레이(PB0) 강제 정지
+      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
+      
+      // 예시 2: 밸브(PC1) 강제 차단
+      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET);
+      
+      // 예시 3: 부저(PB6) 끄기 (타이머 PWM 정지)
+      // HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_1);
+      
+      // 상태 초기화 플래그 등...
   }
 }
 /* USER CODE END 4 */

@@ -59,8 +59,9 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define B1_Pin GPIO_PIN_13
-#define B1_GPIO_Port GPIOC
+#define RESET_BT_Pin GPIO_PIN_13
+#define RESET_BT_GPIO_Port GPIOC
+#define RESET_BT_EXTI_IRQn EXTI15_10_IRQn
 #define RELAY_WARN_Pin GPIO_PIN_0
 #define RELAY_WARN_GPIO_Port GPIOC
 #define RELAY_VALVE_Pin GPIO_PIN_1
@@ -73,12 +74,11 @@ void Error_Handler(void);
 #define LD2_GPIO_Port GPIOA
 #define FAN_PWM_Pin GPIO_PIN_6
 #define FAN_PWM_GPIO_Port GPIOA
-#define FAN_DIR_Pin GPIO_PIN_7
-#define FAN_DIR_GPIO_Port GPIOA
+#define FAN_TACH_Pin GPIO_PIN_7
+#define FAN_TACH_GPIO_Port GPIOA
+#define FAN_TACH_EXTI_IRQn EXTI9_5_IRQn
 #define PUMP_CTRL_Pin GPIO_PIN_0
 #define PUMP_CTRL_GPIO_Port GPIOB
-#define PUMP_DIR_Pin GPIO_PIN_1
-#define PUMP_DIR_GPIO_Port GPIOB
 #define TMS_Pin GPIO_PIN_13
 #define TMS_GPIO_Port GPIOA
 #define TCK_Pin GPIO_PIN_14
@@ -87,8 +87,6 @@ void Error_Handler(void);
 #define SWO_GPIO_Port GPIOB
 #define BUZZER_PWM_Pin GPIO_PIN_6
 #define BUZZER_PWM_GPIO_Port GPIOB
-#define AMP_AUDIO_Pin GPIO_PIN_7
-#define AMP_AUDIO_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 
