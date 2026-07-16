@@ -13,9 +13,8 @@
 #include <QStackedWidget>
 
 namespace {
-const QString kCameraHost = "172.20.35.13";
-const QString kCameraUser = "admin";
-const QString kCameraPass = "5hanwha!";
+const QString kDetectionServerHost = "127.0.0.1";
+const quint16 kDetectionServerPort = 9100;
 
 const QStringList kTabNames = { "모니터링", "이벤트로그", "그래프", "수동제어", "도움말" };
 
@@ -73,7 +72,7 @@ MainWindow::MainWindow(QWidget *parent)
     switchTab(0);
     switchZone(0);
 
-    monitorPage->connectCamera(kCameraHost, kCameraUser, kCameraPass, 0);
+    monitorPage->connectDetectionStream(kDetectionServerHost, kDetectionServerPort);
 
     eventLogPage->addEntry("A구역", "가스 농도 상승", "경고 알림 전송", "시스템(자동)", "경고", "MQ-9 단독", "2분 10초");
     eventLogPage->addEntry("A구역", "연기 감지 (경고)", "경고 표시 (사이렌 X)", "시스템(자동)", "경고", "영상+MQ-2", "1분 40초");

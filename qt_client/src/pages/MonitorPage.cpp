@@ -1,7 +1,7 @@
 #include "MonitorPage.h"
 #include "../widgets/StatusPanel.h"
 #include "../widgets/VideoWidget.h"
-#include "../network/StreamReceiver.h"
+#include "../network/DetectionStreamClient.h"
 
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -29,6 +29,7 @@ MonitorPage::MonitorPage(QWidget *parent)
     grid->setRowStretch(1, 1);
     layout->addLayout(grid, 1);
 
+    videoWidgets[0]->showPlaceholder("감지 서버 연결 대기중...");
     for (int i = 1; i < 4; ++i)
         videoWidgets[i]->showPlaceholder("영상 연결 스트리밍");
 }
@@ -40,15 +41,20 @@ void MonitorPage::updateZone(const Zone &zone)
         v->setZoneName(zone.name);
 }
 
-void MonitorPage::connectCamera(const QString &host, const QString &user, const QString &pass, int channelIndex)
+void MonitorPage::connectDetectionStream(const QString &host, quint16 port)
 {
-    streamReceiver = new StreamReceiver(this);
-    streamReceiver->setVideoOutput(videoWidgets[0]->videoOutput());
-    connect(streamReceiver, &StreamReceiver::statusChanged, this, [this](bool ok) {
-        statusPanel->setCameraStatus(ok ? "정상" : "오류", ok ? "#34d399" : "#f87171");
-    });
-    connect(streamReceiver, &StreamReceiver::errorOccurred, this, [this](const QString &) {
-        statusPanel->setCameraStatus("오류", "#f87171");
-    });
-    streamReceiver->connectToChannel(host, user, pass, channelIndex);
+    detectionStream = new DetectionStreamClient(this);
+
+    connect(detectionStream, &DetectionStreamClient::frameReady, this,
+            [this](const QImage &frame, bool alarmActive) {
+                videoWidgets[0]->showFrame(frame);
+                statusPanel->setCameraStatus(alarmActive ? "경고" : "정상", alarmActive ? "#f87171" : "#34d399");
+            });
+    connect(detectionStream, &DetectionStreamClient::connectionStateChanged, this,
+            [this](bool connected) {
+                if (!connected)
+                    videoWidgets[0]->showPlaceholder("감지 서버 연결 끊김");
+            });
+
+    detectionStream->connectToServer(host, port);
 }
