@@ -4,6 +4,7 @@
 #include "../pages/GraphPage.h"
 #include "../pages/ControlPage.h"
 #include "../pages/HelpPage.h"
+#include "../network/TlsClient.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -11,11 +12,17 @@
 #include <QLabel>
 #include <QFrame>
 #include <QStackedWidget>
+#include <QDebug>
 
 namespace {
 const QString kCameraHost = "172.20.35.13";
 const QString kCameraUser = "admin";
 const QString kCameraPass = "5hanwha!";
+
+// [새로 추가된 라즈베리파이 서버 IP 상수]
+const QString kTlsServerHost = "172.20.35.6"; // ★ 확인하신 라즈베리파이 IP로 꼭 변경하세요!
+const quint16 kTlsServerPort = 8443;
+// [새로 추가된 라즈베리파이 서버 IP 상수]
 
 const QStringList kTabNames = { "모니터링", "이벤트로그", "그래프", "수동제어", "도움말" };
 
@@ -78,6 +85,43 @@ MainWindow::MainWindow(QWidget *parent)
     eventLogPage->addEntry("A구역", "가스 농도 상승", "경고 알림 전송", "시스템(자동)", "경고", "MQ-9 단독", "2분 10초");
     eventLogPage->addEntry("A구역", "연기 감지 (경고)", "경고 표시 (사이렌 X)", "시스템(자동)", "경고", "영상+MQ-2", "1분 40초");
     eventLogPage->addEntry("A구역", "정상 복귀", "모니터링 유지", "시스템(자동)", "안전", "-", "-");
+
+    // ==========================================================
+    // [새로 추가된 TLS 통신 파트]
+    // ==========================================================
+    
+    // 1. TlsClient 객체 생성 (this를 부모로 두어 메모리 자동 해제)
+    TlsClient *tlsClient = new TlsClient(this);
+
+    // 2. 서버 연결 성공 시그널 처리
+    connect(tlsClient, &TlsClient::connected, this, [=]() {
+        qDebug() << "[TLS] 라즈베리파이 관제 서버와 암호화 통신이 연결되었습니다!";
+        
+        // 연결 성공 시점에 상단 바의 연결 상태 UI를 업데이트하거나 
+        // 라즈베리파이에 초기 설정 데이터를 요구할 수 있습니다.
+        tlsClient->sendData("{\"command\": \"GET_INITIAL_STATE\"}");
+    });
+
+    // 3. 서버로부터 데이터 수신 시그널 처리
+    connect(tlsClient, &TlsClient::dataReceived, this, [=](const QByteArray &data) {
+        qDebug() << "[TLS] 서버 수신 데이터:" << data;
+        
+        // 추후 이 부분에 JSON 데이터를 파싱(QJsonDocument)하여 
+        // 온도, 습도, 상태 등을 zones 리스트에 업데이트하고 
+        // refreshZoneUi()를 호출하는 로직이 들어갑니다.
+    });
+    
+    // 4. 수동 제어 페이지(ControlPage)에서 버튼을 누르면 서버로 명령 전송
+    // (ControlPage에 sendCommand 등의 시그널이 있다고 가정)
+    /* 
+    connect(controlPage, &ControlPage::sendCommand, this, [=](const QString &cmd) {
+        tlsClient->sendData(cmd.toUtf8());
+    });
+    */
+
+    // 5. 프로그램 구동과 동시에 서버 접속 시도
+    tlsClient->connectToServer(kTlsServerHost, kTlsServerPort);
+    // ==========================================================
 }
 
 QWidget *MainWindow::createTopBar()
