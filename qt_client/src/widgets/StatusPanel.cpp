@@ -101,9 +101,16 @@ void StatusPanel::updateZone(const Zone &zone)
 
     tempValueLabel->setText(QString::number(zone.temp, 'f', 1) + " ℃");
     humidityValueLabel->setText(QString::number(zone.humidity, 'f', 0) + " %");
-    const double gasPpm = zone.state == ZoneState::Safe ? 3 : (zone.state == ZoneState::Warning ? 8 : 15);
-    gasValueLabel->setText(QString::number(gasPpm, 'f', 0) + " ppm");
-    smokeValueLabel->setText(zone.state == ZoneState::Danger ? "감지됨" : "미검지");
+
+    if (zone.hasLiveSensorData) {
+        gasValueLabel->setText(QString::number(zone.gasPpm, 'f', 0) + " ppm");
+        smokeValueLabel->setText(zone.smokePpm > 20 ? "감지됨" : "미검지");
+    } else {
+        // DEMO 시뮬레이션(실센서 없는 구역): 상태에 따른 가짜 값
+        const double gasPpm = zone.state == ZoneState::Safe ? 3 : (zone.state == ZoneState::Warning ? 8 : 15);
+        gasValueLabel->setText(QString::number(gasPpm, 'f', 0) + " ppm");
+        smokeValueLabel->setText(zone.state == ZoneState::Danger ? "감지됨" : "미검지");
+    }
 
     for (int i = 0; i < demoStateButtons.size(); ++i)
         demoStateButtons[i]->setChecked(i == int(zone.state));

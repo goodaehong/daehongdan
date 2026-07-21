@@ -4,6 +4,7 @@
 #include "../pages/GraphPage.h"
 #include "../pages/ControlPage.h"
 #include "../pages/HelpPage.h"
+#include "../network/ServerLink.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -13,9 +14,9 @@
 #include <QStackedWidget>
 
 namespace {
-const QString kCameraHost = "172.20.35.13";
-const QString kCameraUser = "admin";
-const QString kCameraPass = "5hanwha!";
+const QString kMediaMtxHost = "172.20.35.53"; // MediaMTX가 도는 라즈베리파이 주소 (카메라 IP 아님)
+const QString kServerHost = "172.20.35.53";   // 감지/센서/제어 JSON 소켓도 같은 라즈베리파이
+const quint16 kServerPort = 9000;             // TODO: 실제 서버 리슨 포트로 맞추기
 
 const QStringList kTabNames = { "모니터링", "이벤트로그", "그래프", "수동제어", "도움말" };
 
@@ -54,10 +55,56 @@ MainWindow::MainWindow(QWidget *parent)
     connect(monitorPage, &MonitorPage::demoStateRequested, this, [this](ZoneState state) {
         setZoneState(currentZone, state);
     });
-    connect(controlPage, &ControlPage::actionLogged, this,
-            [this](const QString &detection, const QString &response, const QString &admin,
-                   const QString &severity, const QString &sensorCombo, const QString &duration) {
-                eventLogPage->addEntry(zones[currentZone].name, detection, response, admin, severity, sensorCombo, duration);
+
+    serverLink = new ServerLink(this);
+
+    connect(controlPage, &ControlPage::controlRequested, this,
+            [this](const QString &target, const QString &action, const QString &title) {
+                const QString zoneName = zones[currentZone].name;
+                const QString zoneId = zoneName.left(1); // "A구역" -> "A"
+                const QString cmdId = serverLink->sendControl(zoneId, target, action, "admin");
+                pendingControlTitles.insert(cmdId, title);
+            });
+
+    connect(serverLink, &ServerLink::controlResult, this,
+            [this](const QString &cmdId, const QString &zone, const QString &, const QString &result, const QString &reason) {
+                const QString title = pendingControlTitles.take(cmdId);
+                if (title.isEmpty())
+                    return;
+                if (result == "ok")
+                    eventLogPage->addEntry(zone + "구역", "관리자 수동 제어", title + " 완료", "admin", "정보", "-", "-");
+                else
+                    eventLogPage->addEntry(zone + "구역", "관리자 수동 제어", title + " 실패: " + reason, "admin", "경고", "-", "-");
+            });
+    connect(serverLink, &ServerLink::controlTimedOut, this,
+            [this](const QString &cmdId, const QString &zone, const QString &) {
+                const QString title = pendingControlTitles.take(cmdId);
+                if (title.isEmpty())
+                    return;
+                eventLogPage->addEntry(zone + "구역", "관리자 수동 제어", title + " 응답 없음 (서버 연결 확인 필요)", "admin", "경고", "-", "-");
+            });
+
+    connect(serverLink, &ServerLink::detectionReceived, this,
+            [this](int channel, int, int srcW, int srcH, bool, const QVector<DetectionBox> &boxes) {
+                monitorPage->updateDetection(channel, srcW, srcH, boxes);
+            });
+
+    connect(serverLink, &ServerLink::sensorReceived, this,
+            [this](const QString &zoneId, qint64, double temp, double humidity,
+                   double gasPpm, double smokePpm, const QString &state) {
+                for (Zone &zone : zones) {
+                    if (!zone.name.startsWith(zoneId))
+                        continue;
+                    zone.temp = temp;
+                    zone.humidity = humidity;
+                    zone.gasPpm = gasPpm;
+                    zone.smokePpm = smokePpm;
+                    zone.state = zoneStateFromString(state);
+                    zone.hasLiveSensorData = true;
+                    break;
+                }
+                if (!zones.isEmpty() && zones[currentZone].name.startsWith(zoneId))
+                    refreshZoneUi();
             });
 
     stack = new QStackedWidget(central);
@@ -73,7 +120,8 @@ MainWindow::MainWindow(QWidget *parent)
     switchTab(0);
     switchZone(0);
 
-    monitorPage->connectCamera(kCameraHost, kCameraUser, kCameraPass, 0);
+    monitorPage->connectCameras(kMediaMtxHost);
+    serverLink->connectToServer(kServerHost, kServerPort);
 
     eventLogPage->addEntry("A구역", "가스 농도 상승", "경고 알림 전송", "시스템(자동)", "경고", "MQ-9 단독", "2분 10초");
     eventLogPage->addEntry("A구역", "연기 감지 (경고)", "경고 표시 (사이렌 X)", "시스템(자동)", "경고", "영상+MQ-2", "1분 40초");

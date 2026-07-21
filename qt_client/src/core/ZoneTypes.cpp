@@ -19,3 +19,12 @@ QString textForState(ZoneState state)
     }
     return "안전";
 }
+
+ZoneState zoneStateFromString(const QString &state)
+{
+    if (state == "warning")
+        return ZoneState::Warning;
+    if (state == "danger")
+        return ZoneState::Danger;
+    return ZoneState::Safe;
+}

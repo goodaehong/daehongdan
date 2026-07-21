@@ -28,9 +28,6 @@ MonitorPage::MonitorPage(QWidget *parent)
     grid->setRowStretch(0, 1);
     grid->setRowStretch(1, 1);
     layout->addLayout(grid, 1);
-
-    for (int i = 1; i < 4; ++i)
-        videoWidgets[i]->showPlaceholder("영상 연결 스트리밍");
 }
 
 void MonitorPage::updateZone(const Zone &zone)
@@ -40,15 +37,40 @@ void MonitorPage::updateZone(const Zone &zone)
         v->setZoneName(zone.name);
 }
 
-void MonitorPage::connectCamera(const QString &host, const QString &user, const QString &pass, int channelIndex)
+void MonitorPage::connectCameras(const QString &mediaMtxHost)
 {
-    streamReceiver = new StreamReceiver(this);
-    streamReceiver->setVideoOutput(videoWidgets[0]->videoOutput());
-    connect(streamReceiver, &StreamReceiver::statusChanged, this, [this](bool ok) {
-        statusPanel->setCameraStatus(ok ? "정상" : "오류", ok ? "#34d399" : "#f87171");
-    });
-    connect(streamReceiver, &StreamReceiver::errorOccurred, this, [this](const QString &) {
-        statusPanel->setCameraStatus("오류", "#f87171");
-    });
-    streamReceiver->connectToChannel(host, user, pass, channelIndex);
+    for (int i = 0; i < 4; ++i) {
+        streamReceivers[i] = new StreamReceiver(this);
+        streamReceivers[i]->setVideoOutput(videoWidgets[i]->videoOutput());
+
+        connect(streamReceivers[i], &StreamReceiver::statusChanged, this, [this, i](bool ok) {
+            if (ok)
+                videoWidgets[i]->showConnected();
+            else
+                videoWidgets[i]->showPlaceholder("연결 오류");
+        });
+        connect(streamReceivers[i], &StreamReceiver::errorOccurred, this, [this, i](const QString &) {
+            videoWidgets[i]->showPlaceholder("연결 오류");
+        });
+
+        if (i == 0) {
+            // Ch.1(A구역)만 좌측 StatusPanel의 "카메라 상태"에 반영.
+            connect(streamReceivers[i], &StreamReceiver::statusChanged, this, [this](bool ok) {
+                statusPanel->setCameraStatus(ok ? "정상" : "오류", ok ? "#34d399" : "#f87171");
+            });
+            connect(streamReceivers[i], &StreamReceiver::errorOccurred, this, [this](const QString &) {
+                statusPanel->setCameraStatus("오류", "#f87171");
+            });
+        }
+
+        streamReceivers[i]->connectToChannel(mediaMtxHost, i);
+    }
+}
+
+void MonitorPage::updateDetection(int channel, int srcW, int srcH, const QVector<DetectionBox> &boxes)
+{
+    const int index = channel - 1;
+    if (index < 0 || index >= 4)
+        return;
+    videoWidgets[index]->setDetectionBoxes(boxes, srcW, srcH);
 }
