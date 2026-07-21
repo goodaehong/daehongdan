@@ -33,13 +33,13 @@ ControlPage::ControlPage(QWidget *parent)
 
     auto *cardRow = new QHBoxLayout;
     cardRow->addWidget(createControlCard("환기팬 가동", "IP66 환기팬 속도 제어", [this]() {
-        emit actionLogged("관리자 수동 제어", "환기팬 가동 실행", "admin", "정보", "-", "-");
+        emit controlRequested("fan", "on", "환기팬 가동");
     }));
     cardRow->addWidget(createControlCard("밸브 개방 / 잠금", "가스 공급 솔레노이드 밸브", [this]() {
-        emit actionLogged("관리자 수동 제어", "밸브 개방/잠금 실행", "admin", "정보", "-", "-");
+        emit controlRequested("valve", "open", "밸브 개방 / 잠금");
     }));
     cardRow->addWidget(createControlCard("사이렌 끄기", "경보음 및 경고 LED 제어", [this]() {
-        emit actionLogged("관리자 수동 제어", "사이렌 끄기 실행", "admin", "정보", "-", "-");
+        emit controlRequested("siren", "off", "사이렌 끄기");
     }));
     cardRow->addStretch();
     layout->addLayout(cardRow);

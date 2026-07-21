@@ -16,9 +16,9 @@ public:
     void setZoneName(const QString &zoneName);
 
 signals:
-    void actionLogged(const QString &detection, const QString &response,
-                       const QString &admin, const QString &severity,
-                       const QString &sensorCombo, const QString &duration);
+    // 확인 다이얼로그 통과 직후 발생. 실제 성공/실패는 서버의 control_ack로 판단하므로
+    // 여기서는 로그를 남기지 않고 요청만 올린다 (MainWindow가 ServerLink로 전송).
+    void controlRequested(const QString &target, const QString &action, const QString &title);
 
 private:
     QWidget *createControlCard(const QString &title, const QString &desc, const std::function<void()> &onConfirm);
