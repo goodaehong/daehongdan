@@ -8,8 +8,6 @@
 #include "AppConfig.h"
 #include "FireDetectionRuntime.h"
 
-// /OpenCV   .
-// Qt     FireDetectionRuntime    .
 class FireView
 {
 public:
@@ -23,15 +21,9 @@ public:
     void close() const;
 
 private:
-#if FIRE_DEBUG_VIEW
-    cv::Mat makeDebugTile(
-        const cv::Mat& source,
-        const std::string& title
-    ) const;
-
-    cv::Mat makeDebugPanel(
-        const FireDebugImages& debug
-    ) const;
+#if FIRE_ENABLE_GUI && FIRE_DEBUG_VIEW
+    cv::Mat makeDebugTile(const cv::Mat& source, const std::string& title) const;
+    cv::Mat makeDebugPanel(const FireDebugImages& debug) const;
 
     cv::Mat cachedDebugPanel_;
     std::uint64_t cachedDebugFrameId_ = 0;
