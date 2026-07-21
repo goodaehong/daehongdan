@@ -28,9 +28,8 @@ struct FireRuntimeSnapshot
     double boxFreshLimitMs = 0.0;
 };
 
-// FireDetector  ,   ,  freshness,
-// FireAlarmController    .
-//  main Qt        .
+// 프레임 제출, 비동기 검출, 결과 freshness, 알람 유지까지 담당한다.
+// main이나 Qt에서는 이 클래스 인터페이스만 사용하면 된다.
 class FireDetectionRuntime
 {
 public:
@@ -43,21 +42,14 @@ public:
     FireDetectionRuntime(const FireDetectionRuntime&) = delete;
     FireDetectionRuntime& operator=(const FireDetectionRuntime&) = delete;
 
-    //        .
     void submitFrame(
         const cv::Mat& frame,
         std::uint64_t frameId,
         TimePoint sourceTime = Clock::now()
     );
 
-    //       Detector/Alarm   .
     void resetStream();
-
-    // UI  .     Alarm  .
-    FireRuntimeSnapshot poll(
-        TimePoint now = Clock::now()
-    );
-
+    FireRuntimeSnapshot poll(TimePoint now = Clock::now());
     void stop();
 
 private:
