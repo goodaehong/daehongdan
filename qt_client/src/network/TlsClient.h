@@ -4,6 +4,10 @@
 #include <QObject>
 #include <QSslSocket>
 #include <QSslError>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QJsonParseError>
 
 class TlsClient : public QObject
 {
@@ -29,6 +33,18 @@ signals:
     void dataReceived(const QByteArray &data);
     void errorOccurred(const QString &errorString);
 
+    // 1. 영상 객체 감지 데이터
+    void detectionReceived(int channel, int frameId, int srcW, int srcH, bool alarm, const QJsonArray &boxes);
+    
+    // 2. 센서 데이터
+    void sensorReceived(const QString &zone, qint64 ts, double temp, double humidity, double gasPpm, double smokePpm, const QString &state);
+    
+    // 3. 전광판 상태 데이터
+    void ledMatrixStatusReceived(int status);
+    
+    // 4. 액추에이터 상태 데이터
+    void actuatorStatusReceived(int fan, int valve, int siren);
+
 private slots:
     // QSslSocket의 내부 이벤트에 반응하는 슬롯들
     void onEncrypted();
@@ -36,7 +52,10 @@ private slots:
     void onSslErrors(const QList<QSslError> &errors);
 
 private:
+    void parseJsonMessage(const QByteArray &jsonData); // JSON 파싱 전담 함수
+    
     QSslSocket *m_sslSocket;
+    QByteArray m_buffer; // TCP 조각화(Fragmentation)를 해결하기 위한 버퍼
 };
 
 #endif // TLSCLIENT_H
