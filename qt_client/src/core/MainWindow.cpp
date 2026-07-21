@@ -16,7 +16,7 @@
 namespace {
 const QString kMediaMtxHost = "172.20.35.53"; // MediaMTX가 도는 라즈베리파이 주소 (카메라 IP 아님)
 const QString kServerHost = "172.20.35.53";   // 감지/센서/제어 JSON 소켓도 같은 라즈베리파이
-const quint16 kServerPort = 9000;             // TODO: 실제 서버 리슨 포트로 맞추기
+const quint16 kServerPort = 9999;             // TODO: 실제 서버 리슨 포트로 맞추기
 
 const QStringList kTabNames = { "모니터링", "이벤트로그", "그래프", "수동제어", "도움말" };
 
@@ -62,6 +62,10 @@ MainWindow::MainWindow(QWidget *parent)
             [this](const QString &target, const QString &action, const QString &title) {
                 const QString zoneName = zones[currentZone].name;
                 const QString zoneId = zoneName.left(1); // "A구역" -> "A"
+
+                // ★ 여기가 진짜 실행되는지 디버그 로그로 확인해야 합니다!
+                qDebug() << "[MainWindow] 버튼 클릭 감지! 제어 송신 시도:" << target << action;
+
                 const QString cmdId = serverLink->sendControl(zoneId, target, action, "admin");
                 pendingControlTitles.insert(cmdId, title);
             });
@@ -82,6 +86,13 @@ MainWindow::MainWindow(QWidget *parent)
                 if (title.isEmpty())
                     return;
                 eventLogPage->addEntry(zone + "구역", "관리자 수동 제어", title + " 응답 없음 (서버 연결 확인 필요)", "admin", "경고", "-", "-");
+            });
+
+    connect(serverLink, &ServerLink::actuatorStatusReceived, this,
+            [this](int fan, int valve, int siren) {
+                controlPage->setFanLevel(fan);
+                controlPage->setValveState(valve);
+                controlPage->setSirenState(siren);
             });
 
     connect(serverLink, &ServerLink::detectionReceived, this,
