@@ -1,6 +1,8 @@
 #include "ServerLink.h"
 
 #include <QTcpSocket>
+//#include <QSslSocket>
+//#include <QSslError> // 사설 인증서 에러 처리를 위해 추가
 #include <QTimer>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -18,11 +20,22 @@ ServerLink::ServerLink(QObject *parent)
     connect(socket, &QTcpSocket::readyRead, this, &ServerLink::onReadyRead);
     connect(socket, &QTcpSocket::connected, this, [this]() { emit connectionStateChanged(true); });
     connect(socket, &QTcpSocket::disconnected, this, [this]() { emit connectionStateChanged(false); });
+    // socket = new QSslSocket(this);
+    // connect(socket, &QSslSocket::readyRead, this, &ServerLink::onReadyRead);
+    // // connected 대신 encrypted 사용: 암호화가 완료된 시점을 정확히 잡을 수 있음
+    // connect(socket, &QSslSocket::encrypted, this, [this]() { emit connectionStateChanged(true); });
+    // connect(socket, &QSslSocket::disconnected, this, [this]() { emit connectionStateChanged(false); });
+    // // 사설 인증서(Self-signed) 에러 무시 로직 추가
+    // connect(socket, &QSslSocket::sslErrors, this, [this](const QList<QSslError> &errors) {
+    //     socket->ignoreSslErrors();
+    // });
 }
 
 void ServerLink::connectToServer(const QString &host, quint16 port)
 {
     socket->connectToHost(host, port);
+    // // 일반 연결이 아닌 암호화 연결 함수 사용
+    // socket->connectToHostEncrypted(host, port);
 }
 
 QString ServerLink::generateCmdId()

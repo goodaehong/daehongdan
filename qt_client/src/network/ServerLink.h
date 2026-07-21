@@ -8,6 +8,7 @@
 #include "../core/DetectionTypes.h"
 
 class QTcpSocket;
+//class QSslSocket;
 class QTimer;
 class QJsonObject;
 
@@ -49,6 +50,7 @@ private:
     QString generateCmdId();
 
     QTcpSocket *socket;
+    //QSslSocket *socket;
     QByteArray buffer;
     QMap<QString, QTimer *> pendingCommands;
     int cmdCounter = 0;
