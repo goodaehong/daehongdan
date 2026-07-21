@@ -2,76 +2,91 @@
 
 #include <chrono>
 #include <iostream>
-#include <utility>
 #include <vector>
 
 using namespace cv;
 using namespace std;
 
-CameraStream::CameraStream(const string& sourceValue, StreamSourceType sourceTypeValue, bool loopVideoFileValue)
-    : source(sourceValue), sourceType(sourceTypeValue), loopVideoFile(loopVideoFileValue) {}
+CameraStream::CameraStream(
+    const string& source,
+    StreamSourceType sourceType,
+    bool loopVideoFile)
+    : source_(source),
+    sourceType_(sourceType),
+    loopVideoFile_(loopVideoFile)
+{
+}
 
-CameraStream::~CameraStream() { stop(); }
+CameraStream::~CameraStream()
+{
+    stop();
+}
 
 bool CameraStream::start()
 {
     bool expected = false;
-    if (!running.compare_exchange_strong(expected, true)) return false;
-    if (readerThread.joinable()) readerThread.join();
+    if (!running_.compare_exchange_strong(expected, true)) return false;
+    if (readerThread_.joinable()) readerThread_.join();
 
     {
-        lock_guard<mutex> lock(frameMutex);
-        latestFrame.release();
-        latestFrameId = 0;
-        hasFrame = false;
+        lock_guard<mutex> lock(frameMutex_);
+        latestFrame_.release();
+        latestFrameId_ = 0;
+        hasFrame_ = false;
     }
 
-    opened = false;
-    readerThread = thread(&CameraStream::readLoop, this);
+    opened_ = false;
+    readerThread_ = thread(&CameraStream::readLoop, this);
     return true;
 }
 
 void CameraStream::stop()
 {
-    running = false;
-    if (readerThread.joinable()) readerThread.join();
-    if (cap.isOpened()) cap.release();
-    opened = false;
-    hasFrame = false;
+    running_ = false;
+    if (readerThread_.joinable()) readerThread_.join();
+    if (cap_.isOpened()) cap_.release();
+    opened_ = false;
+    hasFrame_ = false;
 }
 
-bool CameraStream::isOpened() const { return opened.load(); }
+bool CameraStream::isOpened() const
+{
+    return opened_.load();
+}
 
 bool CameraStream::getLatestFrame(Mat& outFrame, uint64_t& lastFrameId)
 {
-    lock_guard<mutex> lock(frameMutex);
-    if (!hasFrame.load() || latestFrame.empty() || latestFrameId == lastFrameId) return false;
-    outFrame = latestFrame;
-    lastFrameId = latestFrameId;
+    lock_guard<mutex> lock(frameMutex_);
+    if (!hasFrame_.load() || latestFrame_.empty() || latestFrameId_ == lastFrameId)
+        return false;
+
+    outFrame = latestFrame_;
+    lastFrameId = latestFrameId_;
     return true;
 }
 
 bool CameraStream::openSource()
 {
-    if (cap.isOpened()) cap.release();
+    if (cap_.isOpened()) cap_.release();
 
-    if (sourceType == StreamSourceType::VideoFile)
+    if (sourceType_ == StreamSourceType::VideoFile)
     {
-        cout << "Opening video file: " << source << endl;
-        if (!cap.open(source, CAP_FFMPEG))
+        cout << "Opening video file: " << source_ << endl;
+        if (!cap_.open(source_, CAP_FFMPEG))
         {
-            cap.release();
-            if (!cap.open(source, CAP_ANY))
+            cap_.release();
+            if (!cap_.open(source_, CAP_ANY))
             {
-                cout << "Video file open failed: " << source << endl;
+                cerr << "Video file open failed: " << source_ << endl;
                 return false;
             }
         }
 
-        opened = true;
-        cout << "Video file opened | " << static_cast<int>(cap.get(CAP_PROP_FRAME_WIDTH))
-            << 'x' << static_cast<int>(cap.get(CAP_PROP_FRAME_HEIGHT))
-            << " | FPS " << cap.get(CAP_PROP_FPS) << endl;
+        opened_ = true;
+        cout << "Video file opened | "
+            << static_cast<int>(cap_.get(CAP_PROP_FRAME_WIDTH)) << 'x'
+            << static_cast<int>(cap_.get(CAP_PROP_FRAME_HEIGHT))
+            << " | FPS " << cap_.get(CAP_PROP_FPS) << endl;
         return true;
     }
 
@@ -81,16 +96,16 @@ bool CameraStream::openSource()
     };
 
     cout << "Camera connecting..." << endl;
-    if (!cap.open(source, CAP_FFMPEG, openParams))
+    if (!cap_.open(source_, CAP_FFMPEG, openParams))
     {
-        cout << "Camera open failed" << endl;
+        cerr << "Camera open failed" << endl;
         return false;
     }
 
-    if (!cap.set(CAP_PROP_BUFFERSIZE, 1))
+    if (!cap_.set(CAP_PROP_BUFFERSIZE, 1))
         cout << "Camera buffer size option is not supported by this backend" << endl;
 
-    opened = true;
+    opened_ = true;
     cout << "Camera connected" << endl;
     return true;
 }
@@ -100,20 +115,20 @@ void CameraStream::readLoop()
     chrono::steady_clock::time_point nextVideoFrameTime;
     chrono::steady_clock::duration videoFrameInterval = chrono::milliseconds(33);
 
-    while (running.load())
+    while (running_.load())
     {
-        if (!cap.isOpened())
+        if (!cap_.isOpened())
         {
             if (!openSource())
             {
-                opened = false;
+                opened_ = false;
                 this_thread::sleep_for(chrono::milliseconds(500));
                 continue;
             }
 
-            if (sourceType == StreamSourceType::VideoFile)
+            if (sourceType_ == StreamSourceType::VideoFile)
             {
-                double fps = cap.get(CAP_PROP_FPS);
+                double fps = cap_.get(CAP_PROP_FPS);
                 if (fps <= 1.0 || fps > 240.0) fps = 30.0;
                 videoFrameInterval = chrono::duration_cast<chrono::steady_clock::duration>(
                     chrono::duration<double>(1.0 / fps));
@@ -122,47 +137,49 @@ void CameraStream::readLoop()
         }
 
         Mat frame;
-        if (!cap.read(frame) || frame.empty())
+        if (!cap_.read(frame) || frame.empty())
         {
-            if (sourceType == StreamSourceType::VideoFile)
+            if (sourceType_ == StreamSourceType::VideoFile)
             {
-                if (loopVideoFile)
+                if (loopVideoFile_)
                 {
                     cout << "Video finished. Restarting from beginning." << endl;
-                    cap.set(CAP_PROP_POS_FRAMES, 0);
+                    cap_.set(CAP_PROP_POS_FRAMES, 0);
                     nextVideoFrameTime = chrono::steady_clock::now();
                     continue;
                 }
 
                 cout << "Video playback finished." << endl;
-                running = false;
-                opened = false;
+                running_ = false;
+                opened_ = false;
                 break;
             }
 
-            opened = false;
+            opened_ = false;
             cout << "Camera read failed. Reconnecting..." << endl;
-            cap.release();
+            cap_.release();
             this_thread::sleep_for(chrono::milliseconds(200));
             continue;
         }
 
         {
-            lock_guard<mutex> lock(frameMutex);
-            latestFrame = frame.clone();
-            ++latestFrameId;
-            hasFrame = true;
+            lock_guard<mutex> lock(frameMutex_);
+            latestFrame_ = frame;
+            ++latestFrameId_;
+            hasFrame_ = true;
         }
 
-        if (sourceType == StreamSourceType::VideoFile)
+        if (sourceType_ == StreamSourceType::VideoFile)
         {
             nextVideoFrameTime += videoFrameInterval;
             const auto now = chrono::steady_clock::now();
-            if (nextVideoFrameTime > now) this_thread::sleep_until(nextVideoFrameTime);
-            else if (now - nextVideoFrameTime > videoFrameInterval * 5) nextVideoFrameTime = now;
+            if (nextVideoFrameTime > now)
+                this_thread::sleep_until(nextVideoFrameTime);
+            else if (now - nextVideoFrameTime > videoFrameInterval * 5)
+                nextVideoFrameTime = now;
         }
     }
 
-    opened = false;
-    if (cap.isOpened()) cap.release();
+    opened_ = false;
+    if (cap_.isOpened()) cap_.release();
 }

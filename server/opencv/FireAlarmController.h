@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+
 #include "DetectionTypes.h"
 
 struct FireAlarmStatus
@@ -21,7 +22,11 @@ public:
     using TimePoint = Clock::time_point;
 
     FireAlarmController();
-    FireAlarmStatus processNewResult(const DetectionResult& result, bool resultIsFresh, TimePoint now);
+    FireAlarmStatus processNewResult(
+        const DetectionResult& result,
+        bool resultIsFresh,
+        TimePoint now
+    );
     FireAlarmStatus tick(bool resultIsFresh, TimePoint now);
     void reset();
 
