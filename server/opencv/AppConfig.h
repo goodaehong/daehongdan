@@ -31,7 +31,7 @@
 #endif
 
 #ifndef RTSP_PROFILE_PATH
-#define RTSP_PROFILE_PATH "/0/profile2/media.smp"
+#define RTSP_PROFILE_PATH "/0/profile10/media.smp"
 #endif
 
 // ==================================================
@@ -47,7 +47,7 @@
 #endif
 
 #ifndef FIRE_DEBUG_VIEW
-#define FIRE_DEBUG_VIEW 0
+#define FIRE_DEBUG_VIEW 1
 #endif
 
 #ifndef FIRE_DEBUG_TILE_WIDTH
