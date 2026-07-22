@@ -47,7 +47,7 @@
 #endif
 
 #ifndef FIRE_DEBUG_VIEW
-#define FIRE_DEBUG_VIEW 0
+#define FIRE_DEBUG_VIEW 1
 #endif
 
 #ifndef FIRE_DEBUG_TILE_WIDTH
@@ -72,7 +72,7 @@ namespace flame_config
     constexpr int ANALYSIS_HEIGHT = 360;
 
     // 채널당 약 6 FPS로 검출한다. 영상 수신/표시는 계속 최신 프레임을 사용한다.
-    constexpr int DETECTION_INTERVAL_MS = 125;
+    constexpr int DETECTION_INTERVAL_MS = 167;
 
     // 4채널은 이미 채널 단위로 병렬 처리하므로 OpenCV 내부 스레드는 1개로 제한한다.
     constexpr int OPENCV_NUM_THREADS = 1;
