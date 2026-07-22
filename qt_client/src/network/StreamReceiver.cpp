@@ -36,7 +36,7 @@ void StreamReceiver::connectToChannel(const QString &host, int channelIndex)
     const QString url = QString("rtsp://%1:8554/cam%2").arg(host, QString::number(channelIndex + 1));
 
     libvlc_media_t *media = libvlc_media_new_location(vlcInstance, url.toUtf8().constData());
-    libvlc_media_add_option(media, ":network-caching=100");
+    libvlc_media_add_option(media, ":network-caching=500");
     libvlc_media_add_option(media, ":rtsp-tcp");
 
     vlcPlayer = libvlc_media_player_new_from_media(media);
