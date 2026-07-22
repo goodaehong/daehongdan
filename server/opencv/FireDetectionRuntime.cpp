@@ -2,12 +2,14 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <thread>
 #include <utility>
 
-#include "FireDetector_1.h"
+#include "AppConfig.h"
+#include "FlameDetector.h"
 
 using std::lock_guard;
 using std::mutex;
@@ -15,6 +17,15 @@ using std::unique_lock;
 
 namespace
 {
+    std::atomic<int> gRuntimeInstanceCounter{ 0 };
+
+    int nextRuntimePhaseMs()
+    {
+        constexpr int CHANNEL_PHASE_COUNT = 4;
+        const int index = gRuntimeInstanceCounter.fetch_add(1) % CHANNEL_PHASE_COUNT;
+        return index * flame_config::DETECTION_INTERVAL_MS / CHANNEL_PHASE_COUNT;
+    }
+
     double clampValue(double value, double minimum, double maximum)
     {
         return std::max(minimum, std::min(value, maximum));
@@ -24,7 +35,12 @@ namespace
 class FireDetectionRuntime::Impl
 {
 public:
-    Impl() : workerThread_(&Impl::workerLoop, this) {}
+    Impl()
+        : submitPhaseOffsetMs_(nextRuntimePhaseMs()),
+        nextAcceptedSubmitTime_(Clock::now() + std::chrono::milliseconds(submitPhaseOffsetMs_)),
+        workerThread_(&Impl::workerLoop, this)
+    {
+    }
     ~Impl() { stop(); }
 
     void submitFrame(const cv::Mat& frame, std::uint64_t frameId, TimePoint sourceTime)
@@ -32,7 +48,14 @@ public:
         if (frame.empty() || !running_.load()) return;
         {
             lock_guard<mutex> lock(jobMutex_);
-            pendingFrame_ = frame;
+
+            // 호출자가 30 FPS로 계속 제출해도 Runtime 내부에서 채널당 검출률을 제한한다.
+            // 각 FireDetectionRuntime 인스턴스가 독립적으로 적용되므로 4채널 서버에도 그대로 적용된다.
+            if (sourceTime < nextAcceptedSubmitTime_) return;
+            nextAcceptedSubmitTime_ = sourceTime +
+                std::chrono::milliseconds(flame_config::DETECTION_INTERVAL_MS);
+
+            frame.copyTo(pendingFrame_);
             pendingFrameId_ = frameId;
             pendingEpoch_ = streamEpoch_.load();
             pendingSourceTime_ = sourceTime;
@@ -51,6 +74,8 @@ public:
             pendingFrame_.release();
             pendingFrameId_ = 0;
             pendingEpoch_ = streamEpoch_.load();
+            nextAcceptedSubmitTime_ = Clock::now() +
+                std::chrono::milliseconds(submitPhaseOffsetMs_);
             jobReady_ = false;
         }
         {
@@ -186,8 +211,10 @@ private:
         }
     }
 
-    FireDetector detector_;
+    FlameDetector detector_;
     FireAlarmController alarmController_;
+    int submitPhaseOffsetMs_ = 0;
+    TimePoint nextAcceptedSubmitTime_{};
     std::atomic<bool> running_{ true };
     std::atomic<bool> detectorResetRequested_{ false };
     std::atomic<std::uint64_t> streamEpoch_{ 0 };
