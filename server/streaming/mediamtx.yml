@@ -824,30 +824,30 @@ pathDefaults:
 
 paths:
   cam1:
-    source: rtsp://admin:5hanwha!@172.20.35.93:554/0/profile2/media.smp
+    source: rtsp://admin:5hanwha!@__CAM_IP__:554/0/profile2/media.smp
     rtspTransport: tcp
   cam2:
-    source: rtsp://admin:5hanwha!@172.20.35.93:554/1/profile2/media.smp
+    source: rtsp://admin:5hanwha!@__CAM_IP__:554/1/profile2/media.smp
     rtspTransport: tcp
   cam3:
-    source: rtsp://admin:5hanwha!@172.20.35.93:554/2/profile2/media.smp
+    source: rtsp://admin:5hanwha!@__CAM_IP__:554/2/profile2/media.smp
     rtspTransport: tcp
   cam4:
-    source: rtsp://admin:5hanwha!@172.20.35.93:554/3/profile2/media.smp
+    source: rtsp://admin:5hanwha!@__CAM_IP__:554/3/profile2/media.smp
     rtspTransport: tcp
 
   # 감지 전용 저해상도 스트림 (profile10 = 640x360 @ 10fps). 서버 감지가 여기 붙음. Qt는 위 cam1~4(720p) 사용.
   cam1det:
-    source: rtsp://admin:5hanwha!@172.20.35.93:554/0/profile10/media.smp
+    source: rtsp://admin:5hanwha!@__CAM_IP__:554/0/profile10/media.smp
     rtspTransport: tcp
   cam2det:
-    source: rtsp://admin:5hanwha!@172.20.35.93:554/1/profile10/media.smp
+    source: rtsp://admin:5hanwha!@__CAM_IP__:554/1/profile10/media.smp
     rtspTransport: tcp
   cam3det:
-    source: rtsp://admin:5hanwha!@172.20.35.93:554/2/profile10/media.smp
+    source: rtsp://admin:5hanwha!@__CAM_IP__:554/2/profile10/media.smp
     rtspTransport: tcp
   cam4det:
-    source: rtsp://admin:5hanwha!@172.20.35.93:554/3/profile10/media.smp
+    source: rtsp://admin:5hanwha!@__CAM_IP__:554/3/profile10/media.smp
     rtspTransport: tcp
 
   # example:
