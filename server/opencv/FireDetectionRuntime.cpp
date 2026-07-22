@@ -51,9 +51,13 @@ public:
 
             // 호출자가 30 FPS로 계속 제출해도 Runtime 내부에서 채널당 검출률을 제한한다.
             // 각 FireDetectionRuntime 인스턴스가 독립적으로 적용되므로 4채널 서버에도 그대로 적용된다.
-            if (sourceTime < nextAcceptedSubmitTime_) return;
-            nextAcceptedSubmitTime_ = sourceTime +
-                std::chrono::milliseconds(flame_config::DETECTION_INTERVAL_MS);
+            if (sourceTime < nextAcceptedSubmitTime_)
+                return;
+
+            nextAcceptedSubmitTime_ =
+                sourceTime + std::chrono::milliseconds(
+                    flame_config::DETECTION_INTERVAL_MS
+                );
 
             frame.copyTo(pendingFrame_);
             pendingFrameId_ = frameId;
