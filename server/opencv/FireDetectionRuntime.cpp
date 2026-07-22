@@ -54,17 +54,10 @@ public:
             if (sourceTime < nextAcceptedSubmitTime_)
                 return;
 
-            const auto detectionInterval =
-                std::chrono::milliseconds(
+            nextAcceptedSubmitTime_ =
+                sourceTime + std::chrono::milliseconds(
                     flame_config::DETECTION_INTERVAL_MS
                 );
-
-            // 실제로 들어온 프레임 시간을 기준으로 다시 시작하지 않고,
-            // 기존 검출 시간표를 유지한다.
-            do
-            {
-                nextAcceptedSubmitTime_ += detectionInterval;
-            } while (nextAcceptedSubmitTime_ <= sourceTime);
 
             frame.copyTo(pendingFrame_);
             pendingFrameId_ = frameId;
