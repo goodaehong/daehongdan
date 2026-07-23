@@ -97,7 +97,7 @@ static struct attribute *ads1115_attrs[] = {
 ATTRIBUTE_GROUPS(ads1115);
 
 /* 커널이 부팅/모듈 로드 시 I2C 장치(ADS1115)를 발견하면 최초로 실행되는 초기화 함수 */
-static ads1115_probe(struct i2c_client *client) {
+static int ads1115_probe(struct i2c_client *client) {
     struct ads1115_data *data;
 
     // 1. 드라이버 데이터 구조체를 위한 메모리 할당 (devm_ 은 모듈 해제 시 커널이 자동 청소해줌)

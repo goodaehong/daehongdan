@@ -1,0 +1,30 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+    compatible = "brcm,bcm2711"; // RPi 4 계열
+
+    fragment@0 { // 디바이스 노드 자체(드라이버가 매칭할 compatible)
+        target-path = "/";
+        __overlay__ {
+            dht22: dht22 {
+                compatible = "aosong,dht22";
+                gpios = <&gpio 4 0>;
+                pinctrl-names = "default";
+                pinctrl-0 = <&dht22_pins>;
+                status = "okay";
+            };
+        };
+    };
+
+    fragment@1 { // 그 GPIO 핀의 핀먹스 설정(입력모드+풀업)
+        target = <&gpio>;
+        __overlay__ {
+            dht22_pins: dht22_pins {
+                brcm,pins = <4>;
+                brcm,function = <0>; // 0 = input
+                brcm,pull = <2>; // 2 = pull-up, 0 = none, 1 = pull-down
+            };
+        };
+    };
+};
