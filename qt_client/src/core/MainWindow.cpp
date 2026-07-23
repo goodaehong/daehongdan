@@ -5,6 +5,7 @@
 #include "../pages/ControlPage.h"
 #include "../pages/HelpPage.h"
 #include "../network/ServerLink.h"
+#include "../widgets/WarningAlertDialog.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -12,6 +13,7 @@
 #include <QLabel>
 #include <QFrame>
 #include <QStackedWidget>
+#include <QTimer>
 
 namespace {
 const QString kMediaMtxHost = "172.20.35.53"; // MediaMTX가 도는 라즈베리파이 주소 (카메라 IP 아님)
@@ -37,20 +39,28 @@ MainWindow::MainWindow(QWidget *parent)
     zones.append({ "A구역", ZoneState::Warning, 24.3, 42.0 });
     zones.append({ "B구역", ZoneState::Safe, 23.1, 38.0 });
 
-    auto *central = new QWidget(this);
-    central->setStyleSheet(QString("background-color:%1;").arg(kBg));
-    auto *rootLayout = new QVBoxLayout(central);
+    centralArea = new QWidget(this);
+    centralArea->setStyleSheet(QString("background-color:%1;").arg(kBg));
+    auto *rootLayout = new QVBoxLayout(centralArea);
     rootLayout->setContentsMargins(0, 0, 0, 0);
     rootLayout->setSpacing(0);
 
+    rootLayout->addWidget(createDangerBanner());
     rootLayout->addWidget(createTopBar());
     rootLayout->addWidget(createSubTabBar());
 
-    monitorPage = new MonitorPage(central);
-    eventLogPage = new EventLogPage(central);
-    graphPage = new GraphPage(central);
-    controlPage = new ControlPage(central);
-    helpPage = new HelpPage(central);
+    dangerPulseTimer = new QTimer(this);
+    connect(dangerPulseTimer, &QTimer::timeout, this, [this]() {
+        dangerPulseOn = !dangerPulseOn;
+        const QString borderColor = dangerPulseOn ? "#f87171" : "#7f1d1d";
+        centralArea->setStyleSheet(QString("background-color:%1; border:4px solid %2;").arg(kBg, borderColor));
+    });
+
+    monitorPage = new MonitorPage(centralArea);
+    eventLogPage = new EventLogPage(centralArea);
+    graphPage = new GraphPage(centralArea);
+    controlPage = new ControlPage(centralArea);
+    helpPage = new HelpPage(centralArea);
 
     connect(monitorPage, &MonitorPage::demoStateRequested, this, [this](ZoneState state) {
         setZoneState(currentZone, state);
@@ -68,6 +78,22 @@ MainWindow::MainWindow(QWidget *parent)
 
                 const QString cmdId = serverLink->sendControl(zoneId, target, action, "admin");
                 pendingControlTitles.insert(cmdId, title);
+
+                // 서버(actuator_status) 응답을 기다리지 않고 낙관적으로 모니터링 종합상태에도 반영.
+                // 실제 서버가 없거나 아직 actuator_status를 안 보내는 동안에도 확인 가능하도록.
+                if (target == "fan") {
+                    if (action == "off") currentFan = 0;
+                    else if (action == "low") currentFan = 1;
+                    else if (action == "mid") currentFan = 2;
+                    else if (action == "high") currentFan = 3;
+                } else if (target == "valve") {
+                    if (action == "close") currentValve = 0;
+                    else if (action == "open") currentValve = 1;
+                } else if (target == "siren") {
+                    if (action == "off") currentSiren = 0;
+                    else if (action == "on") currentSiren = 1;
+                }
+                monitorPage->setActuatorStatus(currentFan, currentValve, currentSiren);
             });
 
     connect(serverLink, &ServerLink::controlResult, this,
@@ -90,9 +116,13 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(serverLink, &ServerLink::actuatorStatusReceived, this,
             [this](int fan, int valve, int siren) {
+                currentFan = fan;
+                currentValve = valve;
+                currentSiren = siren;
                 controlPage->setFanLevel(fan);
                 controlPage->setValveState(valve);
                 controlPage->setSirenState(siren);
+                monitorPage->setActuatorStatus(fan, valve, siren);
             });
 
     connect(serverLink, &ServerLink::detectionReceived, this,
@@ -106,19 +136,24 @@ MainWindow::MainWindow(QWidget *parent)
                 for (Zone &zone : zones) {
                     if (!zone.name.startsWith(zoneId))
                         continue;
+                    const ZoneState oldState = zone.state;
                     zone.temp = temp;
                     zone.humidity = humidity;
                     zone.gasPpm = gasPpm;
                     zone.smokePpm = smokePpm;
                     zone.state = zoneStateFromString(state);
                     zone.hasLiveSensorData = true;
+                    // Warning으로 "새로" 바뀐 순간에만 팝업 (계속 warning이면 매번 안 뜸)
+                    if (oldState != ZoneState::Warning && zone.state == ZoneState::Warning)
+                        showWarningAlert(zone.name, zoneId);
                     break;
                 }
                 if (!zones.isEmpty() && zones[currentZone].name.startsWith(zoneId))
                     refreshZoneUi();
+                updateDangerIndicators();
             });
 
-    stack = new QStackedWidget(central);
+    stack = new QStackedWidget(centralArea);
     stack->addWidget(monitorPage);
     stack->addWidget(eventLogPage);
     stack->addWidget(graphPage);
@@ -126,7 +161,7 @@ MainWindow::MainWindow(QWidget *parent)
     stack->addWidget(helpPage);
     rootLayout->addWidget(stack);
 
-    setCentralWidget(central);
+    setCentralWidget(centralArea);
 
     switchTab(0);
     switchZone(0);
@@ -137,6 +172,24 @@ MainWindow::MainWindow(QWidget *parent)
     eventLogPage->addEntry("A구역", "가스 농도 상승", "경고 알림 전송", "시스템(자동)", "경고", "MQ-9 단독", "2분 10초");
     eventLogPage->addEntry("A구역", "연기 감지 (경고)", "경고 표시 (사이렌 X)", "시스템(자동)", "경고", "영상+MQ-2", "1분 40초");
     eventLogPage->addEntry("A구역", "정상 복귀", "모니터링 유지", "시스템(자동)", "안전", "-", "-");
+}
+
+QWidget *MainWindow::createDangerBanner()
+{
+    dangerBanner = new QPushButton(this);
+    dangerBanner->setCursor(Qt::PointingHandCursor);
+    dangerBanner->setStyleSheet(
+        "QPushButton { background-color:#7f1d1d; color:white; font-size:14px; font-weight:bold; "
+        "border:none; padding:10px 16px; text-align:left; }"
+        "QPushButton:hover { background-color:#991b1b; }");
+    dangerBanner->setVisible(false);
+    connect(dangerBanner, &QPushButton::clicked, this, [this]() {
+        if (dangerBannerZoneIndex >= 0) {
+            switchTab(0);
+            switchZone(dangerBannerZoneIndex);
+        }
+    });
+    return dangerBanner;
 }
 
 QWidget *MainWindow::createTopBar()
@@ -166,6 +219,10 @@ QWidget *MainWindow::createTopBar()
     }
 
     layout->addStretch();
+
+    topStatusLabel = new QLabel(bar);
+    topStatusLabel->setStyleSheet(QString("border:1px solid %1; border-radius:10px; padding:3px 10px; font-weight:bold;").arg(kCardBorder));
+    layout->addWidget(topStatusLabel);
 
     auto *connBadge = new QLabel("<span style='color:#34d399;'>●</span> 실시간 연결 중", bar);
     connBadge->setStyleSheet(QString("color:%1;").arg(kTextSecondary));
@@ -213,6 +270,7 @@ void MainWindow::switchTab(int index)
     stack->setCurrentIndex(index);
     for (int i = 0; i < tabButtons.size(); ++i)
         tabButtons[i]->setChecked(i == index);
+    updateDangerIndicators(); // 모니터링 탭 강조는 현재 탭에 따라 달라짐
 }
 
 void MainWindow::switchZone(int index)
@@ -225,9 +283,16 @@ void MainWindow::switchZone(int index)
 
 void MainWindow::setZoneState(int zoneIndex, ZoneState state)
 {
+    const ZoneState oldState = zones[zoneIndex].state;
     zones[zoneIndex].state = state;
+    // DEMO 버튼으로도 sensorReceived와 동일하게 "새로 Warning 진입" 시 팝업 (테스트용).
+    if (oldState != ZoneState::Warning && state == ZoneState::Warning) {
+        const QString &zoneName = zones[zoneIndex].name;
+        showWarningAlert(zoneName, zoneName.left(1));
+    }
     if (zoneIndex == currentZone)
         refreshZoneUi();
+    updateDangerIndicators();
 }
 
 void MainWindow::refreshZoneUi()
@@ -237,4 +302,61 @@ void MainWindow::refreshZoneUi()
     eventLogPage->updateZone(zone);
     graphPage->updateZone(zone);
     controlPage->setZoneName(zone.name);
+
+    const QString color = colorForState(zone.state);
+    topStatusLabel->setText(QString("● %1 %2").arg(zone.name, textForState(zone.state)));
+    topStatusLabel->setStyleSheet(QString("color:%1; border:1px solid %1; border-radius:10px; padding:3px 10px; font-weight:bold;").arg(color));
+}
+
+void MainWindow::showWarningAlert(const QString &zoneName, const QString &zoneId)
+{
+    // TODO: 서버가 sensor 메시지에 warnRemain(카운트다운 초)·cause(원인)를 추가하면
+    // 아래 고정값(10초, 원인 없음) 대신 그 값을 그대로 넘기면 된다.
+    constexpr int kFallbackCountdownSec = 10;
+    auto *dialog = new WarningAlertDialog(zoneName, QString(), kFallbackCountdownSec, this);
+    connect(dialog, &WarningAlertDialog::acknowledged, this, [this, zoneId]() {
+        serverLink->sendWarningAck(zoneId, "ack", "admin");
+    });
+    connect(dialog, &WarningAlertDialog::timedOut, this, [this, zoneId]() {
+        serverLink->sendWarningAck(zoneId, "timeout", "admin");
+    });
+    connect(dialog, &QDialog::finished, dialog, &QObject::deleteLater);
+    dialog->show();
+}
+
+void MainWindow::updateDangerIndicators()
+{
+    int dangerZoneIndex = -1;
+    for (int i = 0; i < zones.size(); ++i) {
+        if (zones[i].state == ZoneState::Danger) {
+            dangerZoneIndex = i;
+            break;
+        }
+    }
+    const bool anyDanger = dangerZoneIndex >= 0;
+
+    // 1) 위험 배너: 클릭하면 해당 구역 모니터링으로 이동, 해제되면 사라짐.
+    dangerBannerZoneIndex = dangerZoneIndex;
+    if (anyDanger) {
+        // TODO: 서버가 sensor 메시지에 cause 필드를 추가하면 causeText(cause)로 원인문구를 붙인다.
+        dangerBanner->setText(QString("🚨 %1 위험 상태 발생! (클릭 시 모니터링으로 이동)").arg(zones[dangerZoneIndex].name));
+        dangerBanner->setVisible(true);
+    } else {
+        dangerBanner->setVisible(false);
+    }
+
+    // 2) 화면 테두리 펄스: safe로 복귀할 때까지 깜빡임 유지.
+    if (anyDanger) {
+        if (!dangerPulseTimer->isActive())
+            dangerPulseTimer->start(600);
+    } else {
+        dangerPulseTimer->stop();
+        centralArea->setStyleSheet(QString("background-color:%1;").arg(kBg));
+    }
+
+    // 3) 모니터링 탭 강조: 다른 탭을 보고 있을 때만 보조 신호로 표시.
+    if (!tabButtons.isEmpty()) {
+        const bool showDot = anyDanger && stack->currentIndex() != 0;
+        tabButtons[0]->setText(showDot ? QString("🔴 %1").arg(kTabNames[0]) : kTabNames[0]);
+    }
 }

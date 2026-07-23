@@ -23,6 +23,8 @@ GraphPage::GraphPage(QWidget *parent)
     gasCol->addSpacing(8);
     gasGraph = new GasGraphWidget(this);
     gasGraph->setLineColor(QColor("#8b7cf6"));
+    gasGraph->setUnit("ppm");
+    gasGraph->setThresholds(5, 10); // 경고 5ppm / 위험 10ppm (임시 기준, 서버 확정값 나오면 조정)
     gasCol->addWidget(gasGraph, 1);
     layout->addLayout(gasCol);
 
@@ -33,6 +35,8 @@ GraphPage::GraphPage(QWidget *parent)
     smokeCol->addSpacing(8);
     smokeGraph = new GasGraphWidget(this);
     smokeGraph->setLineColor(QColor("#fb923c"));
+    smokeGraph->setUnit("%");
+    smokeGraph->setThresholds(15, 50); // 경고 15% / 위험 50% (임시 기준, 서버 확정값 나오면 조정)
     smokeCol->addWidget(smokeGraph, 1);
     layout->addLayout(smokeCol);
 }

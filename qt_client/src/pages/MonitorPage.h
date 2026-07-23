@@ -25,6 +25,9 @@ public:
     // 계약① 감지결과 수신 시 MainWindow가 호출. channel은 1-based(1~4).
     void updateDetection(int channel, int srcW, int srcH, const QVector<DetectionBox> &boxes);
 
+    // 서버 actuator_status를 좌측 StatusPanel의 종합상태에 반영.
+    void setActuatorStatus(int fan, int valve, int siren);
+
 signals:
     void demoStateRequested(ZoneState state);
 

@@ -74,3 +74,8 @@ void MonitorPage::updateDetection(int channel, int srcW, int srcH, const QVector
         return;
     videoWidgets[index]->setDetectionBoxes(boxes, srcW, srcH);
 }
+
+void MonitorPage::setActuatorStatus(int fan, int valve, int siren)
+{
+    statusPanel->setActuatorStatus(fan, valve, siren);
+}

@@ -18,6 +18,8 @@ public:
 
     void updateZone(const Zone &zone);
     void setCameraStatus(const QString &text, const QString &color);
+    // 서버 actuator_status 반영. fan: 0=OFF/1=약/2=중/3=강, valve: 0=잠금/1=개방, siren: 0=OFF/1=ON (그 외는 "확인 중")
+    void setActuatorStatus(int fan, int valve, int siren);
 
 signals:
     void demoStateRequested(ZoneState state);
@@ -31,6 +33,9 @@ private:
     QLabel *gasValueLabel;
     QLabel *smokeValueLabel;
     QLabel *cameraStatusValueLabel;
+    QLabel *fanValueLabel;
+    QLabel *valveValueLabel;
+    QLabel *sirenValueLabel;
     QList<QPushButton *> demoStateButtons;
 };
 

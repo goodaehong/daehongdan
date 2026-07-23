@@ -66,6 +66,8 @@ qt_add_executable(qt_dashboard
     src/widgets/StatusPanel.h
     src/widgets/GasGraphWidget.cpp
     src/widgets/GasGraphWidget.h
+    src/widgets/WarningAlertDialog.cpp
+    src/widgets/WarningAlertDialog.h
     src/network/StreamReceiver.cpp
     src/network/StreamReceiver.h
     src/network/ServerLink.cpp

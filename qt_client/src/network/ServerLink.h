@@ -27,6 +27,8 @@ public:
     // 반환값: cmdId (응답 매칭용, controlResult/controlTimedOut 시그널에서 다시 옴)
     QString sendControl(const QString &zone, const QString &target, const QString &action, const QString &admin);
     void sendFalseAlarmReport(int channel, int frameId, const QString &admin);
+    // response: "ack"(관리자가 확인 버튼 클릭) / "timeout"(무응답). 서버의 warning_ack 수신 로직은 개발 예정.
+    void sendWarningAck(const QString &zone, const QString &response, const QString &admin);
 
 signals:
     void connectionStateChanged(bool connected);

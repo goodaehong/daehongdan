@@ -64,6 +64,10 @@ StatusPanel::StatusPanel(QWidget *parent)
     addStatRow("가스 농도", &gasValueLabel);
     addStatRow("연기 감지", &smokeValueLabel);
     addStatRow("카메라 상태", &cameraStatusValueLabel);
+    addStatRow("환기팬", &fanValueLabel);
+    addStatRow("밸브", &valveValueLabel);
+    addStatRow("사이렌", &sirenValueLabel);
+    setActuatorStatus(-1, -1, -1); // 서버 응답 오기 전 초기 표시
 
     heroLayout->addSpacing(8);
     auto *demoLabel = new QLabel("DEMO - 상태 시뮬레이션", this);
@@ -120,4 +124,32 @@ void StatusPanel::setCameraStatus(const QString &text, const QString &color)
 {
     cameraStatusValueLabel->setText(text);
     cameraStatusValueLabel->setStyleSheet(QString("color:%1; font-weight:bold; border:none;").arg(color));
+}
+
+void StatusPanel::setActuatorStatus(int fan, int valve, int siren)
+{
+    static const QStringList kFanLabels = { "OFF", "약", "중", "강" };
+    if (fan >= 0 && fan < kFanLabels.size()) {
+        fanValueLabel->setText(kFanLabels[fan]);
+        fanValueLabel->setStyleSheet(QString("color:%1; font-weight:bold; border:none;").arg(fan == 0 ? kTextSecondary : "#8b7cf6"));
+    } else {
+        fanValueLabel->setText("확인 중");
+        fanValueLabel->setStyleSheet(QString("color:%1; font-weight:bold; border:none;").arg(kTextSecondary));
+    }
+
+    if (valve == 0 || valve == 1) {
+        valveValueLabel->setText(valve == 1 ? "개방" : "잠금");
+        valveValueLabel->setStyleSheet(QString("color:%1; font-weight:bold; border:none;").arg(valve == 1 ? "#8b7cf6" : kTextSecondary));
+    } else {
+        valveValueLabel->setText("확인 중");
+        valveValueLabel->setStyleSheet(QString("color:%1; font-weight:bold; border:none;").arg(kTextSecondary));
+    }
+
+    if (siren == 0 || siren == 1) {
+        sirenValueLabel->setText(siren == 1 ? "ON" : "OFF");
+        sirenValueLabel->setStyleSheet(QString("color:%1; font-weight:bold; border:none;").arg(siren == 1 ? "#f87171" : kTextSecondary));
+    } else {
+        sirenValueLabel->setText("확인 중");
+        sirenValueLabel->setStyleSheet(QString("color:%1; font-weight:bold; border:none;").arg(kTextSecondary));
+    }
 }

@@ -13,6 +13,8 @@ const QString kCardBorder = "#232333";
 const QString kTextPrimary = "#f5f5fa";
 const QString kTextSecondary = "#8d87a0";
 const QString kAccent = "#8b7cf6";
+
+struct ControlOption { QString action; QString label; };
 }
 
 ControlPage::ControlPage(QWidget *parent)
@@ -34,22 +36,9 @@ ControlPage::ControlPage(QWidget *parent)
     auto *cardRow = new QHBoxLayout;
     cardRow->setSpacing(16);
     cardRow->addWidget(createFanControlCard());
-    cardRow->addWidget(createControlCard("밸브 개방 / 잠금", "가스 공급 솔레노이드 밸브",
-        [this]() { return currentValveState == 1 ? QString("밸브 잠금") : QString("밸브 개방"); },
-        [this]() {
-            const bool willOpen = (currentValveState != 1);
-            emit controlRequested("valve", willOpen ? "open" : "close", willOpen ? "밸브 개방" : "밸브 잠금");
-            setValveState(willOpen ? 1 : 0); // 서버 응답을 기다리지 않고 클릭 즉시 반영
-        },
-        &valveStatusLabel));
-    cardRow->addWidget(createControlCard("사이렌 켜기 / 끄기", "경보음 및 경고 LED 제어",
-        [this]() { return currentSirenState == 1 ? QString("사이렌 끄기") : QString("사이렌 켜기"); },
-        [this]() {
-            const bool willTurnOn = (currentSirenState != 1);
-            emit controlRequested("siren", willTurnOn ? "on" : "off", willTurnOn ? "사이렌 켜기" : "사이렌 끄기");
-            setSirenState(willTurnOn ? 1 : 0); // 서버 응답을 기다리지 않고 클릭 즉시 반영
-        },
-        &sirenStatusLabel));
+    cardRow->addWidget(createValveControlCard());
+    cardRow->addWidget(createSirenControlCard());
+    cardRow->addWidget(createEvacuationCard());
     cardRow->addStretch();
     layout->addLayout(cardRow);
     layout->addStretch();
@@ -63,68 +52,86 @@ void ControlPage::setZoneName(const QString &zoneName)
 void ControlPage::setFanLevel(int level)
 {
     currentFanLevel = level;
-    updateFanButtonStyles(level);
+    updateButtonStyles(fanButtons, level);
+    updateStatusLabel(fanStatusLabel, fanButtons, level);
 }
 
 void ControlPage::setValveState(int state)
 {
     currentValveState = state;
-    if (!valveStatusLabel)
-        return;
-    const QString text = state == 1 ? "현재 상태: 개방" : state == 0 ? "현재 상태: 잠금" : "현재 상태: 확인 중";
-    valveStatusLabel->setText(text);
-    valveStatusLabel->setStyleSheet(QString("color:%1; font-size:11px; font-weight:bold; border:none;")
-                                     .arg(state == 1 ? kAccent : kTextSecondary));
+    updateButtonStyles(valveButtons, state);
+    updateStatusLabel(valveStatusLabel, valveButtons, state);
 }
 
 void ControlPage::setSirenState(int state)
 {
     currentSirenState = state;
-    if (!sirenStatusLabel)
+    updateButtonStyles(sirenButtons, state);
+    updateStatusLabel(sirenStatusLabel, sirenButtons, state);
+}
+
+void ControlPage::updateButtonStyles(QVector<QPushButton *> &buttons, int activeIndex)
+{
+    for (int i = 0; i < buttons.size(); ++i) {
+        const bool active = (i == activeIndex);
+        buttons[i]->setStyleSheet(active
+            ? QString("QPushButton { background-color:%1; color:white; border:none; border-radius:6px; font-size:14px; font-weight:bold; }").arg(kAccent)
+            : QString("QPushButton { background-color:#232333; color:%1; border:none; border-radius:6px; font-size:14px; }").arg(kTextSecondary));
+    }
+}
+
+void ControlPage::updateStatusLabel(QLabel *label, QVector<QPushButton *> &buttons, int activeIndex)
+{
+    if (!label)
         return;
-    const QString text = state == 1 ? "현재 상태: ON" : state == 0 ? "현재 상태: OFF" : "현재 상태: 확인 중";
-    sirenStatusLabel->setText(text);
-    sirenStatusLabel->setStyleSheet(QString("color:%1; font-size:11px; font-weight:bold; border:none;")
-                                     .arg(state == 1 ? "#f87171" : kTextSecondary));
+    if (activeIndex >= 0 && activeIndex < buttons.size()) {
+        label->setText("현재 상태: " + buttons[activeIndex]->text());
+        label->setStyleSheet(QString("color:%1; font-size:13px; font-weight:bold; border:none;").arg(kAccent));
+    } else {
+        label->setText("현재 상태: 확인 중");
+        label->setStyleSheet(QString("color:%1; font-size:13px; font-weight:bold; border:none;").arg(kTextSecondary));
+    }
 }
 
 QWidget *ControlPage::createFanControlCard()
 {
     auto *card = new QFrame;
-    card->setFixedSize(220, 110);
+    card->setFixedSize(260, 150);
     card->setStyleSheet(QString("QFrame { background-color:%1; border:1px solid %2; border-radius:8px; }")
                          .arg(kCardBg, kCardBorder));
 
     auto *layout = new QVBoxLayout(card);
-    layout->setContentsMargins(14, 10, 14, 10);
+    layout->setContentsMargins(16, 14, 16, 14);
+    layout->setSpacing(6);
     auto *titleLbl = new QLabel("환기팬 속도 제어", card);
-    titleLbl->setStyleSheet(QString("color:%1; font-weight:bold; border:none;").arg(kTextPrimary));
+    titleLbl->setStyleSheet(QString("color:%1; font-size:15px; font-weight:bold; border:none;").arg(kTextPrimary));
     auto *descLabel = new QLabel("IP66 환기팬 속도 제어", card);
     descLabel->setWordWrap(true);
-    descLabel->setStyleSheet(QString("color:%1; font-size:11px; border:none;").arg(kTextSecondary));
+    descLabel->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kTextSecondary));
     layout->addWidget(titleLbl);
     layout->addWidget(descLabel);
+
+    fanStatusLabel = new QLabel(card);
+    layout->addWidget(fanStatusLabel);
     layout->addStretch();
 
-    struct FanLevel { QString action; QString label; };
-    static const QVector<FanLevel> kLevels = {
+    static const QVector<ControlOption> kOptions = {
         { "off", "OFF" }, { "low", "약" }, { "mid", "중" }, { "high", "강" }
     };
 
     auto *btnRow = new QHBoxLayout;
     btnRow->setSpacing(6);
     fanButtons.clear();
-    for (int i = 0; i < kLevels.size(); ++i) {
-        const FanLevel &lvl = kLevels[i];
-        auto *btn = new QPushButton(lvl.label, card);
+    for (int i = 0; i < kOptions.size(); ++i) {
+        const ControlOption &opt = kOptions[i];
+        auto *btn = new QPushButton(opt.label, card);
         btn->setCursor(Qt::PointingHandCursor);
-        btn->setFixedSize(42, 28); // 네 버튼 크기를 동일하게 고정
-        connect(btn, &QPushButton::clicked, this, [this, lvl, i]() {
-            if (showConfirmDialog("환기팬 " + lvl.label)) {
-                emit controlRequested("fan", lvl.action, "환기팬 " + lvl.label);
-                // 서버 응답(actuator_status)을 기다리지 않고 클릭 즉시 하이라이트
-                currentFanLevel = i;
-                updateFanButtonStyles(currentFanLevel);
+        btn->setFixedSize(52, 34); // 네 버튼 크기를 동일하게 고정
+        connect(btn, &QPushButton::clicked, this, [this, opt, i]() {
+            if (showConfirmDialog("환기팬 " + opt.label)) {
+                emit controlRequested("fan", opt.action, "환기팬 " + opt.label);
+                // 서버 응답(actuator_status)을 기다리지 않고 클릭 즉시 반영
+                setFanLevel(i);
             }
         });
         fanButtons.append(btn);
@@ -132,54 +139,138 @@ QWidget *ControlPage::createFanControlCard()
     }
     layout->addLayout(btnRow);
 
-    updateFanButtonStyles(currentFanLevel); // 서버 상태를 아직 모르므로 전부 비활성 표시로 시작
+    setFanLevel(currentFanLevel); // 서버 상태를 아직 모르므로 전부 비활성 표시로 시작
     return card;
 }
 
-void ControlPage::updateFanButtonStyles(int activeLevel)
-{
-    for (int i = 0; i < fanButtons.size(); ++i) {
-        const bool active = (i == activeLevel);
-        fanButtons[i]->setStyleSheet(active
-            ? QString("QPushButton { background-color:%1; color:white; border:none; border-radius:4px; font-weight:bold; }").arg(kAccent)
-            : QString("QPushButton { background-color:#232333; color:%1; border:none; border-radius:4px; }").arg(kTextSecondary));
-    }
-}
-
-QWidget *ControlPage::createControlCard(const QString &title, const QString &desc,
-                                         const std::function<QString()> &actionTitleProvider,
-                                         const std::function<void()> &onConfirm,
-                                         QLabel **statusLabelOut)
+QWidget *ControlPage::createValveControlCard()
 {
     auto *card = new QFrame;
-    card->setFixedSize(220, 110);
-    card->setCursor(Qt::PointingHandCursor);
-    card->setStyleSheet(QString("QFrame { background-color:%1; border:1px solid %2; border-radius:8px; }"
-                                 "QFrame:hover { border:1px solid %3; }").arg(kCardBg, kCardBorder, kAccent));
+    card->setFixedSize(260, 150);
+    card->setStyleSheet(QString("QFrame { background-color:%1; border:1px solid %2; border-radius:8px; }")
+                         .arg(kCardBg, kCardBorder));
+
     auto *layout = new QVBoxLayout(card);
-    auto *titleLbl = new QLabel(title, card);
-    titleLbl->setStyleSheet(QString("color:%1; font-weight:bold; border:none;").arg(kTextPrimary));
-    auto *descLabel = new QLabel(desc, card);
+    layout->setContentsMargins(16, 14, 16, 14);
+    layout->setSpacing(6);
+    auto *titleLbl = new QLabel("밸브 개방 / 잠금", card);
+    titleLbl->setStyleSheet(QString("color:%1; font-size:15px; font-weight:bold; border:none;").arg(kTextPrimary));
+    auto *descLabel = new QLabel("가스 공급 솔레노이드 밸브", card);
     descLabel->setWordWrap(true);
-    descLabel->setStyleSheet(QString("color:%1; font-size:11px; border:none;").arg(kTextSecondary));
+    descLabel->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kTextSecondary));
     layout->addWidget(titleLbl);
     layout->addWidget(descLabel);
 
-    if (statusLabelOut) {
-        auto *statusLabel = new QLabel("현재 상태: 확인 중", card);
-        statusLabel->setStyleSheet(QString("color:%1; font-size:11px; font-weight:bold; border:none;").arg(kTextSecondary));
-        layout->addWidget(statusLabel);
-        *statusLabelOut = statusLabel;
-    }
+    valveStatusLabel = new QLabel(card);
+    layout->addWidget(valveStatusLabel);
     layout->addStretch();
 
-    auto *button = new QPushButton(card);
-    button->setStyleSheet("background:transparent; border:none;");
-    button->setGeometry(card->rect());
-    connect(button, &QPushButton::clicked, this, [this, actionTitleProvider, onConfirm]() {
-        if (showConfirmDialog(actionTitleProvider()))
-            onConfirm();
+    static const QVector<ControlOption> kOptions = {
+        { "close", "잠금" }, { "open", "개방" }
+    };
+
+    auto *btnRow = new QHBoxLayout;
+    btnRow->setSpacing(8);
+    valveButtons.clear();
+    for (int i = 0; i < kOptions.size(); ++i) {
+        const ControlOption &opt = kOptions[i];
+        auto *btn = new QPushButton(opt.label, card);
+        btn->setCursor(Qt::PointingHandCursor);
+        btn->setFixedSize(110, 34);
+        connect(btn, &QPushButton::clicked, this, [this, opt, i]() {
+            if (showConfirmDialog("밸브 " + opt.label)) {
+                emit controlRequested("valve", opt.action, "밸브 " + opt.label);
+                setValveState(i); // 서버 응답을 기다리지 않고 클릭 즉시 반영
+            }
+        });
+        valveButtons.append(btn);
+        btnRow->addWidget(btn);
+    }
+    layout->addLayout(btnRow);
+
+    setValveState(currentValveState);
+    return card;
+}
+
+QWidget *ControlPage::createSirenControlCard()
+{
+    auto *card = new QFrame;
+    card->setFixedSize(260, 150);
+    card->setStyleSheet(QString("QFrame { background-color:%1; border:1px solid %2; border-radius:8px; }")
+                         .arg(kCardBg, kCardBorder));
+
+    auto *layout = new QVBoxLayout(card);
+    layout->setContentsMargins(16, 14, 16, 14);
+    layout->setSpacing(6);
+    auto *titleLbl = new QLabel("사이렌 ON / OFF", card);
+    titleLbl->setStyleSheet(QString("color:%1; font-size:15px; font-weight:bold; border:none;").arg(kTextPrimary));
+    auto *descLabel = new QLabel("경보음 및 경고 LED 제어", card);
+    descLabel->setWordWrap(true);
+    descLabel->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kTextSecondary));
+    layout->addWidget(titleLbl);
+    layout->addWidget(descLabel);
+
+    sirenStatusLabel = new QLabel(card);
+    layout->addWidget(sirenStatusLabel);
+    layout->addStretch();
+
+    static const QVector<ControlOption> kOptions = {
+        { "off", "OFF" }, { "on", "ON" }
+    };
+
+    auto *btnRow = new QHBoxLayout;
+    btnRow->setSpacing(8);
+    sirenButtons.clear();
+    for (int i = 0; i < kOptions.size(); ++i) {
+        const ControlOption &opt = kOptions[i];
+        auto *btn = new QPushButton(opt.label, card);
+        btn->setCursor(Qt::PointingHandCursor);
+        btn->setFixedSize(110, 34);
+        connect(btn, &QPushButton::clicked, this, [this, opt, i]() {
+            if (showConfirmDialog("사이렌 " + opt.label)) {
+                emit controlRequested("siren", opt.action, "사이렌 " + opt.label);
+                setSirenState(i); // 서버 응답을 기다리지 않고 클릭 즉시 반영
+            }
+        });
+        sirenButtons.append(btn);
+        btnRow->addWidget(btn);
+    }
+    layout->addLayout(btnRow);
+
+    setSirenState(currentSirenState);
+    return card;
+}
+
+QWidget *ControlPage::createEvacuationCard()
+{
+    auto *card = new QFrame;
+    card->setFixedSize(260, 150);
+    card->setCursor(Qt::PointingHandCursor);
+    card->setStyleSheet("QFrame { background-color:#2a1414; border:1px solid #7f2f2f; border-radius:8px; }"
+                         "QFrame:hover { border:1px solid #ef4444; }");
+
+    auto *layout = new QVBoxLayout(card);
+    layout->setContentsMargins(16, 14, 16, 14);
+    layout->setSpacing(6);
+    auto *titleLbl = new QLabel("대피 모드 발동", card);
+    titleLbl->setStyleSheet("color:#fca5a5; font-size:15px; font-weight:bold; border:none;");
+    auto *descLabel = new QLabel("전 구역 대피 경보 발령 (관리자 수동)", card);
+    descLabel->setWordWrap(true);
+    descLabel->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kTextSecondary));
+    layout->addWidget(titleLbl);
+    layout->addWidget(descLabel);
+    layout->addStretch();
+
+    auto *triggerBtn = new QPushButton("대피 모드 실행", card);
+    triggerBtn->setCursor(Qt::PointingHandCursor);
+    triggerBtn->setFixedHeight(40);
+    triggerBtn->setStyleSheet("QPushButton { background-color:#ef4444; color:white; border:none; border-radius:6px; font-size:14px; font-weight:bold; }"
+                               "QPushButton:hover { background-color:#dc2626; }");
+    connect(triggerBtn, &QPushButton::clicked, this, [this]() {
+        if (showConfirmDialog("대피 모드 실행"))
+            emit controlRequested("evacuation", "trigger", "대피 모드 실행");
     });
+    layout->addWidget(triggerBtn);
 
     return card;
 }
