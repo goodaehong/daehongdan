@@ -69,6 +69,17 @@ QString ServerLink::sendControl(const QString &zone, const QString &target, cons
     return cmdId;
 }
 
+void ServerLink::sendWarningAck(const QString &zone, const QString &response, const QString &admin)
+{
+    QJsonObject obj;
+    obj["type"] = "warning_ack";
+    obj["zone"] = zone;
+    obj["response"] = response;
+    obj["admin"] = admin;
+    obj["ts"] = QDateTime::currentSecsSinceEpoch();
+    sendLine(obj);
+}
+
 void ServerLink::sendFalseAlarmReport(int channel, int frameId, const QString &admin)
 {
     QJsonObject obj;
