@@ -1,4 +1,3 @@
-# IDE 및 빌드 산출물 배제
-build/
-.vscode/
-.settings/
+build
+mx.scratch
+!.settings
