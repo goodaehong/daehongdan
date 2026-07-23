@@ -15,6 +15,7 @@
 #include <random>
 #include <ctime>
 #include <atomic>
+#include <cstdlib>
 
 // 4채널 프레임 공유 저장소. 채널별 mutex로 워커/메인 간 경합 방지
 struct FrameStore {
@@ -61,6 +62,12 @@ public:
     }
     // ★★★ listen() 끝 ★★★
 
+    // 수신 스레드가 현재 연결된 Qt 소켓을 알아낼 수 있게 공개        
+    int clientFd() {
+        std::lock_guard<std::mutex> lock(mtx_);
+        return clientfd_;
+    }                                                               
+    
     // ── send(): 원래는 client 전용이었는데, 모드 분기하도록 내용 교체 ──
     void send(const std::string& line) {
         std::lock_guard<std::mutex> lock(mtx_);
@@ -118,25 +125,133 @@ private:
     int port_ = 0;                        //   원래 있던 것
 };
 
-// 판단 매트릭스: 카메라 감지 + 센서값 융합 → 종합 상태 판정          // <- 처음
-// 기획서 표의 "상태 판정" 부분. 자동 대응(사이렌·밸브)은 STM 연결 후 별도 모듈로
-std::string judgeState(bool camFire, bool camSmoke, float gasPpm, float smokePpm) {
-    bool gasHigh   = gasPpm   > 200.0f;   // 임계값: 유나님 센서 보정 후 확정
+// ── JSON 필드 추출 헬퍼 (라이브러리 없이 문자열 검색으로) ──          // <- 처음
+std::string jsonStr(const std::string& j, const std::string& key) {
+    std::string pat = "\"" + key + "\":\"";
+    size_t s = j.find(pat);
+    if (s == std::string::npos) return "";
+    s += pat.size();
+    size_t e = j.find('"', s);
+    return (e == std::string::npos) ? "" : j.substr(s, e - s);
+}
+int jsonInt(const std::string& j, const std::string& key, int def) {
+    std::string pat = "\"" + key + "\":";
+    size_t s = j.find(pat);
+    if (s == std::string::npos) return def;
+    return std::atoi(j.c_str() + s + pat.size());
+}
+
+// ── 액추에이터 현재 상태 (명세서 actuator_status 값 그대로) ──
+struct ActuatorState {
+    std::atomic<int> fan{0};     // 0=OFF, 1~3=약/중/강
+    std::atomic<int> valve{1};   // 1=열림(평상시), 0=닫힘
+    std::atomic<int> siren{0};   // 0=OFF, 1=ON
+};
+ActuatorState actState;
+std::mutex uartMtx;   // 자동(센서 스레드)·수동(수신 스레드) 명령 직렬화
+
+// ── 명령 실행부. 수동·자동 모두 여기로 수렴. 나중에 STM UART도 이 안에만 추가 ──
+void executeCommand(const std::string& target, const std::string& action,
+                    int value, const std::string& src, Sender& sender) {
+    std::lock_guard<std::mutex> lock(uartMtx);   // 동시 실행 방지 (한 명령씩)
+
+    if      (target == "fan") {                                      // 
+        if      (action == "off")  actState.fan = 0;
+        else if (action == "low")  actState.fan = 1;
+        else if (action == "mid")  actState.fan = 2;
+        else if (action == "high") actState.fan = 3;
+        else                       actState.fan = value;   // 자동 대응 등 value 방식 폴백
+    }                                                               
+    else if (target == "valve") actState.valve = (action == "open") ? 1 : 0;
+    else if (target == "siren") actState.siren = (action == "on")   ? 1 : 0;
+    else return;   // 모르는 대상은 무시
+
+    std::cout << "[제어][" << src << "] " << target << " action=" << action   
+              << " value=" << value << "\n";
+    // TODO(STM 연결 후): 여기서 UART 패킷 전송 + ACK 수신
+
+    // 실행 결과를 Qt에 보고 → 화면의 팬/밸브/사이렌 표시 갱신
+    std::ostringstream oss;
+    oss << "{\"type\":\"actuator_status\",\"fan\":" << actState.fan
+        << ",\"valve\":" << actState.valve
+        << ",\"siren\":" << actState.siren << "}";
+    sender.send(oss.str());
+}
+
+// ── 수신한 한 줄 처리: control이면 실행 + ack 응답 ──
+void handleControl(const std::string& line, Sender& sender) {
+    if (line.find("\"type\":\"control\"") == std::string::npos) return;
+
+    std::string cmdId  = jsonStr(line, "cmdId");
+    std::string zone   = jsonStr(line, "zone");
+    std::string target = jsonStr(line, "target");
+    std::string action = jsonStr(line, "action");
+    int value          = jsonInt(line, "value", 0);
+
+    executeCommand(target, action, value, "수동", sender);
+
+    // 명세서 control_ack 규격: cmdId 반사, 지금은 무조건 ok (STM 없으니 실패할 게 없음)
+    std::ostringstream oss;
+    oss << "{\"type\":\"control_ack\",\"cmdId\":\"" << cmdId
+        << "\",\"zone\":\"" << zone << "\",\"target\":\"" << target
+        << "\",\"result\":\"ok\",\"reason\":null,\"ts\":" << std::time(nullptr) << "}";
+    sender.send(oss.str());
+}
+
+// ── 수신 스레드: Qt→서버 방향 개통. 나중에 광렬님 waitAndPopRxCommand로 교체되는 부분 ──
+void recvWorker(Sender& sender) {
+    std::string buf;
+    char tmp[512];
+    while (true) {
+        int fd = sender.clientFd();
+        if (fd < 0) {   // 아직 Qt 안 붙음
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            continue;
+        }
+        ssize_t n = ::recv(fd, tmp, sizeof(tmp), MSG_DONTWAIT);   // 논블로킹 읽기
+        if (n > 0) {
+            buf.append(tmp, n);
+            size_t pos;
+            while ((pos = buf.find('\n')) != std::string::npos) {  // \n 단위로 자르기
+                std::string line = buf.substr(0, pos);
+                buf.erase(0, pos + 1);
+                handleControl(line, sender);
+            }
+        } else if (n == 0) {   // 연결 끊김
+            buf.clear();
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        } else {               // 데이터 없음(EAGAIN) 또는 일시 에러
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    }
+}                                                                    
+
+
+// 판단 매트릭스: 카메라 감지 + 센서값 융합 → 종합 상태 + 원인          // <- 처음 (기존 judgeState 통째 교체)
+struct Judgement {
+    std::string state;   // "safe"/"warning"/"danger" → Qt로 전송
+    std::string cause;   // 대응 선택용 (서버 내부용, 전송 안 함)
+};
+
+Judgement judgeState(bool camFire, bool camSmoke, float gasPpm, float smokePpm) {
+    bool gasHigh   = gasPpm   > 200.0f;   // 임계값: 유나님 보정 후 확정
     bool smokeHigh = smokePpm > 150.0f;
 
-    if (camFire  && gasHigh)   return "danger";   // 5행: 가스+화재 동시 (최고 위험)
-    if (camFire)               return "danger";   // 4행: 화염 감지
-    if (camSmoke && smokeHigh) return "danger";   // 3행: 연기 영상+센서 동시 반응
-    if (gasHigh)               return "danger";   // 1행: 가스 누출 단독
-    if (camSmoke)              return "warning";  // 2행: 연기 영상만 (관리자 대기)
-    return "safe";
-}
+    if (camFire  && gasHigh)   return {"danger",  "fire_gas"};    // 우선순위 1
+    if (camFire)               return {"danger",  "flame"};       // 2
+    if (camSmoke && smokeHigh) return {"danger",  "smoke_fire"};  // 3
+    if (gasHigh)               return {"danger",  "gas"};         // 4
+    if (camSmoke)              return {"warning", "smoke_watch"}; // 5
+    return {"safe", ""};
+}                                                                    // <- 끝
 
 // mock 센서 스레드. 부품 오면 값 생성부만 실제 드라이버 읽기로 교체
 void sensorWorker(Sender& sender) {
     std::mt19937 rng(std::random_device{}());
     std::uniform_real_distribution<float> jitter(-1.0f, 1.0f);
     int tick = 0;
+    std::string prevState = "safe"; 
+    std::string prevCause = "";
 
     while (true) {
         // 평상시 기준값 + 흔들림
@@ -158,6 +273,33 @@ void sensorWorker(Sender& sender) {
             if (detState[i].smoke) camSmoke = true;
         }
 
+        Judgement j = judgeState(camFire, camSmoke, gasPpm, smokePpm);     
+
+        // 엣지 트리거: 위험 "진입" 또는 위험 중 "원인 변경" 순간에만 발사
+        // (가스로 팬 최대 배출 중 → 불 붙음(fire_gas) → 팬 차단으로 뒤집어야 함)
+        if (j.state == "danger" && (prevState != "danger" || j.cause != prevCause)) {
+            std::string src = "자동:" + j.cause;
+            if (j.cause == "gas") {                    // 4행: 가스만 → 팬 최대 (배출)
+                executeCommand("siren", "on",    0, src, sender);
+                executeCommand("valve", "close", 0, src, sender);
+                executeCommand("fan",   "high",  0, src, sender);
+            }
+            else {                                     // 1~3행 화재 계열 → 팬 차단 (산소 차단)
+                executeCommand("siren", "on",    0, src, sender);
+                executeCommand("valve", "close", 0, src, sender);
+                executeCommand("fan",   "off",   0, src, sender);
+                // TODO(광렬님 STM 후): 전광판 위험 화면 (cause별 문구 구분 가능)
+            }
+        }
+        else if (prevState == "danger" && j.state == "safe") {
+            std::string src = "자동:해제";
+            executeCommand("siren", "off",  0, src, sender);
+            executeCommand("valve", "open", 0, src, sender);   // TODO: 자동 재개방 여부 팀 결정
+            executeCommand("fan",   "low",  0, src, sender);   // 평상시 약 가동 복귀
+        }
+        prevState = j.state;
+        prevCause = j.cause;                                         
+
         // ── [JSON 조립] 명세서 "센서 정보" 스키마 그대로 ──
         std::ostringstream oss;
         oss << std::fixed << std::setprecision(1);
@@ -167,10 +309,18 @@ void sensorWorker(Sender& sender) {
             << ",\"humidity\":" << humidity
             << ",\"gasPpm\":" << gasPpm
             << ",\"smokePpm\":" << smokePpm
-            << ",\"state\":\"" << judgeState(camFire, camSmoke, gasPpm, smokePpm) << "\"}";
+            << ",\"state\":\"" << j.state << "\"}";
         sender.send(oss.str());
 
         tick++;
+        if (tick % 5 == 0) {                                       
+            // 액추에이터 상태 주기 보고: Qt가 새로 접속해도 화면 동기화되게
+            std::ostringstream st;
+            st << "{\"type\":\"actuator_status\",\"fan\":" << actState.fan
+               << ",\"valve\":" << actState.valve
+               << ",\"siren\":" << actState.siren << "}";
+            sender.send(st.str());
+        }  
         std::this_thread::sleep_for(std::chrono::seconds(1));  // 전송 주기 1초
     }
 }
@@ -284,6 +434,9 @@ int main() {
 
     std::thread sensorThread(sensorWorker, std::ref(sender));    
     sensorThread.detach();
+
+    std::thread recvThread(recvWorker, std::ref(sender));
+    recvThread.detach();
 
     for (int i = 0; i < 4; i++) {
         threads[i] = std::thread(worker, i, std::ref(store), std::ref(sender));
