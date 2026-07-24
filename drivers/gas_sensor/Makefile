@@ -5,7 +5,11 @@ obj-m += ads1115_driver.o
 KDIR := /lib/modules/$(shell uname -r)/build
 PWD := $(shell pwd)
 
-.PHONY: all clean load unload
+DTS := ../../dts/ads1115-overlay.dts
+DTBO := ads1115.dtbo
+OVERLAY_DIR := /boot/firmware/overlays
+
+.PHONY: all clean load unload dt-apply dt-remove
 
 # 커널 모듈 빌드
 all:
@@ -20,3 +24,11 @@ load:
 
 unload:
 	sudo rmmod ads1115_driver
+
+dt-apply:
+	dtc -@ -I dts -O dtb -o $(DTBO) $(DTS)
+	sudo cp $(DTBO) $(OVERLAY_DIR)/
+	sudo dtoverlay ads1115
+
+dt-remove:
+	sudo dtoverlay -r ads1115
