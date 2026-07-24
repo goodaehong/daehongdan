@@ -60,3 +60,14 @@ build_check/
 *.user
 .qtcreator/
 CMakeLists.txt.user*
+drivers/gas_sensor/*.o
+drivers/gas_sensor/*.ko
+drivers/gas_sensor/*.mod
+drivers/gas_sensor/*.mod.c
+drivers/gas_sensor/*.mod.o
+drivers/gas_sensor/*.symvers
+drivers/gas_sensor/*.order
+drivers/gas_sensor/.*.cmd
+drivers/gas_sensor/.tmp_versions/
+drivers/gas_sensor/*.dtbo
+drivers/gas_sensor/Module.symvers

@@ -5,7 +5,7 @@
     compatible = "brcm,bcm2711"; // RPi 4 계열
 
     fragment@0 { // 디바이스 노드 자체(드라이버가 매칭할 compatible)
-        target-path = "/";
+        target-path = "/"; // 트리 최상단에 새 노드 생성
         __overlay__ {
             dht22: dht22 {
                 compatible = "aosong,dht22";

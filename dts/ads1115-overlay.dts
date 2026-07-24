@@ -1,0 +1,22 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+    compatible = "brcm,bcm2711"; // RPi 4 계열
+
+    fragment@0 {
+        target = <&i2c1>; // I2C1 버스(GPIO2/3, 물리핀3/5)에 붙임
+        __overlay__ {
+            #address-cells = <1>;
+            #size-cells = <0>;
+            status = "okay";
+
+            ads1115: ads1115@48 {
+                compatible = "ti,ads1115";
+                reg = <0x48>; // i2cdetect로 확인된 주소
+                status = "okay";
+            };
+        };
+    };
+};
+
