@@ -149,6 +149,7 @@ struct ActuatorState {
 };
 ActuatorState actState;
 std::mutex uartMtx;   // 자동(센서 스레드)·수동(수신 스레드) 명령 직렬화
+std::atomic<bool> g_warningAck{false};   // 경고 확인(warning_ack) 수신 플래그. 수신 스레드가 set, 센서 스레드가 read/clear
 
 // ── 명령 실행부. 수동·자동 모두 여기로 수렴. 나중에 STM UART도 이 안에만 추가 ──
 void executeCommand(const std::string& target, const std::string& action,
@@ -215,7 +216,10 @@ void recvWorker(Sender& sender) {
             while ((pos = buf.find('\n')) != std::string::npos) {  // \n 단위로 자르기
                 std::string line = buf.substr(0, pos);
                 buf.erase(0, pos + 1);
-                handleControl(line, sender);
+                if (line.find("\"type\":\"warning_ack\"") != std::string::npos)  
+                    g_warningAck = true;   // 관리자 인지 → 센서 스레드가 타이머 취소
+                else                 
+                    handleControl(line, sender);
             }
         } else if (n == 0) {   // 연결 끊김
             buf.clear();
@@ -252,6 +256,9 @@ void sensorWorker(Sender& sender) {
     int tick = 0;
     std::string prevState = "safe"; 
     std::string prevCause = "";
+    const int WARN_TIMEOUT = 10;   // 경고 무응답 자동 전환까지 (초, N)   
+    int  warnStartTick = -1;       // warning 진입 tick (-1 = 타이머 비활성)
+    bool forcedDanger  = false;    // 무응답으로 강제 위험 전환된 상태     
 
     while (true) {
         // 평상시 기준값 + 흔들림
@@ -274,6 +281,34 @@ void sensorWorker(Sender& sender) {
         }
 
         Judgement j = judgeState(camFire, camSmoke, gasPpm, smokePpm);     
+
+        // ── 경고 무응답 타이머: warning 지속 중 관리자 미확인 시 위험 강제 전환 ──   // <- 처음
+        int warnRemain = -1;   // -1 = JSON에 미포함 (warning 아닐 때)
+        if (j.state == "warning") {
+            if (warnStartTick < 0) {        // warning 진입 순간
+                warnStartTick = tick;
+                g_warningAck  = false;      // 새 경고 시작 → 이전 ack 무효화
+                forcedDanger  = false;
+            }
+            if (g_warningAck.load()) {
+                warnRemain = 0;             // 관리자 확인함 → 카운트다운 종료(전환 안 함)
+            } else {
+                warnRemain = WARN_TIMEOUT - (tick - warnStartTick);
+                if (warnRemain <= 0) {      // 무응답 → 강제 위험 전환
+                    warnRemain   = 0;
+                    forcedDanger = true;
+                }
+            }
+        } else {
+            warnStartTick = -1;             // warning 벗어남 → 타이머 리셋
+            if (j.state == "safe") forcedDanger = false;   // 안전 복귀 시 강제상태 해제
+        }
+
+        // 강제 전환: 자연 판단이 warning이어도 danger로 승격 (미확인 연기 → 화재계열 대응=팬 차단)
+        if (forcedDanger && j.state == "warning") {
+            j.state = "danger";
+            j.cause = "smoke_fire";
+        }                                                                            // <- 끝
 
         // 엣지 트리거: 위험 "진입" 또는 위험 중 "원인 변경" 순간에만 발사
         // (가스로 팬 최대 배출 중 → 불 붙음(fire_gas) → 팬 차단으로 뒤집어야 함)
@@ -309,7 +344,10 @@ void sensorWorker(Sender& sender) {
             << ",\"humidity\":" << humidity
             << ",\"gasPpm\":" << gasPpm
             << ",\"smokePpm\":" << smokePpm
-            << ",\"state\":\"" << j.state << "\"}";
+            << ",\"state\":\"" << j.state << "\""
+            << ",\"cause\":\"" << j.cause << "\"";                  
+        if (j.state == "warning") oss << ",\"warnRemain\":" << warnRemain;
+        oss << "}";                                                 
         sender.send(oss.str());
 
         tick++;
