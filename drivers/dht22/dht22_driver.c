@@ -12,14 +12,15 @@
 #include <linux/err.h>
 #include <linux/kernel.h>   // abs() 매크로 여기 있음
 
-#define DHT22_EDGES_PER_READ     83 // preamble 2 + data 40bit*2 + 여유 1
+#define DHT22_BITS_PER_READ      40
+#define DHT22_DECODE_SPAN        (2 * DHT22_BITS_PER_READ + 1)  // 81 - 디코딩에 필요한 최소 연속 엣지 수
+#define DHT22_EDGES_PER_READ     85   // 배열 상한(오버플로 방지용). 완료 트리거로는 쓰이지 않음 - 실제 완료 판정은 DHT22_DECODE_SPAN 기준
 
 #define DHT22_START_LOW_US_MIN 1000 // start pulse: 최소 1ms
 #define DHT22_START_LOW_US_MAX 2000 // 최대 2ms
 #define DHT22_WAIT_TIMEOUT_JIFFIES HZ // 최대 1초 대기
 
 #define DHT22_EDGES_PREAMBLE 2 // start 응답용 low+high 2개 엣지
-#define DHT22_BITS_PER_READ 40
 #define DHT22_BIT_THRESHOLD_NS 49000 // 이 값보다 HIGH 폭이 길면 1, 짧으면 0
 
 #define DHT22_CACHE_VALID_NS 2000000000LL // 2초 (DHT22 최소 측정 간격 스펙)
@@ -92,16 +93,12 @@ static int dht22_start_and_wait(struct dht22_data *data) {
 
     free_irq(data->irq, data);
 
-    if (ret == 0) {
-        dev_err(data->dev, "dht22: timeout, edges=%d\n", data->num_edges);
-        ret = -ETIMEDOUT;
-        goto err;
-    } else if (ret < 0) {
-        goto err; // -ERESTARTSYS (signal에 의한 중단)
-    }
+    if (ret < 0) goto err; // -ERESTARTSYS (signal에 의한 중단) - 이건 진짜 에러
 
-    if (data->num_edges < DHT22_EDGES_PER_READ) {
-        dev_err(data->dev, "dht22: only %d edges detected\n", data->num_edges);
+    // ret == 0(타임아웃)이든 완료 신호를 받았든, 실제로 충분한 엣지가 잡혔으면 성공으로 취급
+    if (data->num_edges < DHT22_DECODE_SPAN) {
+        dev_err(data->dev, "dht22: only %d edges detected (need >= %d)\n",
+                 data->num_edges, DHT22_DECODE_SPAN);        
         ret = -ETIMEDOUT;
         goto err;
     }
@@ -125,7 +122,7 @@ static unsigned char dht22_decode_byte(const char *bits) {
     return ret;
 }
 
-static int dht22_decode(struct dht22_data *data) {
+static int dht22_decode(struct dht22_data *data, int offset) {
     char bits[DHT22_BITS_PER_READ];
     unsigned char hum_int, hum_dec, temp_int, temp_dec, checksum;
     int i;
@@ -134,14 +131,11 @@ static int dht22_decode(struct dht22_data *data) {
     // edges[0], edges[1]은 preamble(센서의 80us LOW + 80us HIGH 응답)이므로 건너뜀
     // edges[2]부터 40비트 * 2엣지(LOW경계, HIGH경계) 페어로 데이터
     for (i = 0; i < DHT22_BITS_PER_READ; i++) {
-        int low_idx = DHT22_EDGES_PREAMBLE + 2 * i; // LOW->HIGH 전환 시점
-        int high_idx = DHT22_EDGES_PREAMBLE + 2 * i + 1; // HIGH->LOW 전환 시점
+        int low_idx = offset + 2 * i;
+        int high_idx = offset + 2 * i + 1;
 
         if (!data->edges[low_idx].value) {
-            // low_idx 시점에 값이 0이어야 정상 (하이->로우로 막 넘어온 직후가 아니라
-            // 로우->하이로 전환되는 엣지여야 함). 어긋나면 동기화 깨진 것.
-            dev_dbg(data->dev, "dht22: sync lost at edge %d\n", low_idx);
-            return -EIO;
+            return -EIO; // 이 offset으로는 정렬 안 맞음 -> 다른 offset 시도
         }
 
         pulse_width = data->edges[high_idx].ts - data->edges[low_idx].ts;
@@ -155,7 +149,6 @@ static int dht22_decode(struct dht22_data *data) {
     checksum = dht22_decode_byte(&bits[32]);
 
     if (((hum_int + hum_dec + temp_int + temp_dec) & 0xff) != checksum) {
-        dev_dbg(data->dev, "dht22: checksum mismatch\n");
         return -EIO;
     }
 
@@ -164,7 +157,6 @@ static int dht22_decode(struct dht22_data *data) {
     data->temperature = ((temp_int & 0x7f) << 8) + temp_dec;
     data->temperature *= (temp_int & 0x80) ? -1 : 1; // 0.1도 단위
     data->humidity = (hum_int << 8) + hum_dec; // 0.1% 단위
-
     data->last_read_ns = ktime_get_boottime_ns();
 
     return 0;
@@ -172,7 +164,7 @@ static int dht22_decode(struct dht22_data *data) {
 
 // sysfs show 함수 - 캐시 체크 + 측정 트리거
 static int dht22_measure(struct dht22_data *data) {
-    int ret;
+    int ret, offset;
 
     mutex_lock(&data->lock);
 
@@ -188,7 +180,14 @@ static int dht22_measure(struct dht22_data *data) {
         return ret;
     }
 
-    ret = dht22_decode(data);
+    // offset을 뒤에서부터 줄여가며 정렬이 맞는 지점 탐색
+    offset = data->num_edges - DHT22_DECODE_SPAN;
+    ret = -EIO;
+    for (; offset >= 0; offset--) {
+        ret = dht22_decode(data, offset);
+        if (!ret)
+            break;
+    }
 
     mutex_unlock(&data->lock);
     return ret;
