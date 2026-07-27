@@ -108,6 +108,50 @@ void Valve_OFF(void)
   HAL_GPIO_WritePin(GPIOC, RELAY_WARN_Pin, GPIO_PIN_RESET);
   current_status.valve = 0x00;
 }
+
+/**
+* @brief 팬 속도(Duty Cycle %) 설정 함수 (0% ~ 100%)
+* @param duty_percent: 0 (정지) ~ 100 (최대 속도)
+*/
+void Set_Fan_Duty(uint8_t duty_percent)
+{
+  if (duty_percent > 100) duty_percent = 100;
+
+  // Period(ARR) 값 기반으로 Compare(CCR) 값 계산
+  uint32_t period = htim3.Init.Period; // 현재 설정된 ARR 값 (49)
+  uint32_t pulse = ((period + 1) * duty_percent) / 100;
+
+  // TIM3 Channel 1 PWM Pulse 설정
+  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, pulse);
+}
+
+/**
+* @brief 단계를 이용한 팬 속도 설정 함수 (0: OFF, 1: 약, 2: 중, 3: 강)
+*/
+void Set_Fan_Speed_Level(uint8_t level)
+{
+  switch(level)
+  {
+    case 0: // OFF
+      Set_Fan_Duty(0);
+      current_status.fan_speed = 0x00;
+      break;
+    case 1: // 약풍 (30%)
+      Set_Fan_Duty(30);
+      current_status.fan_speed = 0x01;
+      break;
+    case 2: // 중풍 (60%)
+      Set_Fan_Duty(60);
+      current_status.fan_speed = 0x02;
+      break;
+    case 3: // 강풍 (100%)
+      Set_Fan_Duty(100);
+      current_status.fan_speed = 0x03;
+      break;
+    default:
+      break;
+  }
+}
 /* USER CODE END 0 */
 
 /**
@@ -142,7 +186,15 @@ int main(void)
   MX_TIM3_Init();
   MX_TIM4_Init();
   MX_USART2_UART_Init();
+
   /* USER CODE BEGIN 2 */
+  // 1. 팬 PWM 타이머(TIM3 CH1) 출력 시작
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+
+  // 2. 초기 팬 속도 설정 (예: OFF 상태 0%)
+  Set_Fan_Duty(0);
+
+  // 3. UART 수신 인터럽트 시작
   HAL_UART_Receive_IT(&huart2, &rx_byte, 1);
   /* USER CODE END 2 */
 
@@ -154,7 +206,8 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
     HAL_GPIO_TogglePin(GPIOA, LD2_Pin); //STM보드 LED 깜빡임
-    HAL_Delay(1000); // 500ms 지연
+    HAL_Delay(1000); // 1000ms 지연
+
   }
   /* USER CODE END 3 */
 }
@@ -478,8 +531,10 @@ void Send_Status_Response(void) {
 void Process_Integrated_Command(uint8_t cmd, uint8_t *data, uint8_t len) {
   switch(cmd) {
     case CMD_FAN_CTRL:
-      // 팬 구동 및 속도 제어
-      // 0x00(OFF), 0x01(약), 0x02(중), 0x03(강)
+      // 팬 구동 및 속도 제어: 0x00(OFF), 0x01(약), 0x02(중), 0x03(강)
+      if (len > 0) {
+        Set_Fan_Speed_Level(data[0]);
+      }
       Send_ACK(cmd); // 라즈베리파이로 잘 받았다고 응답
       break;
             
@@ -581,8 +636,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
   }
 }
 
-// 밸브 현재 상태를 저장하는 전역/정적 변수 (0: OFF, 1: ON)
-    static uint8_t valve_state = 0;
+// 현재 상태를 저장하는 전역/정적 변수 (0: OFF, 1: ON)
+    static uint8_t state = 0;
 
 // 외부 인터럽트(핀 상태 변화)가 발생하면 자동으로 호출되는 콜백 함수
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
@@ -611,15 +666,17 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 
     if (current_time - last_interrupt_time > 200)
     {
-      if (valve_state == 0)
+      if (state == 0)
       {
         Valve_ON();
-        valve_state = 1;
+        Set_Fan_Speed_Level(3); // 강풍 (100%)
+        state = 1;
       }
         else
         {
           Valve_OFF();
-          valve_state = 0;
+          Set_Fan_Speed_Level(0); // OFF (0%)
+          state = 0;
         }
       last_interrupt_time = current_time;
     }
