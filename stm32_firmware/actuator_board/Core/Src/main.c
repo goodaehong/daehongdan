@@ -92,7 +92,22 @@ void Send_Status_Response(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void Valve_ON(void)
+{
+  HAL_GPIO_WritePin(PUMP_CTRL_GPIO_Port, PUMP_CTRL_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOC, RELAY_VALVE_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOC, RELAY_WARN_Pin, GPIO_PIN_SET);
+  current_status.valve = 0x01;
+}
 
+void Valve_OFF(void)
+{
+  //펌프와 밸브를 동시에 off 시키는 함수
+  HAL_GPIO_WritePin(PUMP_CTRL_GPIO_Port, PUMP_CTRL_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, RELAY_VALVE_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, RELAY_WARN_Pin, GPIO_PIN_RESET);
+  current_status.valve = 0x00;
+}
 /* USER CODE END 0 */
 
 /**
@@ -138,8 +153,8 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    HAL_GPIO_TogglePin(GPIOA, LD2_Pin);
-    HAL_Delay(1000); 
+    HAL_GPIO_TogglePin(GPIOA, LD2_Pin); //STM보드 LED 깜빡임
+    HAL_Delay(1000); // 500ms 지연
   }
   /* USER CODE END 3 */
 }
@@ -566,26 +581,48 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
   }
 }
 
+// 밸브 현재 상태를 저장하는 전역/정적 변수 (0: OFF, 1: ON)
+    static uint8_t valve_state = 0;
+
 // 외부 인터럽트(핀 상태 변화)가 발생하면 자동으로 호출되는 콜백 함수
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
   // 방금 눌린 핀이 파란색 버튼(PC13)인지 확인
   if(GPIO_Pin == GPIO_PIN_13)
   {
-      // --------------------------------------------------
-      // 여기에 레귤레이터 초기화 코드를 작성합니다.
-      // --------------------------------------------------
+    // --------------------------------------------------
+    // 여기에 레귤레이터 초기화 코드를 작성합니다.
+    // --------------------------------------------------
       
-      // 예시 1: 펌프 릴레이(PB0) 강제 정지
-      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
+    // 예시 1: 펌프 릴레이(PB0) 강제 정지
+    //HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
       
-      // 예시 2: 밸브(PC1) 강제 차단
-      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET);
+    // 예시 2: 밸브(PC1) 강제 차단
+    //HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET);
       
-      // 예시 3: 부저(PB6) 끄기 (타이머 PWM 정지)
-      // HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_1);
+    // 예시 3: 부저(PB6) 끄기 (타이머 PWM 정지)
+    // HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_1);
       
-      // 상태 초기화 플래그 등...
+    // 상태 초기화 플래그 등...
+
+    // 채터링(디바운스) 방지: 200ms 이내 연속 입력 무시
+    static uint32_t last_interrupt_time = 0;
+    uint32_t current_time = HAL_GetTick();
+
+    if (current_time - last_interrupt_time > 200)
+    {
+      if (valve_state == 0)
+      {
+        Valve_ON();
+        valve_state = 1;
+      }
+        else
+        {
+          Valve_OFF();
+          valve_state = 0;
+        }
+      last_interrupt_time = current_time;
+    }
   }
 }
 /* USER CODE END 4 */
