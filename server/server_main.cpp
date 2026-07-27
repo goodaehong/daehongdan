@@ -234,7 +234,7 @@ void recvWorker(Sender& sender) {
 // 판단 매트릭스: 카메라 감지 + 센서값 융합 → 종합 상태 + 원인          // <- 처음 (기존 judgeState 통째 교체)
 struct Judgement {
     std::string state;   // "safe"/"warning"/"danger" → Qt로 전송
-    std::string cause;   // 대응 선택용 (서버 내부용, 전송 안 함)
+    std::string cause;   // 대응 선택용 
 };
 
 Judgement judgeState(bool camFire, bool camSmoke, float gasPpm, float smokePpm) {
@@ -282,7 +282,7 @@ void sensorWorker(Sender& sender) {
 
         Judgement j = judgeState(camFire, camSmoke, gasPpm, smokePpm);     
 
-        // ── 경고 무응답 타이머: warning 지속 중 관리자 미확인 시 위험 강제 전환 ──   // <- 처음
+        // ── 경고 무응답 타이머: warning 지속 중 관리자 미확인 시 위험 강제 전환 ──  
         int warnRemain = -1;   // -1 = JSON에 미포함 (warning 아닐 때)
         if (j.state == "warning") {
             if (warnStartTick < 0) {        // warning 진입 순간
@@ -308,7 +308,7 @@ void sensorWorker(Sender& sender) {
         if (forcedDanger && j.state == "warning") {
             j.state = "danger";
             j.cause = "smoke_fire";
-        }                                                                            // <- 끝
+        }                                                                         
 
         // 엣지 트리거: 위험 "진입" 또는 위험 중 "원인 변경" 순간에만 발사
         // (가스로 팬 최대 배출 중 → 불 붙음(fire_gas) → 팬 차단으로 뒤집어야 함)
