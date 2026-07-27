@@ -60,3 +60,8 @@ build_check/
 *.user
 .qtcreator/
 CMakeLists.txt.user*
+
+# TLS 인증서·키 (개인키는 커밋 금지)
+*.key
+*.crt
+auto.*
