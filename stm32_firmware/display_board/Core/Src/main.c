@@ -225,6 +225,189 @@ static void DrawStaticScene(void)
   DrawBitmap8(53, 53, HUB75_TinyNumber3, 8, HUB75_WHITE);     // 분 십의 자리
   DrawBitmap8(58, 53, HUB75_TinyNumber7, 8, HUB75_WHITE);     // 분 일의 자리
 }
+
+/* ===================== Pi <-> STM32 UART 프로토콜 ===================== */
+/* STX/ETX는 실제 팀 프로토콜 값으로 확정되면 여기만 바꾸면 됨 */
+#define PACKET_STX     0xAA
+#define PACKET_ETX     0x55
+#define CMD_UPDATE     0x80   /* 평상시 화면 갱신 (Pi -> STM32) */
+#define CMD_ACK        0xB0   /* 전광판 상태 응답 (STM32 -> Pi) */
+#define UPDATE_DATA_LEN 11    /* 표정,가스색,가스H,가스L,온도,습도,시,분,년,월,일 */
+
+static const uint8_t * const NumberDigits[10] = {
+  HUB75_Number0, HUB75_Number1, HUB75_Number2, HUB75_Number3, HUB75_Number4,
+  HUB75_Number5, HUB75_Number6, HUB75_Number7, HUB75_Number8, HUB75_Number9
+};
+static const uint8_t * const TinyNumberDigits[10] = {
+  HUB75_TinyNumber0, HUB75_TinyNumber1, HUB75_TinyNumber2, HUB75_TinyNumber3, HUB75_TinyNumber4,
+  HUB75_TinyNumber5, HUB75_TinyNumber6, HUB75_TinyNumber7, HUB75_TinyNumber8, HUB75_TinyNumber9
+};
+
+/* 인터럽트로 채워지는 수신 링버퍼 */
+#define RX_RING_SIZE 64
+static volatile uint8_t rxRing[RX_RING_SIZE];
+static volatile uint16_t rxHead = 0;
+static volatile uint16_t rxTail = 0;
+static uint8_t rxByte;
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == USART2)
+  {
+    uint16_t next = (rxHead + 1) % RX_RING_SIZE;
+    if (next != rxTail)   /* 링버퍼 꽉 찼으면 그냥 버림(오버런) */
+    {
+      rxRing[rxHead] = rxByte;
+      rxHead = next;
+    }
+    HAL_UART_Receive_IT(&huart2, &rxByte, 1);   /* 다음 1바이트 계속 수신 대기 */
+  }
+}
+
+/* 패킷 파서 상태 */
+typedef enum { WAIT_STX, WAIT_LEN, WAIT_CMD, WAIT_DATA, WAIT_CHECKSUM, WAIT_ETX } ParseState;
+static ParseState parseState = WAIT_STX;
+static uint8_t packetLen, packetCmd, packetData[16], packetDataIdx;
+
+/* 파싱된 최신 값들 (표정/가스색은 서로 다른 상태라 별도 변수로 관리) */
+static uint8_t g_face = 0;       /* 0=웃음,1=무표정,2=찡그림 */
+static uint8_t g_gasColor = 0;   /* 0=정상,1=주의,2=위험 */
+static uint16_t g_gas = 0;
+static uint8_t g_temp = 0, g_humidity = 0, g_hour = 0, g_minute = 0;
+static uint8_t g_year = 0, g_month = 0, g_day = 0;
+static volatile uint8_t g_dataUpdated = 0;
+
+static void SendAckPacket(uint8_t status)
+{
+  uint8_t packet[6];
+  packet[0] = PACKET_STX;
+  packet[1] = 1;              /* Data Length */
+  packet[2] = CMD_ACK;
+  packet[3] = status;
+  packet[4] = (uint8_t)(packet[1] + packet[2] + packet[3]);  /* 단순 합산 체크섬 */
+  packet[5] = PACKET_ETX;
+  HAL_UART_Transmit(&huart2, packet, sizeof(packet), 100);
+}
+
+static void HandlePacket(uint8_t cmd, const uint8_t *data, uint8_t len)
+{
+  if (cmd == CMD_UPDATE && len >= UPDATE_DATA_LEN)
+  {
+    g_face      = data[0];
+    g_gasColor  = data[1];
+    g_gas       = ((uint16_t)data[2] << 8) | data[3];
+    g_temp      = data[4];
+    g_humidity  = data[5];
+    g_hour      = data[6];
+    g_minute    = data[7];
+    g_year      = data[8];
+    g_month     = data[9];
+    g_day       = data[10];
+    g_dataUpdated = 1;
+  }
+}
+
+/* 링버퍼에서 바이트 하나씩 꺼내 상태기계로 패킷 조립 */
+static void ProcessRxByte(uint8_t b)
+{
+  static uint8_t checksumCalc;
+
+  switch (parseState)
+  {
+    case WAIT_STX:
+      if (b == PACKET_STX) { parseState = WAIT_LEN; }
+      break;
+
+    case WAIT_LEN:
+      packetLen = b;
+      packetDataIdx = 0;
+      checksumCalc = b;
+      parseState = WAIT_CMD;
+      break;
+
+    case WAIT_CMD:
+      packetCmd = b;
+      checksumCalc += b;
+      parseState = (packetLen > 0) ? WAIT_DATA : WAIT_CHECKSUM;
+      break;
+
+    case WAIT_DATA:
+      if (packetDataIdx < sizeof(packetData))
+      {
+        packetData[packetDataIdx++] = b;
+      }
+      checksumCalc += b;
+      if (packetDataIdx >= packetLen) { parseState = WAIT_CHECKSUM; }
+      break;
+
+    case WAIT_CHECKSUM:
+      parseState = (b == checksumCalc) ? WAIT_ETX : WAIT_STX;   /* 체크섬 틀리면 그냥 버리고 재동기화 */
+      break;
+
+    case WAIT_ETX:
+      if (b == PACKET_ETX)
+      {
+        HandlePacket(packetCmd, packetData, packetLen);
+      }
+      parseState = WAIT_STX;
+      break;
+
+    default:
+      parseState = WAIT_STX;
+      break;
+  }
+}
+
+static void PollUartRx(void)
+{
+  while (rxTail != rxHead)
+  {
+    uint8_t b = rxRing[rxTail];
+    rxTail = (rxTail + 1) % RX_RING_SIZE;
+    ProcessRxByte(b);
+  }
+}
+
+static void UpdateDigit(int16_t x, int16_t y, uint8_t digit, HUB75_Color color, uint8_t tiny)
+{
+  HUB75_FillRect(x, y, 8, 8, HUB75_BLACK);
+  DrawBitmap8(x, y, tiny ? TinyNumberDigits[digit] : NumberDigits[digit], 8, color);
+}
+
+/* 수신값을 실제 화면에 반영 */
+static void UpdateDynamicDisplay(void)
+{
+  DrawFace(g_face);
+  DrawGasGraph(g_gasColor);
+
+  /* 가스 농도 4자리 (천/백/십/일) */
+  UpdateDigit(29, 41, (uint8_t)((g_gas / 1000) % 10), HUB75_CYAN, 0);
+  UpdateDigit(34, 41, (uint8_t)((g_gas / 100) % 10), HUB75_CYAN, 0);
+  UpdateDigit(39, 41, (uint8_t)((g_gas / 10) % 10), HUB75_CYAN, 0);
+  UpdateDigit(44, 41, (uint8_t)(g_gas % 10), HUB75_CYAN, 0);
+
+  /* 온도 */
+  UpdateDigit(16, 27, (uint8_t)(g_temp / 10), HUB75_YELLOW, 0);
+  UpdateDigit(21, 27, (uint8_t)(g_temp % 10), HUB75_YELLOW, 0);
+
+  /* 습도 */
+  UpdateDigit(44, 27, (uint8_t)(g_humidity / 10), HUB75_BLUE, 0);
+  UpdateDigit(49, 27, (uint8_t)(g_humidity % 10), HUB75_BLUE, 0);
+
+  /* 시:분 */
+  UpdateDigit(41, 53, (uint8_t)(g_hour / 10), HUB75_WHITE, 1);
+  UpdateDigit(46, 53, (uint8_t)(g_hour % 10), HUB75_WHITE, 1);
+  UpdateDigit(53, 53, (uint8_t)(g_minute / 10), HUB75_WHITE, 1);
+  UpdateDigit(58, 53, (uint8_t)(g_minute % 10), HUB75_WHITE, 1);
+
+  /* 년/월/일 */
+  UpdateDigit(2, 53, (uint8_t)(g_year / 10), HUB75_WHITE, 1);
+  UpdateDigit(7, 53, (uint8_t)(g_year % 10), HUB75_WHITE, 1);
+  UpdateDigit(14, 53, (uint8_t)(g_month / 10), HUB75_WHITE, 1);
+  UpdateDigit(19, 53, (uint8_t)(g_month % 10), HUB75_WHITE, 1);
+  UpdateDigit(26, 53, (uint8_t)(g_day / 10), HUB75_WHITE, 1);
+  UpdateDigit(31, 53, (uint8_t)(g_day % 10), HUB75_WHITE, 1);
+}
 /* USER CODE END 0 */
 
 /**
@@ -262,13 +445,12 @@ int main(void)
   HUB75_SetBrightness(30); // 30%로 시작, 눈부시면 더 낮추기
   HUB75_Clear(HUB75_BLACK);
   DrawStaticScene();
+  HAL_UART_Receive_IT(&huart2, &rxByte, 1);   // UART 1바이트 수신 대기 시작
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   uint32_t lastHeartbeat = HAL_GetTick();
-  uint32_t lastFace = HAL_GetTick();
-  uint8_t faceIndex = 0;
 
   while (1)
   {
@@ -282,12 +464,13 @@ int main(void)
       lastHeartbeat = now;
     }
 
-    if (now - lastFace >= 3000)   // 표정 3종 3초마다 순환
+    PollUartRx();   // 링버퍼에 쌓인 바이트 파싱
+
+    if (g_dataUpdated)   // 새 패킷 도착 -> 화면 갱신 + ACK 응답
     {
-      faceIndex = (faceIndex + 1) % 3;
-      DrawFace(faceIndex);
-      DrawGasGraph(faceIndex);
-      lastFace = now;
+      UpdateDynamicDisplay();
+      SendAckPacket(0x00);
+      g_dataUpdated = 0;
     }
     /* USER CODE END WHILE */
 
@@ -370,7 +553,8 @@ static void MX_USART2_UART_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN USART2_Init 2 */
-
+  HAL_NVIC_SetPriority(USART2_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(USART2_IRQn);
   /* USER CODE END USART2_Init 2 */
 
 }
