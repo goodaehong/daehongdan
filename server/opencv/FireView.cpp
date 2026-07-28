@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <string>
+#include <vector>
 
 using namespace cv;
 using namespace std;
@@ -10,9 +11,12 @@ using namespace std;
 #if FIRE_ENABLE_GUI
 namespace
 {
-    void drawDetectionResult(Mat& display, const DetectionResult& result)
+    constexpr int GRID_TILE_WIDTH = 640;
+    constexpr int GRID_TILE_HEIGHT = 360;
+
+    void drawDetectionResult(Mat& display, const vector<DetectionBox>& boxes)
     {
-        for (const DetectionBox& detection : result.boxes)
+        for (const DetectionBox& detection : boxes)
         {
             const Scalar color = detection.type == DetectionType::FIRE
                 ? Scalar(0, 0, 255)
@@ -24,79 +28,181 @@ namespace
                 FONT_HERSHEY_SIMPLEX, 0.55, color, 2);
         }
     }
+
+    void drawOutlinedText(
+        Mat& image,
+        const string& text,
+        const Point& origin,
+        double scale,
+        const Scalar& color,
+        int thickness)
+    {
+        putText(image, text, origin, FONT_HERSHEY_SIMPLEX,
+            scale, Scalar(0, 0, 0), thickness + 3, LINE_AA);
+        putText(image, text, origin, FONT_HERSHEY_SIMPLEX,
+            scale, color, thickness, LINE_AA);
+    }
 }
 #endif
 
-bool FireView::show(const Mat& frame, const FireRuntimeSnapshot& snapshot, double displayFps)
+FireView::FireView(const string& windowName)
+    : windowName_(windowName), debugWindowName_(windowName + " - Fire Debug Masks")
 {
-#if !FIRE_ENABLE_GUI
-    (void)frame;
-    (void)snapshot;
-    (void)displayFps;
-    return true;
-#else
-    if (frame.empty()) return processEvents(1);
+}
+
+#if FIRE_ENABLE_GUI
+Mat FireView::makeChannelTile(
+    const Mat& frame,
+    const FireRuntimeSnapshot& fireSnapshot,
+    const SmokeRuntimeSnapshot& smokeSnapshot,
+    double displayFps,
+    const string& title) const
+{
+    Mat tile;
+    if (frame.empty())
+    {
+        tile = Mat::zeros(Size(GRID_TILE_WIDTH, GRID_TILE_HEIGHT), CV_8UC3);
+        drawOutlinedText(tile, title, Point(16, 30), 0.75, Scalar(255, 255, 255), 2);
+        drawOutlinedText(tile, "NO SIGNAL", Point(220, 190), 1.0, Scalar(0, 0, 255), 2);
+        rectangle(tile, Rect(0, 0, tile.cols, tile.rows), Scalar(90, 90, 90), 2);
+        return tile;
+    }
 
     Mat displaySource = frame.clone();
-    if (snapshot.boxIsFresh)
-        drawDetectionResult(displaySource, snapshot.detection);
+    if (fireSnapshot.boxIsFresh)
+        drawDetectionResult(displaySource, fireSnapshot.detection.boxes);
+    if (smokeSnapshot.boxIsFresh)
+        drawDetectionResult(displaySource, smokeSnapshot.detection.boxes);
 
-    Mat display;
-    resize(displaySource, display, Size(960, 540), 0, 0, INTER_AREA);
+    resize(displaySource, tile, Size(GRID_TILE_WIDTH, GRID_TILE_HEIGHT), 0, 0, INTER_AREA);
 
-    const bool candidateVisible = snapshot.resultIsFresh &&
-        snapshot.resultAgeMs <= snapshot.boxFreshLimitMs &&
-        (snapshot.detection.candidateDisplayReady ||
-            (snapshot.alarm.rawFireTiming &&
-                snapshot.alarm.pendingFireMs >= snapshot.alarm.requiredConfirmMs *
-                (snapshot.alarm.ambiguousWarmObject ? 0.80 : 0.65)));
+    const bool fireCandidateVisible = fireSnapshot.resultIsFresh &&
+        fireSnapshot.resultAgeMs <= fireSnapshot.boxFreshLimitMs &&
+        (fireSnapshot.detection.candidateDisplayReady ||
+            (fireSnapshot.alarm.rawFireTiming &&
+                fireSnapshot.alarm.pendingFireMs >= fireSnapshot.alarm.requiredConfirmMs *
+                (fireSnapshot.alarm.ambiguousWarmObject ? 0.80 : 0.65)));
+    const bool smokeCandidateVisible = smokeSnapshot.resultIsFresh &&
+        smokeSnapshot.detection.candidate;
 
     const char* stateText = "NORMAL";
     Scalar stateColor(0, 255, 0);
-    int thickness = 2;
-
-    if (snapshot.alarm.alarmActive)
+    int stateThickness = 2;
+    if (fireSnapshot.alarm.alarmActive && smokeSnapshot.smokeDetected)
+    {
+        stateText = "FIRE + SMOKE DETECTED";
+        stateColor = Scalar(0, 0, 255);
+        stateThickness = 3;
+    }
+    else if (fireSnapshot.alarm.alarmActive)
     {
         stateText = "FIRE DETECTED";
         stateColor = Scalar(0, 0, 255);
-        thickness = 3;
+        stateThickness = 3;
     }
-    else if (candidateVisible)
+    else if (smokeSnapshot.smokeDetected)
+    {
+        stateText = "SMOKE DETECTED";
+        stateColor = Scalar(255, 255, 0);
+        stateThickness = 3;
+    }
+    else if (fireCandidateVisible)
     {
         stateText = "FIRE CANDIDATE";
         stateColor = Scalar(0, 165, 255);
     }
+    else if (smokeCandidateVisible)
+    {
+        stateText = "SMOKE CANDIDATE";
+        stateColor = Scalar(255, 255, 0);
+    }
 
-    putText(display, stateText, Point(20, 40),
-        FONT_HERSHEY_SIMPLEX, 1.0, stateColor, thickness);
+    drawOutlinedText(tile, title, Point(16, 28), 0.70, Scalar(255, 255, 255), 2);
+    drawOutlinedText(tile, stateText, Point(16, 60), 0.72, stateColor, stateThickness);
 
     char performanceText[240];
     snprintf(performanceText, sizeof(performanceText),
-        "Display %.1f FPS | Detect %.1f ms | Source %.0f ms | Done %.0f ms | Confirm %d | Evidence %.0f/%.0f ms | Raw %d/%d | Risk %s",
-        displayFps, snapshot.averageDetectMs, snapshot.resultAgeMs, snapshot.completedAgeMs,
-        snapshot.detection.confirmCount, snapshot.alarm.pendingFireMs, snapshot.alarm.requiredConfirmMs,
-        snapshot.alarm.rawFireResultCount, snapshot.alarm.requiredRawFireResults,
-        snapshot.alarm.ambiguousWarmObject ? "WARM" : "NORMAL");
+        "FPS %.1f | Fire %.1fms | Smoke %.1fms | score %.3f | hits %d",
+        displayFps, fireSnapshot.averageDetectMs, smokeSnapshot.averageDetectMs,
+        smokeSnapshot.smokeScore, smokeSnapshot.positiveHits);
+    drawOutlinedText(tile, performanceText, Point(16, 88),
+        0.46, Scalar(255, 255, 255), 1);
+    rectangle(tile, Rect(0, 0, tile.cols, tile.rows), Scalar(90, 90, 90), 2);
+    return tile;
+}
+#endif
 
-    putText(display, performanceText, Point(20, 80),
-        FONT_HERSHEY_SIMPLEX, 0.60, Scalar(255, 255, 255), 2);
-    imshow("Fire Detection", display);
+bool FireView::show(
+    const Mat& frame,
+    const FireRuntimeSnapshot& fireSnapshot,
+    const SmokeRuntimeSnapshot& smokeSnapshot,
+    double displayFps)
+{
+#if !FIRE_ENABLE_GUI
+    (void)frame;
+    (void)fireSnapshot;
+    (void)smokeSnapshot;
+    (void)displayFps;
+    return true;
+#else
+    imshow(windowName_, makeChannelTile(
+        frame, fireSnapshot, smokeSnapshot, displayFps, windowName_));
+    windowCreated_ = true;
 
 #if FIRE_DEBUG_VIEW
-    if (snapshot.hasResult && snapshot.resultFrameId != 0 &&
-        snapshot.resultFrameId != cachedDebugFrameId_)
+    if (fireSnapshot.hasResult && fireSnapshot.resultFrameId != 0 &&
+        fireSnapshot.resultFrameId != cachedDebugFrameId_)
     {
-        const FireDebugImages& debug = snapshot.detection.debugImages;
+        const FireDebugImages& debug = fireSnapshot.detection.debugImages;
         if (!debug.fireColorMask.empty() || !debug.skinMask.empty() ||
             !debug.foregroundMask.empty() || !debug.candidateMask.empty())
         {
             cachedDebugPanel_ = makeDebugPanel(debug);
-            cachedDebugFrameId_ = snapshot.resultFrameId;
-            imshow("Fire Debug Masks", cachedDebugPanel_);
+            cachedDebugFrameId_ = fireSnapshot.resultFrameId;
+            imshow(debugWindowName_, cachedDebugPanel_);
+            debugWindowCreated_ = true;
         }
     }
 #endif
+    return processEvents(1);
+#endif
+}
 
+bool FireView::showGrid(const vector<FireViewChannel>& channels)
+{
+#if !FIRE_ENABLE_GUI
+    (void)channels;
+    return true;
+#else
+    vector<Mat> tiles;
+    tiles.reserve(4);
+    for (size_t index = 0; index < 4; ++index)
+    {
+        if (index < channels.size())
+        {
+            const FireViewChannel& channel = channels[index];
+            tiles.push_back(makeChannelTile(
+                channel.frame,
+                channel.fire,
+                channel.smoke,
+                channel.displayFps,
+                channel.title));
+        }
+        else
+        {
+            FireRuntimeSnapshot fire;
+            SmokeRuntimeSnapshot smoke;
+            tiles.push_back(makeChannelTile(Mat(), fire, smoke, 0.0,
+                "CH" + to_string(index + 1)));
+        }
+    }
+
+    Mat top, bottom, grid;
+    hconcat(tiles[0], tiles[1], top);
+    hconcat(tiles[2], tiles[3], bottom);
+    vconcat(top, bottom, grid);
+    imshow(windowName_, grid);
+    windowCreated_ = true;
     return processEvents(1);
 #endif
 }
@@ -112,10 +218,23 @@ bool FireView::processEvents(int delayMs) const
 #endif
 }
 
-void FireView::close() const
+void FireView::close()
 {
 #if FIRE_ENABLE_GUI
-    destroyAllWindows();
+    if (windowCreated_)
+    {
+        try { destroyWindow(windowName_); }
+        catch (const cv::Exception&) {}
+        windowCreated_ = false;
+    }
+#if FIRE_DEBUG_VIEW
+    if (debugWindowCreated_)
+    {
+        try { destroyWindow(debugWindowName_); }
+        catch (const cv::Exception&) {}
+        debugWindowCreated_ = false;
+    }
+#endif
 #endif
 }
 
@@ -124,7 +243,6 @@ Mat FireView::makeDebugTile(const Mat& source, const string& title) const
 {
     const Size tileSize(FIRE_DEBUG_TILE_WIDTH, FIRE_DEBUG_TILE_HEIGHT);
     Mat gray;
-
     if (source.empty())
     {
         gray = Mat::zeros(tileSize, CV_8UC1);
@@ -135,7 +253,6 @@ Mat FireView::makeDebugTile(const Mat& source, const string& title) const
             gray = source;
         else
             cvtColor(source, gray, COLOR_BGR2GRAY);
-
         if (gray.size() != tileSize)
             resize(gray, gray, tileSize, 0, 0, INTER_NEAREST);
     }

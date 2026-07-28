@@ -10,9 +10,9 @@ struct FireAlarmStatus
     bool rawFireTiming = false;
     bool ambiguousWarmObject = false;
     int rawFireResultCount = 0;
-    int requiredRawFireResults = 2;
+    int requiredRawFireResults = 1;
     double pendingFireMs = 0.0;
-    double requiredConfirmMs = 350.0;
+    double requiredConfirmMs = 120.0;
 };
 
 class FireAlarmController
@@ -31,8 +31,10 @@ public:
     void reset();
 
 private:
-    static constexpr double FINAL_CONFIRM_MS = 350.0;
-    static constexpr int MIN_RAW_FIRE_RESULTS = 2;
+    // FlameDetector already confirms a track with three hits/two strong hits.
+    // Keep only a short hysteresis step here instead of confirming normal fire twice.
+    static constexpr double FINAL_CONFIRM_MS = 120.0;
+    static constexpr int MIN_RAW_FIRE_RESULTS = 1;
     static constexpr double AMBIGUOUS_CONFIRM_MS = 900.0;
     static constexpr int MIN_AMBIGUOUS_RAW_FIRE_RESULTS = 3;
     static constexpr double DEFAULT_RESULT_INTERVAL_MS = 33.0;

@@ -1,6 +1,7 @@
 #include "CameraStream.h"
 
 #include <chrono>
+#include <filesystem>
 #include <iostream>
 #include <vector>
 
@@ -54,6 +55,16 @@ bool CameraStream::isOpened() const
     return opened_.load();
 }
 
+bool CameraStream::isRunning() const
+{
+    return running_.load();
+}
+
+uint64_t CameraStream::sourceGeneration() const
+{
+    return sourceGeneration_.load();
+}
+
 bool CameraStream::getLatestFrame(Mat& outFrame, uint64_t& lastFrameId)
 {
     lock_guard<mutex> lock(frameMutex_);
@@ -72,17 +83,21 @@ bool CameraStream::openSource()
     if (sourceType_ == StreamSourceType::VideoFile)
     {
         cout << "Opening video file: " << source_ << endl;
+        if (!filesystem::is_regular_file(filesystem::path(source_)))
+        {
+            cerr << "Video file does not exist: " << source_ << endl;
+            return false;
+        }
+
         if (!cap_.open(source_, CAP_FFMPEG))
         {
             cap_.release();
-            if (!cap_.open(source_, CAP_ANY))
-            {
-                cerr << "Video file open failed: " << source_ << endl;
-                return false;
-            }
+            cerr << "Video file open failed with FFmpeg: " << source_ << endl;
+            return false;
         }
 
         opened_ = true;
+        sourceGeneration_.fetch_add(1);
         cout << "Video file opened | "
             << static_cast<int>(cap_.get(CAP_PROP_FRAME_WIDTH)) << 'x'
             << static_cast<int>(cap_.get(CAP_PROP_FRAME_HEIGHT))
@@ -106,6 +121,7 @@ bool CameraStream::openSource()
         cout << "Camera buffer size option is not supported by this backend" << endl;
 
     opened_ = true;
+    sourceGeneration_.fetch_add(1);
     cout << "Camera connected" << endl;
     return true;
 }
@@ -122,6 +138,11 @@ void CameraStream::readLoop()
             if (!openSource())
             {
                 opened_ = false;
+                if (sourceType_ == StreamSourceType::VideoFile)
+                {
+                    running_ = false;
+                    break;
+                }
                 this_thread::sleep_for(chrono::milliseconds(500));
                 continue;
             }
@@ -145,6 +166,7 @@ void CameraStream::readLoop()
                 {
                     cout << "Video finished. Restarting from beginning." << endl;
                     cap_.set(CAP_PROP_POS_FRAMES, 0);
+                    sourceGeneration_.fetch_add(1);
                     nextVideoFrameTime = chrono::steady_clock::now();
                     continue;
                 }

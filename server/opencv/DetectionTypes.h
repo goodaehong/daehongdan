@@ -54,3 +54,12 @@ struct DetectionResult
     std::vector<DetectionBox> boxes;
     FireDebugImages debugImages;
 };
+
+struct SmokeDetectionResult
+{
+    bool modelReady = false;
+    bool candidate = false;
+    double maxScore = 0.0;
+    std::vector<DetectionBox> boxes;
+    std::string error;
+};
