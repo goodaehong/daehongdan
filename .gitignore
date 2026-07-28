@@ -71,3 +71,4 @@ drivers/gas_sensor/.*.cmd
 drivers/gas_sensor/.tmp_versions/
 drivers/gas_sensor/*.dtbo
 drivers/gas_sensor/Module.symvers
+*.dtbo
