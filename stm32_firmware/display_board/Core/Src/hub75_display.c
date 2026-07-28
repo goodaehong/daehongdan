@@ -8,6 +8,27 @@
 
 static uint8_t framebuffer[HUB75_HEIGHT][HUB75_WIDTH];
 
+/* 행 하나당 OE를 켜둘 시간(루프 반복 횟수). 100%일 때 이 값만큼, 나머지는 비율대로 축소 */
+#define HUB75_MAX_ON_LOOPS 800
+static volatile uint32_t s_onLoops = HUB75_MAX_ON_LOOPS;
+
+void HUB75_SetBrightness(uint8_t percent)
+{
+    if (percent > 100)
+    {
+        percent = 100;
+    }
+    s_onLoops = (HUB75_MAX_ON_LOOPS * (uint32_t)percent) / 100;
+}
+
+static inline void HUB75_BrightnessDelay(void)
+{
+    for (volatile uint32_t i = 0; i < s_onLoops; i++)
+    {
+        __NOP();
+    }
+}
+
 void HUB75_Init(void)
 {
     HAL_GPIO_WritePin(HUB75_OE_GPIO_Port, HUB75_OE_Pin, GPIO_PIN_SET);   /* OE는 active-low: 시작은 출력 비활성 */
@@ -90,15 +111,19 @@ void HUB75_RefreshOnce(void)
 {
     for (uint8_t row = 0; row < 32; row++)
     {
+        HAL_GPIO_WritePin(HUB75_OE_GPIO_Port, HUB75_OE_Pin, GPIO_PIN_SET);    /* 컬럼 시프트 중엔 블랭킹(잔상 방지) */
+
         for (uint8_t col = 0; col < HUB75_WIDTH; col++)
         {
             HUB75_ShiftColumn(framebuffer[row][col], framebuffer[row + 32][col]);
         }
 
-        HAL_GPIO_WritePin(HUB75_OE_GPIO_Port, HUB75_OE_Pin, GPIO_PIN_SET);    /* 래치/주소 전환 중 블랭킹 */
         HAL_GPIO_WritePin(HUB75_LAT_GPIO_Port, HUB75_LAT_Pin, GPIO_PIN_SET);
         HAL_GPIO_WritePin(HUB75_LAT_GPIO_Port, HUB75_LAT_Pin, GPIO_PIN_RESET);
         HUB75_SetAddress(row);
-        HAL_GPIO_WritePin(HUB75_OE_GPIO_Port, HUB75_OE_Pin, GPIO_PIN_RESET); /* 출력 재활성화 */
+
+        HAL_GPIO_WritePin(HUB75_OE_GPIO_Port, HUB75_OE_Pin, GPIO_PIN_RESET); /* 이 행만 정해진 시간 동안 출력 */
+        HUB75_BrightnessDelay();
+        HAL_GPIO_WritePin(HUB75_OE_GPIO_Port, HUB75_OE_Pin, GPIO_PIN_SET);   /* 다시 블랭킹 (밝기 축소 효과) */
     }
 }

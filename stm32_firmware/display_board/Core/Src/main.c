@@ -43,7 +43,41 @@
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-
+extern const uint8_t HUB75_Alphabet[9];
+extern const uint16_t HUB75_Korean1[10];
+extern const uint16_t HUB75_Korean2[10];
+extern const uint16_t HUB75_Shape[13];
+extern const uint8_t HUB75_Shape2[8];
+extern const uint8_t HUB75_Shape3[8];
+extern const uint8_t HUB75_Shape4[8];
+extern const uint8_t HUB75_Shape5[8];
+extern const uint8_t HUB75_Number1[8];
+extern const uint8_t HUB75_Number2[8];
+extern const uint8_t HUB75_Number3[8];
+extern const uint8_t HUB75_Number4[8];
+extern const uint8_t HUB75_Number5[8];
+extern const uint8_t HUB75_Number6[8];
+extern const uint8_t HUB75_Number7[8];
+extern const uint8_t HUB75_Number8[8];
+extern const uint8_t HUB75_Number9[8];
+extern const uint8_t HUB75_Number0[8];
+extern const uint16_t HUB75_Korean3[9];
+extern const uint16_t HUB75_Korean4[9];
+extern const uint16_t HUB75_Shape6[10];
+extern const uint16_t HUB75_Shape7[10];
+extern const uint32_t HUB75_Shape8[21];
+extern const uint8_t HUB75_Shape9[8];
+extern const uint8_t HUB75_Shape10[8];
+extern const uint8_t HUB75_TinyNumber0[8];
+extern const uint8_t HUB75_TinyNumber1[8];
+extern const uint8_t HUB75_TinyNumber2[8];
+extern const uint8_t HUB75_TinyNumber3[8];
+extern const uint8_t HUB75_TinyNumber4[8];
+extern const uint8_t HUB75_TinyNumber5[8];
+extern const uint8_t HUB75_TinyNumber6[8];
+extern const uint8_t HUB75_TinyNumber7[8];
+extern const uint8_t HUB75_TinyNumber8[8];
+extern const uint8_t HUB75_TinyNumber9[8];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -56,7 +90,105 @@ static void MX_USART2_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static void DrawBitmap8(int16_t x, int16_t y, const uint8_t *bitmap, uint8_t rowCount, HUB75_Color color)
+{
+  for (uint8_t row = 0; row < rowCount; row++)
+  {
+    uint8_t bits = bitmap[row];
+    for (uint8_t col = 0; col < 8; col++)
+    {
+      if (bits & (0x80 >> col))
+      {
+        int16_t px = x + col;
+        int16_t py = y + row;
+        if (px >= 0 && px < HUB75_WIDTH && py >= 0 && py < HUB75_HEIGHT)
+        {
+          HUB75_SetPixel((uint8_t)px, (uint8_t)py, color);
+        }
+      }
+    }
+  }
+}
 
+static void DrawBitmap16(int16_t x, int16_t y, const uint16_t *bitmap, uint8_t rowCount, HUB75_Color color)
+{
+  for (uint8_t row = 0; row < rowCount; row++)
+  {
+    uint16_t bits = bitmap[row];
+    for (uint8_t col = 0; col < 16; col++)
+    {
+      if (bits & (0x8000 >> col))
+      {
+        int16_t px = x + col;
+        int16_t py = y + row;
+        if (px >= 0 && px < HUB75_WIDTH && py >= 0 && py < HUB75_HEIGHT)
+        {
+          HUB75_SetPixel((uint8_t)px, (uint8_t)py, color);
+        }
+      }
+    }
+  }
+}
+static void DrawBitmap32(int16_t x, int16_t y, const uint32_t *bitmap, uint8_t rowCount, HUB75_Color color)
+{
+  for (uint8_t row = 0; row < rowCount; row++)
+  {
+    uint32_t bits = bitmap[row];
+    for (uint8_t col = 0; col < 32; col++)
+    {
+      if (bits & (0x80000000u >> col))
+      {
+        int16_t px = x + col;
+        int16_t py = y + row;
+        if (px >= 0 && px < HUB75_WIDTH && py >= 0 && py < HUB75_HEIGHT)
+        {
+          HUB75_SetPixel((uint8_t)px, (uint8_t)py, color);
+        }
+      }
+    }
+  }
+}
+// 좌표는 (1,1)~(64,64) 기준표를 0-index로 변환(-1)해서 배치. 지금은 랜덤 없이 표에 있는 값 그대로 고정 표시.
+static void DrawStaticScene(void)
+{
+  DrawBitmap8(6, 8, HUB75_Alphabet, 9, HUB75_WHITE);          // A
+  DrawBitmap16(16, 8, HUB75_Korean1, 10, HUB75_WHITE);        // 구
+  DrawBitmap16(26, 8, HUB75_Korean2, 10, HUB75_WHITE);        // 역
+  DrawBitmap16(2, 41, HUB75_Korean3, 9, HUB75_CYAN);          // 가
+  DrawBitmap16(11, 41, HUB75_Korean4, 9, HUB75_CYAN);         // 스
+  DrawBitmap16(1, 24, HUB75_Shape, 13, HUB75_YELLOW);         // 온도(태양)
+  DrawBitmap8(55, 27, HUB75_Shape2, 8, HUB75_BLUE);           // %
+  DrawBitmap8(25, 27, HUB75_Shape3, 8, HUB75_YELLOW);         // 온도(섭씨)
+  DrawBitmap8(49, 42, HUB75_Shape4, 8, HUB75_CYAN);           // 가스 농도(pp)
+  DrawBitmap8(57, 42, HUB75_Shape5, 8, HUB75_CYAN);           // 가스 농도(m)
+  DrawBitmap16(35, 25, HUB75_Shape6, 10, HUB75_BLUE);         // 습도(물방울)
+  DrawBitmap16(22, 40, HUB75_Shape7, 10, HUB75_WHITE);        // 가스 그래프
+  DrawBitmap32(38, 2, HUB75_Shape8, 21, HUB75_YELLOW);        // 표정(쏘쏘)
+  DrawBitmap8(11, 53, HUB75_Shape9, 8, HUB75_WHITE);          // .
+  DrawBitmap8(23, 53, HUB75_Shape9, 8, HUB75_WHITE);          // .
+  DrawBitmap8(51, 54, HUB75_Shape10, 8, HUB75_WHITE);         // :
+
+  DrawBitmap8(16, 27, HUB75_Number3, 8, HUB75_YELLOW);        // 온도 십의 자리
+  DrawBitmap8(21, 27, HUB75_Number1, 8, HUB75_YELLOW);        // 온도 일의 자리
+  DrawBitmap8(44, 27, HUB75_Number3, 8, HUB75_BLUE);          // 습도 십의 자리
+  DrawBitmap8(49, 27, HUB75_Number5, 8, HUB75_BLUE);          // 습도 일의 자리
+
+  DrawBitmap8(29, 41, HUB75_Number1, 8, HUB75_CYAN);          // 가스 농도 천의 자리
+  DrawBitmap8(34, 41, HUB75_Number6, 8, HUB75_CYAN);          // 가스 농도 백의 자리
+  DrawBitmap8(39, 41, HUB75_Number0, 8, HUB75_CYAN);          // 가스 농도 십의 자리
+  DrawBitmap8(44, 41, HUB75_Number0, 8, HUB75_CYAN);          // 가스 농도 일의 자리
+
+  DrawBitmap8(2, 53, HUB75_TinyNumber2, 8, HUB75_WHITE);      // 연도 십의 자리
+  DrawBitmap8(7, 53, HUB75_TinyNumber6, 8, HUB75_WHITE);      // 연도 일의 자리
+  DrawBitmap8(14, 53, HUB75_TinyNumber0, 8, HUB75_WHITE);     // 월 십의 자리
+  DrawBitmap8(19, 53, HUB75_TinyNumber7, 8, HUB75_WHITE);     // 월 일의 자리
+  DrawBitmap8(26, 53, HUB75_TinyNumber1, 8, HUB75_WHITE);     // 일 십의 자리
+  DrawBitmap8(31, 53, HUB75_TinyNumber5, 8, HUB75_WHITE);     // 일 일의 자리
+  DrawBitmap8(41, 53, HUB75_TinyNumber1, 8, HUB75_WHITE);     // 시 십의 자리
+  DrawBitmap8(46, 53, HUB75_TinyNumber0, 8, HUB75_WHITE);     // 시 일의 자리
+  DrawBitmap8(53, 53, HUB75_TinyNumber3, 8, HUB75_WHITE);     // 분 십의 자리
+  DrawBitmap8(58, 53, HUB75_TinyNumber7, 8, HUB75_WHITE);     // 분 일의 자리
+}
 /* USER CODE END 0 */
 
 /**
@@ -73,7 +205,7 @@ int main(void)
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-  HAL_Init();
+ HAL_Init();
 
   /* USER CODE BEGIN Init */
 
@@ -91,14 +223,15 @@ int main(void)
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
   HUB75_Init();
-  // 하드웨어 브링업 확인용 테스트 패턴: 초록 배경 + 빨간 테두리 2px
-  HUB75_FillRect(0, 0, HUB75_WIDTH, HUB75_HEIGHT, HUB75_GREEN);
-  HUB75_DrawRectBorder(0, 0, HUB75_WIDTH, HUB75_HEIGHT, 2, HUB75_RED);
+  HUB75_SetBrightness(30); // 30%로 시작, 눈부시면 더 낮추기
+  HUB75_Clear(HUB75_BLACK);
+  DrawStaticScene();
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   uint32_t lastHeartbeat = HAL_GetTick();
+
   while (1)
   {
     // 매트릭스는 계속 스캔해줘야 화면이 유지됨 (blocking delay로 막으면 안 됨)

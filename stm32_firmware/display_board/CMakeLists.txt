@@ -46,6 +46,11 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
     Core/Src/hub75_display.c
+    Core/Src/hub75_alphabet.c
+    Core/Src/hub75_korean.c
+    Core/Src/hub75_shape.c
+    Core/Src/hub75_number.c
+    Core/Src/hub75_tiny_number.c
 )
 
 # Add include paths
