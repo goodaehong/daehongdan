@@ -29,6 +29,8 @@ public:
 
     bool getLatestFrame(cv::Mat& outFrame, std::uint64_t& lastFrameId);
     bool isOpened() const;
+    bool isRunning() const;
+    std::uint64_t sourceGeneration() const;
 
 private:
     void readLoop();
@@ -48,4 +50,5 @@ private:
     std::atomic<bool> running_{ false };
     std::atomic<bool> opened_{ false };
     std::atomic<bool> hasFrame_{ false };
+    std::atomic<std::uint64_t> sourceGeneration_{ 0 };
 };
