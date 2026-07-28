@@ -64,7 +64,7 @@ extern const uint8_t HUB75_Number0[8];
 extern const uint16_t HUB75_Korean3[9];
 extern const uint16_t HUB75_Korean4[9];
 extern const uint16_t HUB75_Shape6[10];
-extern const uint16_t HUB75_Shape7[10];
+extern const uint16_t HUB75_Shape7[11];
 extern const uint32_t HUB75_Shape8[21];
 extern const uint8_t HUB75_Shape9[8];
 extern const uint8_t HUB75_Shape10[8];
@@ -78,6 +78,8 @@ extern const uint8_t HUB75_TinyNumber6[8];
 extern const uint8_t HUB75_TinyNumber7[8];
 extern const uint8_t HUB75_TinyNumber8[8];
 extern const uint8_t HUB75_TinyNumber9[8];
+extern const uint32_t HUB75_Shape11[21];
+extern const uint32_t HUB75_Shape12[21];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -148,6 +150,40 @@ static void DrawBitmap32(int16_t x, int16_t y, const uint32_t *bitmap, uint8_t r
     }
   }
 }
+// 표정 3종 3초마다 순환 테스트: 웃음(초록) -> 무표정(노랑) -> 찡그림(빨강)
+static const uint32_t * const faceShapes[3] = { HUB75_Shape11, HUB75_Shape8, HUB75_Shape12 };
+static const HUB75_Color faceColors[3] = { HUB75_GREEN, HUB75_YELLOW, HUB75_RED };
+
+static void DrawFace(uint8_t index)
+{
+  HUB75_FillRect(38, 2, 32, 21, HUB75_BLACK);   // 이전 표정 지우기
+  DrawBitmap32(38, 2, faceShapes[index], 21, faceColors[index]);
+  DrawBitmap16(26, 8, HUB75_Korean2, 10, HUB75_WHITE);   // "역" 글자가 지우는 영역과 겹쳐서 같이 다시 그림
+}
+
+// 가스 그래프 채워지는 높이: 웃음=2줄(초록), 무표정=5줄(노랑), 찡그림=10줄(빨강) - 아래부터 채워짐
+static const uint8_t gasFillRows[3] = { 2, 5, 11 };
+static const HUB75_Color gasColors[3] = { HUB75_GREEN, HUB75_YELLOW, HUB75_RED };
+
+static void DrawGasGraph(uint8_t index)
+{
+  HUB75_FillRect(22, 40, 16, 11, HUB75_BLACK);   // 이전 채움 지우기
+
+  uint8_t filledRows = gasFillRows[index];
+  uint8_t whiteRows = 11 - filledRows;
+
+  if (whiteRows > 0)
+  {
+    DrawBitmap16(22, 40, HUB75_Shape7, whiteRows, HUB75_WHITE);           // 위쪽 나머지 줄은 흰색
+  }
+  DrawBitmap16(22, 40 + whiteRows, HUB75_Shape7, filledRows, gasColors[index]); // 아래쪽 채워진 줄
+
+  // 지우는 영역과 겹치는 요소들 다시 그림
+  DrawBitmap16(11, 41, HUB75_Korean4, 9, HUB75_CYAN);   // 스
+  DrawBitmap8(29, 41, HUB75_Number1, 8, HUB75_CYAN);    // 가스 농도 천의 자리
+  DrawBitmap8(34, 41, HUB75_Number6, 8, HUB75_CYAN);    // 가스 농도 백의 자리
+}
+
 // 좌표는 (1,1)~(64,64) 기준표를 0-index로 변환(-1)해서 배치. 지금은 랜덤 없이 표에 있는 값 그대로 고정 표시.
 static void DrawStaticScene(void)
 {
@@ -162,8 +198,8 @@ static void DrawStaticScene(void)
   DrawBitmap8(49, 42, HUB75_Shape4, 8, HUB75_CYAN);           // 가스 농도(pp)
   DrawBitmap8(57, 42, HUB75_Shape5, 8, HUB75_CYAN);           // 가스 농도(m)
   DrawBitmap16(35, 25, HUB75_Shape6, 10, HUB75_BLUE);         // 습도(물방울)
-  DrawBitmap16(22, 40, HUB75_Shape7, 10, HUB75_WHITE);        // 가스 그래프
-  DrawBitmap32(38, 2, HUB75_Shape8, 21, HUB75_YELLOW);        // 표정(쏘쏘)
+  DrawFace(0);                                                // 표정 (첫 프레임: 웃음)
+  DrawGasGraph(0);                                            // 가스 그래프 (첫 프레임: 웃음 상태)
   DrawBitmap8(11, 53, HUB75_Shape9, 8, HUB75_WHITE);          // .
   DrawBitmap8(23, 53, HUB75_Shape9, 8, HUB75_WHITE);          // .
   DrawBitmap8(51, 54, HUB75_Shape10, 8, HUB75_WHITE);         // :
@@ -231,6 +267,8 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   uint32_t lastHeartbeat = HAL_GetTick();
+  uint32_t lastFace = HAL_GetTick();
+  uint8_t faceIndex = 0;
 
   while (1)
   {
@@ -242,6 +280,14 @@ int main(void)
     {
       HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);   // 보드 내장 LED 하트비트
       lastHeartbeat = now;
+    }
+
+    if (now - lastFace >= 3000)   // 표정 3종 3초마다 순환
+    {
+      faceIndex = (faceIndex + 1) % 3;
+      DrawFace(faceIndex);
+      DrawGasGraph(faceIndex);
+      lastFace = now;
     }
     /* USER CODE END WHILE */
 
