@@ -15,6 +15,8 @@
 #define ADS1115_MUX_AIN0 (0x4 << 12)
 // MQ-9 센서 채널 선택 (AIN1과 GND 비교): 비트 12~14 자리에 101(0x5) 넣음
 #define ADS1115_MUX_AIN1 (0x5 << 12)
+// 불꽃 센서
+#define ADS1115_MUX_AIN2 (0x6 << 12)
 
 /* 디바이스 드라이버 전용 데이터 구조체 (상태 유지용) */
 struct ads1115_data {
@@ -88,10 +90,26 @@ static ssize_t mq2_value_show(struct device *dev, struct device_attribute *attr,
 // 읽기 전용(RO) 속성으로 묶어줌 (sysfs에 /sys/.../mq2_value 파일 생성)
 static DEVICE_ATTR_RO(mq2_value);
 
+/* 유저 공간(sysfs)에서 'flame_value' 파일을 읽을 때(cat) 호출되는 함수 */
+static ssize_t flame_value_show(struct device *dev, struct device_attribute *attr, char *buf) {
+    struct ads1115_data *data = dev_get_drvdata(dev);
+    s16 raw;
+
+    // 불꽃 센서 채널(AIN2) 값 읽기 요청
+    int ret = ads1115_read_channel(data, ADS1115_MUX_AIN2, &raw);
+    if (ret < 0) return ret;
+
+    return sysfs_emit(buf, "%d\n", raw);
+}
+
+// 읽기 전용(RO) 속성으로 묶어줌 (sysfs에 /sys/.../flame_value 파일 생성)
+static DEVICE_ATTR_RO(flame_value);
+
 /* 이 드라이버가 유저 공간에 노출할 속성(파일)들의 리스트 */
 static struct attribute *ads1115_attrs[] = {
     &dev_attr_mq9_value.attr,
     &dev_attr_mq2_value.attr,
+    &dev_attr_flame_value.attr,
     NULL, // 리스트의 끝을 알림
 };
 ATTRIBUTE_GROUPS(ads1115);
