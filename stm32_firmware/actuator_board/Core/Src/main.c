@@ -27,18 +27,18 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 typedef enum {
-    STATE_WAIT_STX,  // STX(0x02)를 기다리는 상태
-    STATE_READ_LEN,  // Length를 읽는 상태
-    STATE_READ_CMD,  // Command를 읽는 상태
-    STATE_READ_DATA, // Data를 읽는 상태
-    STATE_READ_CS,   // Checksum을 읽는 상태
-    STATE_WAIT_ETX   // ETX(0x03)를 기다리는 상태
+  STATE_WAIT_STX,  // STX(0x02)를 기다리는 상태
+  STATE_READ_LEN,  // Length를 읽는 상태
+  STATE_READ_CMD,  // Command를 읽는 상태
+  STATE_READ_DATA, // Data를 읽는 상태
+  STATE_READ_CS,   // Checksum을 읽는 상태
+  STATE_WAIT_ETX   // ETX(0x03)를 기다리는 상태
 } RX_State_t;
 
 typedef struct {
-    uint8_t fan_speed;   // 0x00(OFF), 0x01(약), 0x02(중), 0x03(강)
-    uint8_t valve;       // 0x00(닫힘), 0x01(열림)
-    uint8_t siren;       // 0x00(OFF), 0x01(ON)
+  uint8_t fan_speed;   // 0x00(OFF), 0x01(약), 0x02(중), 0x03(강)
+  uint8_t valve;       // 0x00(닫힘), 0x01(열림)
+  uint8_t siren;       // 0x00(OFF), 0x01(ON)
 } ActuatorStatus_t;
 /* USER CODE END PTD */
 
@@ -77,6 +77,9 @@ uint8_t rx_data_buf[10];     // 수신된 Data를 모아둘 배열
 uint8_t rx_data_idx = 0;     // Data 배열 인덱스
 uint8_t rx_calc_cs = 0;      // 수신하면서 내가 직접 계산(XOR)할 Checksum
 uint8_t rx_recv_cs = 0;      // 라즈베리파이가 보낸 Checksum
+
+static volatile uint32_t siren_freq = 600;
+static volatile int8_t siren_dir = 1;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -92,20 +95,44 @@ void Send_Status_Response(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+/**
+* @brief 사이렌 ON
+*/
+void Siren_ON(void)
+{
+  HAL_GPIO_WritePin(GPIOC, RELAY_WARN_Pin, GPIO_PIN_SET); 
+
+  siren_freq = 600;
+  siren_dir = 1;
+  
+  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
+  current_status.siren = 0x01;
+}
+
+/**
+* @brief 사이렌 OFF
+*/
+void Siren_OFF(void)
+{
+  current_status.siren = 0x00;
+  HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_1);
+  HAL_GPIO_WritePin(GPIOC, RELAY_WARN_Pin, GPIO_PIN_RESET);
+}
+
+//펌프와 밸브를 동시에 off 시키는 함수
 void Valve_ON(void)
 {
   HAL_GPIO_WritePin(PUMP_CTRL_GPIO_Port, PUMP_CTRL_Pin, GPIO_PIN_SET);
   HAL_GPIO_WritePin(GPIOC, RELAY_VALVE_Pin, GPIO_PIN_SET);
-  HAL_GPIO_WritePin(GPIOC, RELAY_WARN_Pin, GPIO_PIN_SET);
   current_status.valve = 0x01;
 }
 
+//펌프와 밸브를 동시에 off 시키는 함수
 void Valve_OFF(void)
 {
-  //펌프와 밸브를 동시에 off 시키는 함수
   HAL_GPIO_WritePin(PUMP_CTRL_GPIO_Port, PUMP_CTRL_Pin, GPIO_PIN_RESET);
   HAL_GPIO_WritePin(GPIOC, RELAY_VALVE_Pin, GPIO_PIN_RESET);
-  HAL_GPIO_WritePin(GPIOC, RELAY_WARN_Pin, GPIO_PIN_RESET);
   current_status.valve = 0x00;
 }
 
@@ -152,12 +179,13 @@ void Set_Fan_Speed_Level(uint8_t level)
       break;
   }
 }
+
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
+* @brief  The application entry point.
+* @retval int
+*/
 int main(void)
 {
 
@@ -187,7 +215,8 @@ int main(void)
   MX_TIM4_Init();
   MX_USART2_UART_Init();
 
-  /* USER CODE BEGIN 2 */
+  /* USER CODE BEGIN 2 */ 
+
   // 1. 팬 PWM 타이머(TIM3 CH1) 출력 시작
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
 
@@ -205,9 +234,40 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    HAL_GPIO_TogglePin(GPIOA, LD2_Pin); //STM보드 LED 깜빡임
-    HAL_Delay(1000); // 1000ms 지연
+    //HAL_GPIO_TogglePin(GPIOA, LD2_Pin); //STM보드 LED 깜빡임
+    //HAL_Delay(1000); // 1000ms 지연
+    // 1ms마다 도는 인터럽트 대신, 메인 루프에서 시간을 체크하여 실행 (논블로킹 딜레이)
+    if (current_status.siren == 0x01)
+    {
+      static uint32_t last_siren_tick = 0;
+      
+      // HAL_GetTick()을 이용해 이전 실행 시간으로부터 5ms가 지났는지 확인
+      if (HAL_GetTick() - last_siren_tick >= 5) 
+      {
+        last_siren_tick = HAL_GetTick(); // 시간 갱신
 
+        siren_freq += (siren_dir * 25);
+
+        if (siren_freq >= 1600) {
+          siren_freq = 1600;
+          siren_dir = -1;
+        } else if (siren_freq <= 600) {
+          siren_freq = 600;
+          siren_dir = 1;
+        }
+
+        uint32_t period = (1000000 / siren_freq) - 1;
+        uint32_t pulse = (period + 1) / 80; 
+        if (pulse == 0) pulse = 1;
+
+        __HAL_TIM_SET_AUTORELOAD(&htim4, period);
+        __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, pulse);
+      }
+    }
+    else
+    {
+      HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_1);
+    }
   }
   /* USER CODE END 3 */
 }
@@ -259,10 +319,10 @@ void SystemClock_Config(void)
 }
 
 /**
-  * @brief TIM3 Initialization Function
-  * @param None
-  * @retval None
-  */
+* @brief TIM3 Initialization Function
+* @param None
+* @retval None
+*/
 static void MX_TIM3_Init(void)
 {
 
@@ -377,10 +437,10 @@ static void MX_TIM4_Init(void)
 }
 
 /**
-  * @brief USART2 Initialization Function
-  * @param None
-  * @retval None
-  */
+* @brief USART2 Initialization Function
+* @param None
+* @retval None
+*/
 static void MX_USART2_UART_Init(void)
 {
 
@@ -410,10 +470,10 @@ static void MX_USART2_UART_Init(void)
 }
 
 /**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
+* @brief GPIO Initialization Function
+* @param None
+* @retval None
+*/
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -483,49 +543,49 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 void Send_ACK(uint8_t cmd) {
-    uint8_t tx_buf[6]; // STX(1) + Len(1) + Cmd(1) + CS(1) + ETX(1) = 5바이트면 충분하지만 여유있게 6 설정
-    uint8_t checksum = 0;
+  uint8_t tx_buf[6]; // STX(1) + Len(1) + Cmd(1) + CS(1) + ETX(1) = 5바이트면 충분하지만 여유있게 6 설정
+  uint8_t checksum = 0;
 
-    tx_buf[0] = PACKET_STX;  // 0x02
-    tx_buf[1] = 0;           // Length: 0 (데이터 없음)
-    tx_buf[2] = cmd;         // 수신했던 Command ID 그대로 반환
+  tx_buf[0] = PACKET_STX;  // 0x02
+  tx_buf[1] = 0;           // Length: 0 (데이터 없음)
+  tx_buf[2] = cmd;         // 수신했던 Command ID 그대로 반환
 
-    // 체크섬 계산 (Length부터 Command까지 XOR)
-    checksum ^= tx_buf[1];
-    checksum ^= tx_buf[2];
-    tx_buf[3] = checksum;
-    tx_buf[4] = PACKET_ETX;  // 0x03
+  // 체크섬 계산 (Length부터 Command까지 XOR)
+  checksum ^= tx_buf[1];
+  checksum ^= tx_buf[2];
+  tx_buf[3] = checksum;
+  tx_buf[4] = PACKET_ETX;  // 0x03
 
-    // UART2를 통해 5바이트 전송 (타임아웃 100ms)
-    // &huart2 부분은 본인의 UART 핸들러 변수명에 맞게 수정하세요.
-    HAL_UART_Transmit(&huart2, tx_buf, 5, 100);
+  // UART2를 통해 5바이트 전송 (타임아웃 100ms)
+  // &huart2 부분은 본인의 UART 핸들러 변수명에 맞게 수정하세요.
+  HAL_UART_Transmit(&huart2, tx_buf, 5, 100);
 }
 
 void Send_Status_Response(void) {
-    uint8_t tx_buf[10]; // STX(1) + Len(1) + Cmd(1) + Data(3) + CS(1) + ETX(1) = 총 8바이트
-    uint8_t checksum = 0;
-    uint8_t idx = 0;
+  uint8_t tx_buf[10]; // STX(1) + Len(1) + Cmd(1) + Data(3) + CS(1) + ETX(1) = 총 8바이트
+  uint8_t checksum = 0;
+  uint8_t idx = 0;
 
-    tx_buf[idx++] = PACKET_STX;        // 0x02
-    tx_buf[idx++] = 3;                 // Length: 3 (Data1, Data2, Data3)
-    tx_buf[idx++] = CMD_REQ_STATUS;    // 0x40
+  tx_buf[idx++] = PACKET_STX;        // 0x02
+  tx_buf[idx++] = 3;                 // Length: 3 (Data1, Data2, Data3)
+  tx_buf[idx++] = CMD_REQ_STATUS;    // 0x40
 
-    // 데이터 영역 채우기 (현재 하드웨어 상태 변수 값 대입)
-    tx_buf[idx++] = current_status.fan_speed; // Data1
-    tx_buf[idx++] = current_status.valve;     // Data2
-    tx_buf[idx++] = current_status.siren;     // Data3
+  // 데이터 영역 채우기 (현재 하드웨어 상태 변수 값 대입)
+  tx_buf[idx++] = current_status.fan_speed; // Data1
+  tx_buf[idx++] = current_status.valve;     // Data2
+  tx_buf[idx++] = current_status.siren;     // Data3
 
-    // 체크섬 계산 (Length부터 모든 Data까지 순서대로 XOR)
-    // tx_buf[1]부터 tx_buf[5]까지 계산하게 됩니다.
-    for(int i = 1; i < idx; i++) {
-        checksum ^= tx_buf[i];
-    }
-    tx_buf[idx++] = checksum;
+  // 체크섬 계산 (Length부터 모든 Data까지 순서대로 XOR)
+  // tx_buf[1]부터 tx_buf[5]까지 계산하게 됩니다.
+  for(int i = 1; i < idx; i++) {
+      checksum ^= tx_buf[i];
+  }
+  tx_buf[idx++] = checksum;
 
-    tx_buf[idx++] = PACKET_ETX;        // 0x03
+  tx_buf[idx++] = PACKET_ETX;        // 0x03
 
-    // 조립된 총 8바이트의 패킷을 라즈베리파이로 전송
-    HAL_UART_Transmit(&huart2, tx_buf, idx, 100);
+  // 조립된 총 8바이트의 패킷을 라즈베리파이로 전송
+  HAL_UART_Transmit(&huart2, tx_buf, idx, 100);
 }
 
 void Process_Integrated_Command(uint8_t cmd, uint8_t *data, uint8_t len) {
@@ -637,7 +697,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
 }
 
 // 현재 상태를 저장하는 전역/정적 변수 (0: OFF, 1: ON)
-    static uint8_t state = 0;
+  static uint8_t state = 0;
 
 // 외부 인터럽트(핀 상태 변화)가 발생하면 자동으로 호출되는 콜백 함수
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
@@ -670,14 +730,16 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
       {
         Valve_ON();
         Set_Fan_Speed_Level(3); // 강풍 (100%)
+        Siren_ON();
         state = 1;
       }
-        else
-        {
-          Valve_OFF();
-          Set_Fan_Speed_Level(0); // OFF (0%)
-          state = 0;
-        }
+      else
+      {
+        Valve_OFF();
+        Set_Fan_Speed_Level(0); // OFF (0%)
+        Siren_OFF();
+        state = 0;
+      }
       last_interrupt_time = current_time;
     }
   }
@@ -685,9 +747,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 /* USER CODE END 4 */
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
+* @brief  This function is executed in case of error occurrence.
+* @retval None
+*/
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
@@ -700,17 +762,17 @@ void Error_Handler(void)
 }
 #ifdef USE_FULL_ASSERT
 /**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
+* @brief  Reports the name of the source file and the source line number
+*         where the assert_param error has occurred.
+* @param  file: pointer to the source file name
+* @param  line: assert_param error line source number
+* @retval None
+*/
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line number,
-     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+  ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
