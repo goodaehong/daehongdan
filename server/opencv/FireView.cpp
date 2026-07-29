@@ -29,6 +29,24 @@ namespace
         }
     }
 
+    void drawPersonBoxes(Mat& display, const PersonMetadataFrame& metadata)
+    {
+        const Scalar color(0, 255, 0);
+        for (const PersonDetection& person : metadata.persons)
+        {
+            rectangle(display, person.box, color, 2);
+            char label[96];
+            if (person.objectId.empty())
+                snprintf(label, sizeof(label), "PERSON %.2f", person.confidence);
+            else
+                snprintf(label, sizeof(label), "PERSON %s %.2f",
+                    person.objectId.c_str(), person.confidence);
+            putText(display, label,
+                Point(person.box.x, max(20, person.box.y - 8)),
+                FONT_HERSHEY_SIMPLEX, 0.55, color, 2);
+        }
+    }
+
     void drawOutlinedText(
         Mat& image,
         const string& text,
@@ -55,6 +73,7 @@ Mat FireView::makeChannelTile(
     const Mat& frame,
     const FireRuntimeSnapshot& fireSnapshot,
     const SmokeRuntimeSnapshot& smokeSnapshot,
+    const PersonMetadataFrame& personMetadata,
     double displayFps,
     const string& title) const
 {
@@ -73,6 +92,7 @@ Mat FireView::makeChannelTile(
         drawDetectionResult(displaySource, fireSnapshot.detection.boxes);
     if (smokeSnapshot.boxIsFresh)
         drawDetectionResult(displaySource, smokeSnapshot.detection.boxes);
+    drawPersonBoxes(displaySource, personMetadata);
 
     resize(displaySource, tile, Size(GRID_TILE_WIDTH, GRID_TILE_HEIGHT), 0, 0, INTER_AREA);
 
@@ -127,6 +147,15 @@ Mat FireView::makeChannelTile(
         smokeSnapshot.smokeScore, smokeSnapshot.positiveHits);
     drawOutlinedText(tile, performanceText, Point(16, 88),
         0.46, Scalar(255, 255, 255), 1);
+    char personText[120];
+    snprintf(personText, sizeof(personText),
+        "WiseAI %s | persons %zu",
+        personMetadata.streamConnected ? "ON" : "OFF",
+        personMetadata.persons.size());
+    drawOutlinedText(tile, personText, Point(16, 110),
+        0.44,
+        personMetadata.streamConnected ? Scalar(0, 255, 0) : Scalar(150, 150, 150),
+        1);
     rectangle(tile, Rect(0, 0, tile.cols, tile.rows), Scalar(90, 90, 90), 2);
     return tile;
 }
@@ -146,7 +175,8 @@ bool FireView::show(
     return true;
 #else
     imshow(windowName_, makeChannelTile(
-        frame, fireSnapshot, smokeSnapshot, displayFps, windowName_));
+        frame, fireSnapshot, smokeSnapshot, PersonMetadataFrame{},
+        displayFps, windowName_));
     windowCreated_ = true;
 
 #if FIRE_DEBUG_VIEW
@@ -185,6 +215,7 @@ bool FireView::showGrid(const vector<FireViewChannel>& channels)
                 channel.frame,
                 channel.fire,
                 channel.smoke,
+                channel.person,
                 channel.displayFps,
                 channel.title));
         }
@@ -192,7 +223,8 @@ bool FireView::showGrid(const vector<FireViewChannel>& channels)
         {
             FireRuntimeSnapshot fire;
             SmokeRuntimeSnapshot smoke;
-            tiles.push_back(makeChannelTile(Mat(), fire, smoke, 0.0,
+            PersonMetadataFrame person;
+            tiles.push_back(makeChannelTile(Mat(), fire, smoke, person, 0.0,
                 "CH" + to_string(index + 1)));
         }
     }

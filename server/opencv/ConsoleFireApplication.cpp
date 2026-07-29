@@ -16,6 +16,7 @@
 #include "CameraStream.h"
 #include "FireDetectionRuntime.h"
 #include "FireView.h"
+#include "PersonMetadataReceiver.h"
 #include "SmokeDetectionRuntime.h"
 
 using namespace cv;
@@ -37,7 +38,8 @@ namespace
             : index(channelIndex),
               input(selection),
               camera(new CameraStream(selection.source, selection.type, selection.loop)),
-              fireRuntime(new FireDetectionRuntime())
+              fireRuntime(new FireDetectionRuntime()),
+              personReceiver(new PersonMetadataReceiver())
         {
         }
 
@@ -45,9 +47,11 @@ namespace
         InputSelection input;
         unique_ptr<CameraStream> camera;
         unique_ptr<FireDetectionRuntime> fireRuntime;
+        unique_ptr<PersonMetadataReceiver> personReceiver;
         Mat latestDisplayFrame;
         FireRuntimeSnapshot latestFireSnapshot;
         SmokeRuntimeSnapshot latestSmokeSnapshot;
+        PersonMetadataFrame latestPersonMetadata;
         uint64_t lastFrameId = 0;
         uint64_t lastSourceGeneration = 0;
         bool streamWasOpen = false;
@@ -56,6 +60,12 @@ namespace
         bool reportInitialized = false;
         bool lastReportedFire = false;
         bool lastReportedSmoke = false;
+        chrono::steady_clock::time_point lastPersonReport =
+            chrono::steady_clock::time_point::min();
+        bool personReportInitialized = false;
+        bool lastPersonConnected = false;
+        size_t lastPersonCount = 0;
+        string lastPersonStatus;
     };
 
     void configureRtspBackend()
@@ -139,6 +149,54 @@ namespace
             << " | smokeFrame=" << smoke.resultFrameId
             << endl;
     }
+
+    void reportPersonBoxes(
+        ChannelContext& channel,
+        const PersonMetadataFrame& metadata,
+        chrono::steady_clock::time_point now)
+    {
+        const bool stateChanged = !channel.personReportInitialized ||
+            metadata.streamConnected != channel.lastPersonConnected ||
+            metadata.persons.size() != channel.lastPersonCount ||
+            metadata.status != channel.lastPersonStatus;
+        const bool intervalElapsed =
+            channel.lastPersonReport == chrono::steady_clock::time_point::min() ||
+            chrono::duration_cast<chrono::milliseconds>(
+                now - channel.lastPersonReport).count() >=
+            person_metadata_config::REPORT_INTERVAL_MS;
+
+        // Moving person coordinates are emitted at a controlled rate. Empty,
+        // unchanged frames are silent so four channels do not flood stdout.
+        if (!stateChanged && (!intervalElapsed || metadata.persons.empty())) return;
+
+        channel.personReportInitialized = true;
+        channel.lastPersonConnected = metadata.streamConnected;
+        channel.lastPersonCount = metadata.persons.size();
+        channel.lastPersonStatus = metadata.status;
+        channel.lastPersonReport = now;
+
+        cout << channel.input.displayName
+            << " | personMeta=" << (metadata.streamConnected ? 1 : 0)
+            << " | persons=" << metadata.persons.size()
+            << " | boxes=[";
+        for (size_t index = 0; index < metadata.persons.size(); ++index)
+        {
+            const PersonDetection& person = metadata.persons[index];
+            if (index) cout << ';';
+            cout << "{x:" << person.box.x
+                << ",y:" << person.box.y
+                << ",w:" << person.box.width
+                << ",h:" << person.box.height
+                << ",score:" << person.confidence;
+            if (!person.objectId.empty())
+                cout << ",id:" << person.objectId;
+            cout << '}';
+        }
+        cout << ']';
+        if (!metadata.streamConnected && !metadata.status.empty())
+            cout << " | status=" << metadata.status;
+        cout << endl;
+    }
 }
 
 int ConsoleFireApplication::run()
@@ -159,6 +217,13 @@ int ConsoleFireApplication::run()
         {
             cerr << channel->input.displayName << ": input stream thread start failed" << endl;
             return -1;
+        }
+        if (person_metadata_config::ENABLED &&
+            channel->input.type == StreamSourceType::RtspCamera)
+        {
+            const bool started = channel->personReceiver->start(channel->input.source);
+            cout << channel->input.displayName << ": WiseAI person metadata "
+                << (started ? "receiver started" : "receiver start failed") << endl;
         }
         channels.push_back(std::move(channel));
     }
@@ -219,10 +284,14 @@ int ConsoleFireApplication::run()
 
             const FireRuntimeSnapshot fireSnapshot = channel.fireRuntime->poll(now);
             const SmokeRuntimeSnapshot smokeSnapshot = smokeRuntime.poll(channel.index, now);
+            const PersonMetadataFrame personMetadata =
+                channel.personReceiver->snapshot(frame.size());
             frame.copyTo(channel.latestDisplayFrame);
             channel.latestFireSnapshot = fireSnapshot;
             channel.latestSmokeSnapshot = smokeSnapshot;
+            channel.latestPersonMetadata = personMetadata;
             reportStateChange(channel, fireSnapshot, smokeSnapshot);
+            reportPersonBoxes(channel, personMetadata, now);
 
             const double interval =
                 chrono::duration<double>(now - channel.previousDisplayTime).count();
@@ -242,6 +311,7 @@ int ConsoleFireApplication::run()
             viewChannel.frame = channel->latestDisplayFrame;
             viewChannel.fire = channel->latestFireSnapshot;
             viewChannel.smoke = channel->latestSmokeSnapshot;
+            viewChannel.person = channel->latestPersonMetadata;
             viewChannel.displayFps = channel->averageDisplayFps;
             viewChannel.title = channel->input.displayName;
             viewChannels.push_back(std::move(viewChannel));
@@ -263,6 +333,7 @@ int ConsoleFireApplication::run()
     smokeRuntime.stop();
     for (unique_ptr<ChannelContext>& channel : channels)
     {
+        channel->personReceiver->stop();
         channel->fireRuntime->stop();
         channel->camera->stop();
     }
