@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+
 // ==================================================
 // 입력 소스
 // ==================================================
@@ -55,6 +57,41 @@
 #ifndef RTSP_CAMERA_IP_4
 #define RTSP_CAMERA_IP_4 ""
 #endif
+
+// ==================================================
+// Hanwha WiseAI person metadata
+// ==================================================
+// PNM-C16083RVQ publishes analytics metadata as an ONVIF XML data track
+// alongside each RTSP video profile. OpenCV VideoCapture does not expose that
+// data track, so a lightweight FFmpeg process copies only the metadata stream.
+namespace person_metadata_config
+{
+    constexpr bool ENABLED = true;
+    constexpr bool RTSP_USE_TCP = true;
+
+    // "ffmpeg" works on Windows when FFmpeg is in PATH and on Raspberry Pi
+    // after: sudo apt install ffmpeg
+    constexpr const char* FFMPEG_EXECUTABLE = "ffmpeg";
+
+    // First data stream in the RTSP session. The trailing '?' makes stream
+    // selection optional so a missing/disabled metadata track cannot stop video.
+    constexpr const char* STREAM_MAP = "0:d:0?";
+    constexpr int SOCKET_TIMEOUT_US = 5000000;
+    constexpr int RECONNECT_MS = 2000;
+    constexpr int FRESH_MS = 1500;
+    constexpr double MIN_CONFIDENCE = 0.30;
+
+    constexpr std::size_t BUFFER_LIMIT_BYTES = 4U * 1024U * 1024U;
+    constexpr std::size_t BUFFER_KEEP_BYTES = 512U * 1024U;
+
+    // Extra margin is display-only and does not modify the camera's raw box.
+    constexpr double BOX_PADDING_X_RATIO = 0.03;
+    constexpr double BOX_PADDING_TOP_RATIO = 0.02;
+    constexpr double BOX_PADDING_BOTTOM_RATIO = 0.02;
+
+    // Console output rate for coordinates consumed later by the Qt/server path.
+    constexpr int REPORT_INTERVAL_MS = 500;
+}
 
 // ==================================================
 // 화면 및 디버그

@@ -20,6 +20,7 @@ add_executable(fire_detection
     FireAlarmController.cpp
     FireDetectionRuntime.cpp
     FlameDetector.cpp
+    PersonMetadataReceiver.cpp
     SmokeDetector.cpp
     SmokeDetectionRuntime.cpp
 )
@@ -45,7 +46,8 @@ add_custom_command(TARGET fire_detection POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_CURRENT_SOURCE_DIR}/models"
         "$<TARGET_FILE_DIR:fire_detection>/models"
-    COMMENT "Copying smoke NCNN model beside the executable")
+    COMMENT "Copying smoke NCNN model beside the executable"
+    VERBATIM)
 
 if(MSVC)
     target_compile_options(fire_detection PRIVATE /O2 /EHsc)

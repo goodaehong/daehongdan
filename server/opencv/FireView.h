@@ -15,6 +15,7 @@ struct FireViewChannel
     cv::Mat frame;
     FireRuntimeSnapshot fire;
     SmokeRuntimeSnapshot smoke;
+    PersonMetadataFrame person;
     double displayFps = 0.0;
     std::string title;
 };
@@ -50,6 +51,7 @@ private:
         const cv::Mat& frame,
         const FireRuntimeSnapshot& fireSnapshot,
         const SmokeRuntimeSnapshot& smokeSnapshot,
+        const PersonMetadataFrame& personMetadata,
         double displayFps,
         const std::string& title
     ) const;
