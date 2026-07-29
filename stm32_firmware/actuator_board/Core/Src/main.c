@@ -105,7 +105,7 @@ void Siren_ON(void)
 
   siren_freq = 600;
   siren_dir = 1;
-  
+
   HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
   current_status.siren = 0x01;
 }
@@ -116,6 +116,7 @@ void Siren_ON(void)
 void Siren_OFF(void)
 {
   current_status.siren = 0x00;
+  __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, 0);
   HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_1);
   HAL_GPIO_WritePin(GPIOC, RELAY_WARN_Pin, GPIO_PIN_RESET);
 }
@@ -599,14 +600,26 @@ void Process_Integrated_Command(uint8_t cmd, uint8_t *data, uint8_t len) {
       break;
             
     case CMD_VALVE_CTRL:
-      // 솔레노이드 가스 밸브 제어
-      //0x00(닫힘), 0x01(열림)
+      // 솔레노이드 가스 밸브 제어: 0x00(닫힘), 0x01(열림)
+      if (len > 0) {
+        if (data[0] == 0x01) {
+          Valve_ON();
+        } else {
+          Valve_OFF();
+        }
+      }
       Send_ACK(cmd);
       break;
           
     case CMD_SIREN_CTRL:
-      //사이렌 및 부저 제어
-      //0x00(OFF), 0x01(ON)
+      //사이렌 및 부저 제어: 0x00(OFF), 0x01(ON)
+      if (len > 0) {
+        if (data[0] == 0x01) {
+          Siren_ON();
+        } else {
+          Siren_OFF();
+        }
+      }
       Send_ACK(cmd);
       break;
 
@@ -616,20 +629,26 @@ void Process_Integrated_Command(uint8_t cmd, uint8_t *data, uint8_t len) {
       break;
     
     case CMD_GAS_EMERG:
-      //가스 누출 위험 대응
-      //사이렌 ON + 밸브 즉시 차단 + 환기팬(강)
+      //가스 누출 위험 대응: 사이렌 ON + 밸브 즉시 차단 + 환기팬(강)
+      Siren_ON();
+      Valve_OFF();
+      Set_Fan_Speed_Level(3);
       Send_ACK(cmd);
       break;
 
     case CMD_MAX_EMERG:
-      //최고 수준 비상 대응
-      //사이렌 ON + 밸브 차단 + 환기팬 OFF
+      //최고 수준 비상 대응: 사이렌 ON + 밸브 차단 + 환기팬 OFF
+      Siren_ON();
+      Valve_OFF();
+      Set_Fan_Speed_Level(0);
       Send_ACK(cmd);
       break;
 
     case CMD_SYS_RESET:
-      //비상 상황 해제
-      //사이렌 OFF + 밸브 오픈 + 환기팬(약)
+      //비상 상황 해제: 사이렌 OFF + 밸브 오픈 + 환기팬(약)
+      Siren_OFF();
+      Valve_ON();
+      Set_Fan_Speed_Level(1);
       Send_ACK(cmd);
       break;
     }
@@ -637,6 +656,7 @@ void Process_Integrated_Command(uint8_t cmd, uint8_t *data, uint8_t len) {
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
   if (huart->Instance == USART2) {
+    HAL_GPIO_TogglePin(GPIOA, LD2_Pin);
     switch (rx_state) {
       case STATE_WAIT_STX:
         if (rx_byte == PACKET_STX) {  // 0x02가 들어오면 패킷 시작
@@ -708,17 +728,6 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     // --------------------------------------------------
     // 여기에 레귤레이터 초기화 코드를 작성합니다.
     // --------------------------------------------------
-      
-    // 예시 1: 펌프 릴레이(PB0) 강제 정지
-    //HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
-      
-    // 예시 2: 밸브(PC1) 강제 차단
-    //HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET);
-      
-    // 예시 3: 부저(PB6) 끄기 (타이머 PWM 정지)
-    // HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_1);
-      
-    // 상태 초기화 플래그 등...
 
     // 채터링(디바운스) 방지: 200ms 이내 연속 입력 무시
     static uint32_t last_interrupt_time = 0;
