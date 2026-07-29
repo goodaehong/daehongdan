@@ -12,10 +12,12 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include "FireDetectionRuntime.h"
+#include "Database.h"
 #include <random>
 #include <ctime>
 #include <atomic>
 #include <cstdlib>
+#include <sys/stat.h> 
 
 // 4채널 프레임 공유 저장소. 채널별 mutex로 워커/메인 간 경합 방지
 struct FrameStore {
@@ -150,6 +152,7 @@ struct ActuatorState {
 ActuatorState actState;
 std::mutex uartMtx;   // 자동(센서 스레드)·수동(수신 스레드) 명령 직렬화
 std::atomic<bool> g_warningAck{false};   // 경고 확인(warning_ack) 수신 플래그. 수신 스레드가 set, 센서 스레드가 read/clear
+Database g_db;   // 전역 DB. main에서 open, 센서 스레드가 insert 
 
 // ── 명령 실행부. 수동·자동 모두 여기로 수렴. 나중에 STM UART도 이 안에만 추가 ──
 void executeCommand(const std::string& target, const std::string& action,
@@ -191,6 +194,10 @@ void handleControl(const std::string& line, Sender& sender) {
 
     executeCommand(target, action, value, "수동", sender);
 
+    g_db.insertEvent(std::time(nullptr), zone, "manual_control", "", "",   
+                     "", "manual", target + ":" + action, "admin",
+                     0, 0, "", 0, "", 0, "");                        
+
     // 명세서 control_ack 규격: cmdId 반사, 지금은 무조건 ok (STM 없으니 실패할 게 없음)
     std::ostringstream oss;
     oss << "{\"type\":\"control_ack\",\"cmdId\":\"" << cmdId
@@ -231,31 +238,86 @@ void recvWorker(Sender& sender) {
 }                                                                    
 
 
-// 판단 매트릭스: 카메라 감지 + 센서값 융합 → 종합 상태 + 원인          // <- 처음 (기존 judgeState 통째 교체)
+// 판단 매트릭스: 카메라 감지 + 센서값 융합 → 종합 상태 + 원인         
 struct Judgement {
     std::string state;   // "safe"/"warning"/"danger" → Qt로 전송
     std::string cause;   // 대응 선택용 
 };
 
-Judgement judgeState(bool camFire, bool camSmoke, float gasPpm, float smokePpm) {
-    bool gasHigh   = gasPpm   > 200.0f;   // 임계값: 유나님 보정 후 확정
-    bool smokeHigh = smokePpm > 150.0f;
+// 판단 임계값 (mock 기준, 실센서 오면 유나님 보정값으로)         
+constexpr float GAS_THRESHOLD   = 200.0f;   // MQ-9 가스
+constexpr float SMOKE_THRESHOLD = 150.0f;   // MQ-2 연기센서
+constexpr float FLAME_THRESHOLD = 400.0f;   // DFR0076 불꽃센서(AO)  
 
-    if (camFire  && gasHigh)   return {"danger",  "fire_gas"};    // 우선순위 1
-    if (camFire)               return {"danger",  "flame"};       // 2
-    if (camSmoke && smokeHigh) return {"danger",  "smoke_fire"};  // 3
-    if (gasHigh)               return {"danger",  "gas"};         // 4
-    if (camSmoke)              return {"warning", "smoke_watch"}; // 5
+// cause 코드값 → Qt 표시용 센서 조합 문구 (트리거 센서 칸)          
+std::string causeToCombo(const std::string& cause) {
+    if (cause == "fire_confirmed")  return "화재 영상 감지 + 불꽃 센서";
+    if (cause == "smoke_confirmed") return "연기 영상 감지 + MQ-2(연기 센서)";
+    if (cause == "smoke_sensor")    return "MQ-2(연기 센서)";
+    if (cause == "gas")             return "MQ-9(가스 센서)";
+    if (cause == "flame_sensor")    return "불꽃 센서";
+    if (cause == "fire_visual")     return "화재 영상 감지";
+    if (cause == "smoke_visual")    return "연기 영상 감지";
+    // 가스+화재 = 가스 문구 + 화재 종류 문구 조합 (중복 제거 위해 재사용)
+    if (cause == "gas_fire_flame")       return causeToCombo("gas") + " + " + causeToCombo("fire_confirmed");
+    if (cause == "gas_fire_smoke")       return causeToCombo("gas") + " + " + causeToCombo("smoke_confirmed");
+    if (cause == "gas_fire_smokesensor") return causeToCombo("gas") + " + " + causeToCombo("smoke_sensor");
+    return "-";
+}                           
+
+// 판단 매트릭스 2차. 영상 감지(O/X) + 센서 값 → 종합 판정             
+Judgement judgeState(bool camFire, bool camSmoke,
+                     float gasPpm, float smokePpm, float flameVal) {
+    bool gasHigh   = gasPpm   > GAS_THRESHOLD;    // MQ-9
+    bool smokeHigh = smokePpm > SMOKE_THRESHOLD;  // MQ-2
+    bool flameHigh = flameVal > FLAME_THRESHOLD;  // DFR0076 (역방향이면 < 로)
+
+    
+
+    // ── danger (위험) ──
+    if (gasHigh && camFire && flameHigh)   return {"danger", "gas_fire_flame"};        // 8행 가스 + 화재(화재감지+불꽃센서)
+    if (gasHigh && camSmoke && smokeHigh)  return {"danger", "gas_fire_smoke"};        // 8행 가스 + 화재(연기감지+연기센서)
+    if (gasHigh && smokeHigh)              return {"danger", "gas_fire_smokesensor"};  // 8행 가스 + 화재(연기센서)
+    if (camFire && flameHigh)    return {"danger", "fire_confirmed"};  // 6행
+    if (camSmoke && smokeHigh)   return {"danger", "smoke_confirmed"}; // 5행
+    if (smokeHigh)               return {"danger", "smoke_sensor"};    // 4행
+    if (gasHigh)                 return {"danger", "gas"};             // 7행
+
+    // ── warning (경고) ──
+    if (flameHigh)               return {"warning", "flame_sensor"};   // 3행
+    if (camFire)                 return {"warning", "fire_visual"};    // 2행
+    if (camSmoke)                return {"warning", "smoke_visual"};   // 1행
+
     return {"safe", ""};
-}                                                                    // <- 끝
+}                                                                                         
+
+// 감지 프레임을 jpg로 저장 → 경로 반환. 실패 시 빈 문자열            
+std::string saveSnapshot(FrameStore& store, int ch, const std::string& zone, long ts) {
+    if (ch < 0) return "";
+    cv::Mat frame;
+    {
+        std::lock_guard<std::mutex> lock(store.mtx[ch]);
+        if (store.frames[ch].empty()) return "";
+        frame = store.frames[ch].clone();
+    }
+    const std::string dir = "db/snapshots";
+    ::mkdir("db", 0755);
+    ::mkdir(dir.c_str(), 0755);
+    std::string path = dir + "/" + zone + "_" + std::to_string(ts)
+                     + "_cam" + std::to_string(ch + 1) + ".jpg";
+    if (!cv::imwrite(path, frame)) return "";
+    return path;
+}                                                                
 
 // mock 센서 스레드. 부품 오면 값 생성부만 실제 드라이버 읽기로 교체
-void sensorWorker(Sender& sender) {
+void sensorWorker(Sender& sender, FrameStore& store) {
     std::mt19937 rng(std::random_device{}());
     std::uniform_real_distribution<float> jitter(-1.0f, 1.0f);
     int tick = 0;
     std::string prevState = "safe"; 
     std::string prevCause = "";
+    long incidentId = 0;   // 현재 위험 사태 번호 (danger 진입 시 발급, 0=사태 없음)
+    long incidentSeq = 0;  // 사태 번호 발급용 카운터  
     const int WARN_TIMEOUT = 10;   // 경고 무응답 자동 전환까지 (초, N)   
     int  warnStartTick = -1;       // warning 진입 tick (-1 = 타이머 비활성)
     bool forcedDanger  = false;    // 무응답으로 강제 위험 전환된 상태     
@@ -266,6 +328,7 @@ void sensorWorker(Sender& sender) {
         float humidity = 45.0f + jitter(rng) * 5.0f;
         float gasPpm   = 45.0f + jitter(rng) * 10.0f;
         float smokePpm = 8.0f  + jitter(rng) * 3.0f;
+        float flameVal = 100.0f + jitter(rng) * 30.0f; // 평상시 ~100, 임계 400 미만
 
         // 데모 스파이크: 60초 주기 중 45~60초 구간은 가스 급상승 (Qt 경고 UI 테스트용)
         if (tick % 60 >= 45) {
@@ -273,14 +336,20 @@ void sensorWorker(Sender& sender) {
             smokePpm = 180.0f + jitter(rng) * 20.0f;
         }
 
-        // ── [카메라 상태 종합] 4채널 중 하나라도 감지면 true ──
+        // 데모 스파이크2: 불꽃센서 (가스와 다른 타이밍 = 20~35초 구간)    
+        if (tick % 60 >= 20 && tick % 60 < 35) {
+            flameVal = 600.0f + jitter(rng) * 50.0f;   // 임계 400 초과 → 불꽃 감지
+        }                                                        
+
+        //  ── [카메라 상태 종합] 4채널 중 하나라도 감지면 true + 감지 채널 기록 ──
         bool camFire = false, camSmoke = false;
+        int  detCh = -1;   // 스냅샷용: 감지된 대표 채널 (-1=없음) 
         for (int i = 0; i < 4; i++) {
-            if (detState[i].fire)  camFire  = true;
-            if (detState[i].smoke) camSmoke = true;
+            if (detState[i].fire)  { camFire  = true; if (detCh < 0) detCh = i; }   // ← 채널 기록 추가
+            if (detState[i].smoke) { camSmoke = true; if (detCh < 0) detCh = i; }   // ← 채널 기록 추가
         }
 
-        Judgement j = judgeState(camFire, camSmoke, gasPpm, smokePpm);     
+        Judgement j = judgeState(camFire, camSmoke, gasPpm, smokePpm, flameVal);     
 
         // ── 경고 무응답 타이머: warning 지속 중 관리자 미확인 시 위험 강제 전환 ──  
         int warnRemain = -1;   // -1 = JSON에 미포함 (warning 아닐 때)
@@ -289,6 +358,11 @@ void sensorWorker(Sender& sender) {
                 warnStartTick = tick;
                 g_warningAck  = false;      // 새 경고 시작 → 이전 ack 무효화
                 forcedDanger  = false;
+                // 경고 진입 = event_log 기록 + 스냅샷 (액추에이터 대응은 없음)  
+                std::string snap = saveSnapshot(store, detCh, "A", std::time(nullptr));
+                g_db.insertEvent(std::time(nullptr), "A", "warning", j.state, j.cause,
+                                 causeToCombo(j.cause), "auto", "", "",
+                                 gasPpm, smokePpm, "진행중", 0, snap, 0, "");
             }
             if (g_warningAck.load()) {
                 warnRemain = 0;             // 관리자 확인함 → 카운트다운 종료(전환 안 함)
@@ -304,33 +378,55 @@ void sensorWorker(Sender& sender) {
             if (j.state == "safe") forcedDanger = false;   // 안전 복귀 시 강제상태 해제
         }
 
-        // 강제 전환: 자연 판단이 warning이어도 danger로 승격 (미확인 연기 → 화재계열 대응=팬 차단)
+        // 강제 전환: 자연 판단이 warning이어도 danger로 승격 (경고 원인에 맞춰)
         if (forcedDanger && j.state == "warning") {
             j.state = "danger";
-            j.cause = "smoke_fire";
+            // 경고 원인 → 대응되는 위험 원인으로 승격                  // <- 처음
+            if      (j.cause == "smoke_visual") j.cause = "smoke_confirmed";  // 연기 경고 → 연기 위험
+            else if (j.cause == "fire_visual" ) j.cause = "fire_confirmed";   // 화재 경고 → 화재 위험
+            else if (j.cause == "flame_sensor") j.cause = "fire_confirmed";   // 불꽃센서 경고 → 화재 위험
+            else                                j.cause = "fire_confirmed";   // 기본        // <- 끝
         }                                                                         
 
         // 엣지 트리거: 위험 "진입" 또는 위험 중 "원인 변경" 순간에만 발사
         // (가스로 팬 최대 배출 중 → 불 붙음(fire_gas) → 팬 차단으로 뒤집어야 함)
         if (j.state == "danger" && (prevState != "danger" || j.cause != prevCause)) {
+            if (prevState != "danger") incidentId = ++incidentSeq;   // 새 위험 진입 = 새 사태 번호
+
             std::string src = "자동:" + j.cause;
-            if (j.cause == "gas") {                    // 4행: 가스만 → 팬 최대 (배출)
+            std::string resp;                                         // 대응 내역 문자열 (이벤트 로그용)
+
+            if (j.cause == "gas") {                    // 7행: 가스 단독 → 팬 최대(배기)
                 executeCommand("siren", "on",    0, src, sender);
                 executeCommand("valve", "close", 0, src, sender);
                 executeCommand("fan",   "high",  0, src, sender);
+                resp = "siren_on,valve_close,fan_high";
             }
-            else {                                     // 1~3행 화재 계열 → 팬 차단 (산소 차단)
+            else {                                     
+                //화재 계열 (gas_fire/fire_confirmed/smoke_confirmed/smoke_sensor) → 팬 차단
                 executeCommand("siren", "on",    0, src, sender);
                 executeCommand("valve", "close", 0, src, sender);
                 executeCommand("fan",   "off",   0, src, sender);
                 // TODO(광렬님 STM 후): 전광판 위험 화면 (cause별 문구 구분 가능)
+                resp = "siren_on,valve_close,fan_off"; 
             }
+
+            std::string snap = saveSnapshot(store, detCh, "A", std::time(nullptr));
+
+            g_db.insertEvent(std::time(nullptr), "A", "danger", j.state, j.cause,
+                             causeToCombo(j.cause), "auto", resp, "",
+                             gasPpm, smokePpm, "진행중", 0, snap, incidentId, "");
         }
-        else if (prevState == "danger" && j.state == "safe") {
+        else if (prevState == "danger" && j.state == "safe") { //해제 로직 
             std::string src = "자동:해제";
             executeCommand("siren", "off",  0, src, sender);
             executeCommand("valve", "open", 0, src, sender);   // TODO: 자동 재개방 여부 팀 결정
             executeCommand("fan",   "low",  0, src, sender);   // 평상시 약 가동 복귀
+            g_db.resolveIncident(incidentId);   // 이 사태의 진행중 → 해결됨 일괄
+            g_db.insertEvent(std::time(nullptr), "A", "resolve", "safe", "",
+                             "", "auto", "위험 해제", "",
+                             gasPpm, smokePpm, "해결됨", 0, "", incidentId, "");
+            incidentId = 0;                                          // 사태 종료
         }
         prevState = j.state;
         prevCause = j.cause;                                         
@@ -349,6 +445,8 @@ void sensorWorker(Sender& sender) {
         if (j.state == "warning") oss << ",\"warnRemain\":" << warnRemain;
         oss << "}";                                                 
         sender.send(oss.str());
+
+        g_db.insertSensor(std::time(nullptr), "A",temp, humidity, gasPpm, smokePpm, flameVal, j.state);
 
         tick++;
         if (tick % 5 == 0) {                                       
@@ -467,10 +565,14 @@ int main() {
     sender.listen(9999);                    // [지금 테스트] Qt 직접 접속
     //sender.connect("127.0.0.1", 9999);   // mock 테스트 포트. 나중에 광렬 TLS 서버 포트로 교체
 
+    if (!g_db.open(DB_PATH)) {                              
+        std::cerr << "[DB] 초기화 실패 — DB 없이 계속 진행\n";
+    }   
+    
     FrameStore store;
     std::thread threads[4];
 
-    std::thread sensorThread(sensorWorker, std::ref(sender));    
+    std::thread sensorThread(sensorWorker, std::ref(sender), std::ref(store));    
     sensorThread.detach();
 
     std::thread recvThread(recvWorker, std::ref(sender));
