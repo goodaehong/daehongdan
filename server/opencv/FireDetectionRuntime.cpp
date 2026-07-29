@@ -18,6 +18,7 @@ using std::unique_lock;
 namespace
 {
     std::atomic<int> gRuntimeInstanceCounter{ 0 };
+    std::mutex gFireDetectorExecutionMutex;
 
     int nextRuntimePhaseMs()
     {
@@ -200,7 +201,14 @@ private:
             if (detectorResetRequested_.exchange(false)) detector_.reset();
 
             const TimePoint start = Clock::now();
-            DetectionResult detection = detector_.detect(frame);
+            DetectionResult detection;
+            {
+                // Raspberry Pi 4 has four CPU cores. Four channel runtimes may
+                // queue independently, but only one OpenCV fire detector runs
+                // at a time so they cannot oversubscribe the CPU.
+                lock_guard<mutex> detectorLock(gFireDetectorExecutionMutex);
+                detection = detector_.detect(frame);
+            }
             const double detectMs = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
             if (frameEpoch != streamEpoch_.load()) continue;
 
