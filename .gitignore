@@ -65,3 +65,4 @@ CMakeLists.txt.user*
 *.key
 *.crt
 auto.*
+*.dtbo

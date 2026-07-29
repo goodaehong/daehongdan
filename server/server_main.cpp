@@ -2,6 +2,7 @@
 #include <thread>
 #include <mutex>
 #include <iostream>
+#include <fstream> // ★ 추가: 파일 읽기용 (DHT22)
 #include <chrono>
 #include <sstream>
 #include <iomanip>
@@ -249,6 +250,20 @@ Judgement judgeState(bool camFire, bool camSmoke, float gasPpm, float smokePpm) 
     return {"safe", ""};
 }                                                                    // <- 끝
 
+// ── [추가] DHT22 드라이버에서 온습도 읽어오기 ──
+bool readDHT22(float& out_temp, float& out_hum) {
+    std::ifstream tempFile("/sys/devices/platform/dht22/temp_value");
+    std::ifstream humFile("/sys/devices/platform/dht22/humid_value");
+
+    if (tempFile.is_open() && humFile.is_open()) {
+        tempFile >> out_temp;
+        humFile >> out_hum;
+        return true;
+    }
+    return false; // 읽기 실패
+}
+// ──────────────────────────────────────────────
+
 // mock 센서 스레드. 부품 오면 값 생성부만 실제 드라이버 읽기로 교체
 void sensorWorker(Sender& sender) {
     std::mt19937 rng(std::random_device{}());
@@ -256,14 +271,28 @@ void sensorWorker(Sender& sender) {
     int tick = 0;
     std::string prevState = "safe"; 
     std::string prevCause = "";
+    float prevTemp = 26.0f; // [추가] 초기값은 기존 mock 기준값
+    float prevHumidity = 45.0f; // [추가]
     const int WARN_TIMEOUT = 10;   // 경고 무응답 자동 전환까지 (초, N)   
     int  warnStartTick = -1;       // warning 진입 tick (-1 = 타이머 비활성)
     bool forcedDanger  = false;    // 무응답으로 강제 위험 전환된 상태     
 
     while (true) {
-        // 평상시 기준값 + 흔들림
-        float temp     = 26.0f + jitter(rng) * 2.0f;
-        float humidity = 45.0f + jitter(rng) * 5.0f;
+        // ── 온습도: 실제 DHT22 드라이버 값으로 교체 ──
+        float temp, humidity;
+        if (!readDHT22(temp, humidity)) {
+            std::cerr << "[DHT22] 읽기 실패, 이전 값 유지\n";
+            temp = prevTemp;
+            humidity = prevHumidity;
+        } else {
+            prevTemp = temp;
+            prevHumidity = humidity;
+        }
+
+        // // 평상시 기준값 + 흔들림
+        // float temp     = 26.0f + jitter(rng) * 2.0f;
+        // float humidity = 45.0f + jitter(rng) * 5.0f;
+        // 가스/연기는 아직! 기존 mock 그대로 유지 (state/danger 로직 테스트용)
         float gasPpm   = 45.0f + jitter(rng) * 10.0f;
         float smokePpm = 8.0f  + jitter(rng) * 3.0f;
 
