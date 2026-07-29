@@ -1,10 +1,30 @@
 #pragma once
 
 #include <opencv2/opencv.hpp>
+#include <cstdint>
+#include <limits>
 #include <string>
 #include <vector>
 
 enum class DetectionType { FIRE, SMOKE };
+
+struct PersonDetection
+{
+    // Pixel coordinates in the original channel frame (x, y, width, height).
+    cv::Rect box;
+    double confidence = 0.0;
+    std::string objectId;
+};
+
+struct PersonMetadataFrame
+{
+    std::vector<PersonDetection> persons;
+    bool receiverRunning = false;
+    bool streamConnected = false;
+    double ageMs = std::numeric_limits<double>::infinity();
+    std::uint64_t bytesReceived = 0;
+    std::string status;
+};
 
 struct FireDebugImages
 {
@@ -53,4 +73,13 @@ struct DetectionResult
 
     std::vector<DetectionBox> boxes;
     FireDebugImages debugImages;
+};
+
+struct SmokeDetectionResult
+{
+    bool modelReady = false;
+    bool candidate = false;
+    double maxScore = 0.0;
+    std::vector<DetectionBox> boxes;
+    std::string error;
 };
