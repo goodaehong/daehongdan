@@ -442,7 +442,7 @@ srtAddress: :8890
 # MoQ server
 
 # Enable the MoQ (Media over QUIC) server, which allows to publish and read streams with the MoQ protocol.
-moq: true
+moq: false
 # Address of the TCP/HTTP2 listener.
 # This hosts the web client.
 moqHTTP2Address: :8892
