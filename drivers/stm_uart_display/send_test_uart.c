@@ -1,5 +1,5 @@
 /*
- * 라즈베리파이에서 하드코딩된 값(표정/가스/온습도/시각/날짜)을
+ * 라즈베리파이에서 실제 시간(년월일시분) + 그럴듯하게 흔들리는 온습도/가스 값을
  * STM32 display_board로 UART 전송하는 테스트 프로그램.
  * 빌드: gcc send_test_uart.c -o send_test_uart
  * 실행: sudo ./send_test_uart   (또는 유저를 dialout 그룹에 추가해서 sudo 없이)
@@ -10,10 +10,15 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <termios.h>
+#include <time.h>
+#include <stdlib.h>
 
 #define STX 0xAA
 #define ETX 0x55
 #define CMD_UPDATE 0x80
+
+#define GAS_CAUTION_THRESHOLD 300
+#define GAS_DANGER_THRESHOLD  700
 
 static int open_uart(const char *devPath)
 {
@@ -64,6 +69,20 @@ static int build_packet(uint8_t *out, const uint8_t *data, uint8_t dataLen, uint
     return idx;
 }
 
+static int clamp_int(int value, int min, int max)
+{
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
+}
+
+/* 이전 값에서 +-range 이내로 랜덤하게 움직이되 [min,max] 범위를 벗어나지 않게 함 (자연스러운 변동) */
+static int random_walk(int current, int step, int min, int max)
+{
+    int delta = (rand() % (2 * step + 1)) - step;
+    return clamp_int(current + delta, min, max);
+}
+
 int main(void)
 {
     const char *devPath = "/dev/serial0";
@@ -73,14 +92,38 @@ int main(void)
         return 1;
     }
 
-    /* 하드코딩 테스트 값: 웃음/정상/가스100/온도25/습도50/12:30/2026-07-28 */
-    uint8_t data[11] = { 0x00, 0x00, 0x00, 0x64, 25, 50, 12, 30, 26, 7, 28 };
+    srand((unsigned int)time(NULL));
+
+    int temp = 25;       /* 섭씨 15~35 사이 변동 */
+    int humidity = 50;   /* % 30~70 사이 변동 */
+    int gas = 100;       /* ppm 0~950 사이 변동 */
+
     uint8_t packet[32];
 
     printf("UART 열림: %s, 1초마다 테스트 패킷 전송 시작 (Ctrl+C로 종료)\n", devPath);
 
     while (1)
     {
+        time_t now = time(NULL);
+        struct tm *lt = localtime(&now);
+
+        temp = random_walk(temp, 1, 15, 35);
+        humidity = random_walk(humidity, 2, 30, 70);
+        gas = random_walk(gas, 20, 0, 950);
+
+        uint8_t face, gasColor;
+        if (gas >= GAS_DANGER_THRESHOLD)       { face = 2; gasColor = 2; }  /* 찡그림/위험 */
+        else if (gas >= GAS_CAUTION_THRESHOLD) { face = 1; gasColor = 1; }  /* 무표정/주의 */
+        else                                    { face = 0; gasColor = 0; }  /* 웃음/정상 */
+
+        uint8_t data[11] = {
+            face, gasColor,
+            (uint8_t)((gas >> 8) & 0xFF), (uint8_t)(gas & 0xFF),
+            (uint8_t)temp, (uint8_t)humidity,
+            (uint8_t)lt->tm_hour, (uint8_t)lt->tm_min,
+            (uint8_t)(lt->tm_year % 100), (uint8_t)(lt->tm_mon + 1), (uint8_t)lt->tm_mday
+        };
+
         int len = build_packet(packet, data, sizeof(data), CMD_UPDATE);
         ssize_t written = write(fd, packet, len);
         if (written != len)
@@ -89,7 +132,9 @@ int main(void)
         }
         else
         {
-            printf("패킷 전송 완료 (%d bytes)\n", len);
+            printf("전송: %02d:%02d %04d-%02d-%02d 온도%d 습도%d%% 가스%dppm 표정%d\n",
+                   lt->tm_hour, lt->tm_min, lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday,
+                   temp, humidity, gas, face);
         }
         sleep(1);
     }

@@ -40,7 +40,7 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-UART_HandleTypeDef huart2;
+UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
 extern const uint8_t HUB75_Alphabet[9];
@@ -85,7 +85,7 @@ extern const uint32_t HUB75_Shape12[21];
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_USART2_UART_Init(void);
+static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -194,9 +194,9 @@ static void DrawStaticScene(void)
   DrawBitmap16(11, 41, HUB75_Korean4, 9, HUB75_CYAN);         // 스
   DrawBitmap16(1, 24, HUB75_Shape, 13, HUB75_YELLOW);         // 온도(태양)
   DrawBitmap8(55, 27, HUB75_Shape2, 8, HUB75_BLUE);           // %
-  DrawBitmap8(25, 27, HUB75_Shape3, 8, HUB75_YELLOW);         // 온도(섭씨)
-  DrawBitmap8(49, 42, HUB75_Shape4, 8, HUB75_CYAN);           // 가스 농도(pp)
-  DrawBitmap8(57, 42, HUB75_Shape5, 8, HUB75_CYAN);           // 가스 농도(m)
+  DrawBitmap8(26, 27, HUB75_Shape3, 8, HUB75_YELLOW);         // 온도(섭씨)
+  DrawBitmap8(50, 43, HUB75_Shape4, 8, HUB75_CYAN);           // 가스 농도(pp)
+  DrawBitmap8(58, 43, HUB75_Shape5, 8, HUB75_CYAN);           // 가스 농도(m)
   DrawBitmap16(35, 25, HUB75_Shape6, 10, HUB75_BLUE);         // 습도(물방울)
   DrawFace(0);                                                // 표정 (첫 프레임: 웃음)
   DrawGasGraph(0);                                            // 가스 그래프 (첫 프레임: 웃음 상태)
@@ -250,9 +250,19 @@ static volatile uint16_t rxHead = 0;
 static volatile uint16_t rxTail = 0;
 static uint8_t rxByte;
 
+/* IT 수신 중 오버런/프레이밍 에러 등이 나면 여기로 옴 -> 반드시 재무장해야 다음 바이트를 계속 받음 */
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == USART1)
+  {
+    __HAL_UART_CLEAR_PEFLAG(huart);
+    HAL_UART_Receive_IT(&huart1, &rxByte, 1);
+  }
+}
+
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-  if (huart->Instance == USART2)
+  if (huart->Instance == USART1)
   {
     uint16_t next = (rxHead + 1) % RX_RING_SIZE;
     if (next != rxTail)   /* 링버퍼 꽉 찼으면 그냥 버림(오버런) */
@@ -260,7 +270,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
       rxRing[rxHead] = rxByte;
       rxHead = next;
     }
-    HAL_UART_Receive_IT(&huart2, &rxByte, 1);   /* 다음 1바이트 계속 수신 대기 */
+    HAL_UART_Receive_IT(&huart1, &rxByte, 1);   /* 다음 1바이트 계속 수신 대기 */
   }
 }
 
@@ -268,6 +278,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 typedef enum { WAIT_STX, WAIT_LEN, WAIT_CMD, WAIT_DATA, WAIT_CHECKSUM, WAIT_ETX } ParseState;
 static ParseState parseState = WAIT_STX;
 static uint8_t packetLen, packetCmd, packetData[16], packetDataIdx;
+static uint32_t lastRxTick = 0;   /* 마지막으로 바이트를 처리한 시각(ms) - 유휴 타임아웃 재동기화용 */
 
 /* 파싱된 최신 값들 (표정/가스색은 서로 다른 상태라 별도 변수로 관리) */
 static uint8_t g_face = 0;       /* 0=웃음,1=무표정,2=찡그림 */
@@ -286,7 +297,7 @@ static void SendAckPacket(uint8_t status)
   packet[3] = status;
   packet[4] = (uint8_t)(packet[1] + packet[2] + packet[3]);  /* 단순 합산 체크섬 */
   packet[5] = PACKET_ETX;
-  HAL_UART_Transmit(&huart2, packet, sizeof(packet), 100);
+  HAL_UART_Transmit(&huart1, packet, sizeof(packet), 100);
 }
 
 static void HandlePacket(uint8_t cmd, const uint8_t *data, uint8_t len)
@@ -311,6 +322,8 @@ static void HandlePacket(uint8_t cmd, const uint8_t *data, uint8_t len)
 static void ProcessRxByte(uint8_t b)
 {
   static uint8_t checksumCalc;
+
+  lastRxTick = HAL_GetTick();
 
   switch (parseState)
   {
@@ -366,6 +379,13 @@ static void PollUartRx(void)
     rxTail = (rxTail + 1) % RX_RING_SIZE;
     ProcessRxByte(b);
   }
+
+  /* 패킷 중간에 바이트가 하나 깨져서 영영 정렬이 안 맞는 경우 대비:
+     일정 시간 새 바이트가 없는데 아직 STX 대기 상태가 아니면 강제로 재동기화 */
+  if (parseState != WAIT_STX && (HAL_GetTick() - lastRxTick) > 50)
+  {
+    parseState = WAIT_STX;
+  }
 }
 
 static void UpdateDigit(int16_t x, int16_t y, uint8_t digit, HUB75_Color color, uint8_t tiny)
@@ -373,6 +393,7 @@ static void UpdateDigit(int16_t x, int16_t y, uint8_t digit, HUB75_Color color, 
   HUB75_FillRect(x, y, 8, 8, HUB75_BLACK);
   DrawBitmap8(x, y, tiny ? TinyNumberDigits[digit] : NumberDigits[digit], 8, color);
 }
+
 
 /* 수신값을 실제 화면에 반영 */
 static void UpdateDynamicDisplay(void)
@@ -385,20 +406,25 @@ static void UpdateDynamicDisplay(void)
   UpdateDigit(34, 41, (uint8_t)((g_gas / 100) % 10), HUB75_CYAN, 0);
   UpdateDigit(39, 41, (uint8_t)((g_gas / 10) % 10), HUB75_CYAN, 0);
   UpdateDigit(44, 41, (uint8_t)(g_gas % 10), HUB75_CYAN, 0);
+  DrawBitmap8(50, 43, HUB75_Shape4, 8, HUB75_CYAN);           // 가스 농도(pp) - 마지막 자리와 겹치는 부분 다시 그림
+  DrawBitmap8(58, 43, HUB75_Shape5, 8, HUB75_CYAN);           // 가스 농도(m)
 
   /* 온도 */
   UpdateDigit(16, 27, (uint8_t)(g_temp / 10), HUB75_YELLOW, 0);
   UpdateDigit(21, 27, (uint8_t)(g_temp % 10), HUB75_YELLOW, 0);
+  DrawBitmap8(26, 27, HUB75_Shape3, 8, HUB75_YELLOW);         // 온도(섭씨) - 일의 자리와 겹치는 부분 다시 그림
 
   /* 습도 */
   UpdateDigit(44, 27, (uint8_t)(g_humidity / 10), HUB75_BLUE, 0);
   UpdateDigit(49, 27, (uint8_t)(g_humidity % 10), HUB75_BLUE, 0);
+  DrawBitmap8(55, 27, HUB75_Shape2, 8, HUB75_BLUE);           // % - 일의 자리와 겹치는 부분 다시 그림
 
   /* 시:분 */
   UpdateDigit(41, 53, (uint8_t)(g_hour / 10), HUB75_WHITE, 1);
   UpdateDigit(46, 53, (uint8_t)(g_hour % 10), HUB75_WHITE, 1);
   UpdateDigit(53, 53, (uint8_t)(g_minute / 10), HUB75_WHITE, 1);
   UpdateDigit(58, 53, (uint8_t)(g_minute % 10), HUB75_WHITE, 1);
+  DrawBitmap8(51, 54, HUB75_Shape10, 8, HUB75_WHITE);         // : - 분 십의 자리와 겹치는 부분 다시 그림
 
   /* 년/월/일 */
   UpdateDigit(2, 53, (uint8_t)(g_year / 10), HUB75_WHITE, 1);
@@ -407,6 +433,8 @@ static void UpdateDynamicDisplay(void)
   UpdateDigit(19, 53, (uint8_t)(g_month % 10), HUB75_WHITE, 1);
   UpdateDigit(26, 53, (uint8_t)(g_day / 10), HUB75_WHITE, 1);
   UpdateDigit(31, 53, (uint8_t)(g_day % 10), HUB75_WHITE, 1);
+  DrawBitmap8(11, 53, HUB75_Shape9, 8, HUB75_WHITE);          // . - 월 십의 자리와 겹치는 부분 다시 그림
+  DrawBitmap8(23, 53, HUB75_Shape9, 8, HUB75_WHITE);          // . - 일 십의 자리와 겹치는 부분 다시 그림
 }
 /* USER CODE END 0 */
 
@@ -424,7 +452,7 @@ int main(void)
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
- HAL_Init();
+  HAL_Init();
 
   /* USER CODE BEGIN Init */
 
@@ -439,30 +467,21 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_USART2_UART_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   HUB75_Init();
   HUB75_SetBrightness(30); // 30%로 시작, 눈부시면 더 낮추기
   HUB75_Clear(HUB75_BLACK);
   DrawStaticScene();
-  HAL_UART_Receive_IT(&huart2, &rxByte, 1);   // UART 1바이트 수신 대기 시작
+  HAL_UART_Receive_IT(&huart1, &rxByte, 1);   // UART 1바이트 수신 대기 시작
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  uint32_t lastHeartbeat = HAL_GetTick();
-
   while (1)
   {
     // 매트릭스는 계속 스캔해줘야 화면이 유지됨 (blocking delay로 막으면 안 됨)
     HUB75_RefreshOnce();
-
-    uint32_t now = HAL_GetTick();
-    if (now - lastHeartbeat >= 500)
-    {
-      HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);   // 보드 내장 LED 하트비트
-      lastHeartbeat = now;
-    }
 
     PollUartRx();   // 링버퍼에 쌓인 바이트 파싱
 
@@ -526,36 +545,35 @@ void SystemClock_Config(void)
 }
 
 /**
-  * @brief USART2 Initialization Function
+  * @brief USART1 Initialization Function
   * @param None
   * @retval None
   */
-static void MX_USART2_UART_Init(void)
+static void MX_USART1_UART_Init(void)
 {
 
-  /* USER CODE BEGIN USART2_Init 0 */
+  /* USER CODE BEGIN USART1_Init 0 */
 
-  /* USER CODE END USART2_Init 0 */
+  /* USER CODE END USART1_Init 0 */
 
-  /* USER CODE BEGIN USART2_Init 1 */
+  /* USER CODE BEGIN USART1_Init 1 */
 
-  /* USER CODE END USART2_Init 1 */
-  huart2.Instance = USART2;
-  huart2.Init.BaudRate = 115200;
-  huart2.Init.WordLength = UART_WORDLENGTH_8B;
-  huart2.Init.StopBits = UART_STOPBITS_1;
-  huart2.Init.Parity = UART_PARITY_NONE;
-  huart2.Init.Mode = UART_MODE_TX_RX;
-  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart2) != HAL_OK)
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 115200;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN USART2_Init 2 */
-  HAL_NVIC_SetPriority(USART2_IRQn, 1, 0);
-  HAL_NVIC_EnableIRQ(USART2_IRQn);
-  /* USER CODE END USART2_Init 2 */
+  /* USER CODE BEGIN USART1_Init 2 */
+
+  /* USER CODE END USART1_Init 2 */
 
 }
 
@@ -602,6 +620,14 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : USART_TX_Pin USART_RX_Pin */
+  GPIO_InitStruct.Pin = USART_TX_Pin|USART_RX_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.Alternate = GPIO_AF7_USART2;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : LD2_Pin */
   GPIO_InitStruct.Pin = LD2_Pin;
