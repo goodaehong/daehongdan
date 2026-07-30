@@ -80,6 +80,19 @@ extern const uint8_t HUB75_TinyNumber8[8];
 extern const uint8_t HUB75_TinyNumber9[8];
 extern const uint32_t HUB75_Shape11[21];
 extern const uint32_t HUB75_Shape12[21];
+extern const uint64_t HUB75_Shape13[64];
+extern const uint16_t HUB75_Korean5[12];
+extern const uint16_t HUB75_Korean6[12];
+extern const uint16_t HUB75_Korean7[12];
+extern const uint16_t HUB75_Korean8[12];
+extern const uint16_t HUB75_Korean9[12];
+extern const uint16_t HUB75_Korean10[12];
+extern const uint16_t HUB75_Korean11[12];
+extern const uint16_t HUB75_Korean12[12];
+extern const uint16_t HUB75_Korean13[12];
+extern const uint16_t HUB75_Korean14[12];
+extern const uint16_t HUB75_Shape14[12];
+extern const uint16_t HUB75_Alphabet1[12];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -150,6 +163,25 @@ static void DrawBitmap32(int16_t x, int16_t y, const uint32_t *bitmap, uint8_t r
     }
   }
 }
+static void DrawBitmap64(int16_t x, int16_t y, const uint64_t *bitmap, uint8_t rowCount, HUB75_Color color)
+{
+  for (uint8_t row = 0; row < rowCount; row++)
+  {
+    uint64_t bits = bitmap[row];
+    for (uint8_t col = 0; col < 64; col++)
+    {
+      if (bits & (0x8000000000000000ULL >> col))
+      {
+        int16_t px = x + col;
+        int16_t py = y + row;
+        if (px >= 0 && px < HUB75_WIDTH && py >= 0 && py < HUB75_HEIGHT)
+        {
+          HUB75_SetPixel((uint8_t)px, (uint8_t)py, color);
+        }
+      }
+    }
+  }
+}
 // 표정 3종 3초마다 순환 테스트: 웃음(초록) -> 무표정(노랑) -> 찡그림(빨강)
 static const uint32_t * const faceShapes[3] = { HUB75_Shape11, HUB75_Shape8, HUB75_Shape12 };
 static const HUB75_Color faceColors[3] = { HUB75_GREEN, HUB75_YELLOW, HUB75_RED };
@@ -182,6 +214,79 @@ static void DrawGasGraph(uint8_t index)
   DrawBitmap16(11, 41, HUB75_Korean4, 9, HUB75_CYAN);   // 스
   DrawBitmap8(29, 41, HUB75_Number1, 8, HUB75_CYAN);    // 가스 농도 천의 자리
   DrawBitmap8(34, 41, HUB75_Number6, 8, HUB75_CYAN);    // 가스 농도 백의 자리
+}
+
+// 위험 대피 전환 화면 (CMD 0x90 수신 시 표시될 화면 - 지금은 패킷 연동 없이 그냥 테스트로 띄움)
+// disasterType: 0 = A구역 화재발생!, 1 = A구역 가스유출! (둘 다 RED)
+static HUB75_Color AlertScreenColor(uint8_t disasterType)
+{
+  (void)disasterType;
+  return HUB75_RED;
+}
+
+static void DrawAlertScreen(uint8_t disasterType)
+{
+  HUB75_Color color = AlertScreenColor(disasterType);
+
+  HUB75_Clear(HUB75_BLACK);
+  DrawBitmap64(0, 0, HUB75_Shape13, 64, color);               // 테두리
+  DrawBitmap16(13, 17, HUB75_Alphabet1, 12, color);           // A
+  DrawBitmap16(25, 17, HUB75_Korean9, 12, color);             // 구
+  DrawBitmap16(39, 17, HUB75_Korean10, 12, color);            // 역
+
+  if (disasterType == 0)
+  {
+    DrawBitmap16(5, 33, HUB75_Korean5, 12, color);            // 화
+    DrawBitmap16(18, 33, HUB75_Korean6, 12, color);           // 재
+    DrawBitmap16(31, 33, HUB75_Korean7, 12, color);           // 발
+    DrawBitmap16(44, 33, HUB75_Korean8, 12, color);           // 생
+  }
+  else
+  {
+    DrawBitmap16(5, 33, HUB75_Korean11, 12, color);           // 가
+    DrawBitmap16(18, 33, HUB75_Korean12, 12, color);          // 스
+    DrawBitmap16(31, 33, HUB75_Korean13, 12, color);          // 유
+    DrawBitmap16(44, 33, HUB75_Korean14, 12, color);          // 출
+  }
+
+  DrawBitmap16(57, 33, HUB75_Shape14, 12, color);
+}
+
+// 테두리 점멸: 0.25초 간격으로 3초간(12번) 깜빡인 뒤, 10초 쉬고 반복 (총 주기 13초)
+// 화재발생/가스유출 화면은 이 13초 주기가 한 바퀴 돌 때마다 번갈아 표시됨
+#define ALERT_BLINK_INTERVAL_MS 100
+#define ALERT_BLINK_PHASE_MS    3000
+#define ALERT_REST_PHASE_MS     10000
+#define ALERT_CYCLE_MS          (ALERT_BLINK_PHASE_MS + ALERT_REST_PHASE_MS)
+
+static uint32_t alertBlinkCycleStart = 0;
+static uint8_t alertBorderVisible = 1;
+static uint8_t alertDisasterType = 0;
+static uint32_t alertLastCycleIndex = 0;
+
+static void UpdateAlertBorderBlink(void)
+{
+  uint32_t sinceStart = HAL_GetTick() - alertBlinkCycleStart;
+  uint32_t cycleIndex = sinceStart / ALERT_CYCLE_MS;
+  uint32_t elapsed = sinceStart % ALERT_CYCLE_MS;
+
+  if (cycleIndex != alertLastCycleIndex)   // 새 주기 시작 -> 화재/가스 화면 전환
+  {
+    alertLastCycleIndex = cycleIndex;
+    alertDisasterType = !alertDisasterType;
+    DrawAlertScreen(alertDisasterType);
+    alertBorderVisible = 1;
+  }
+
+  uint8_t shouldBeVisible = (elapsed < ALERT_BLINK_PHASE_MS)
+                              ? (((elapsed / ALERT_BLINK_INTERVAL_MS) % 2) == 0)
+                              : 1;
+
+  if (shouldBeVisible != alertBorderVisible)
+  {
+    alertBorderVisible = shouldBeVisible;
+    DrawBitmap64(0, 0, HUB75_Shape13, 64, alertBorderVisible ? AlertScreenColor(alertDisasterType) : HUB75_BLACK);
+  }
 }
 
 // 좌표는 (1,1)~(64,64) 기준표를 0-index로 변환(-1)해서 배치. 지금은 랜덤 없이 표에 있는 값 그대로 고정 표시.
@@ -287,6 +392,7 @@ static uint16_t g_gas = 0;
 static uint8_t g_temp = 0, g_humidity = 0, g_hour = 0, g_minute = 0;
 static uint8_t g_year = 0, g_month = 0, g_day = 0;
 static volatile uint8_t g_dataUpdated = 0;
+static uint8_t g_inAlertScreen = 0;   /* 위험 대피 전환 화면 표시 중이면 평상시 갱신 패킷 무시 */
 
 static void SendAckPacket(uint8_t status)
 {
@@ -473,6 +579,9 @@ int main(void)
   HUB75_SetBrightness(30); // 30%로 시작, 눈부시면 더 낮추기
   HUB75_Clear(HUB75_BLACK);
   DrawStaticScene();
+  DrawAlertScreen(alertDisasterType);   // 임시 테스트: 0x90 패킷 연동 전이라 그냥 바로 띄워서 배치 확인
+  g_inAlertScreen = 1; // 전환 화면 표시 중에는 평상시 갱신 패킷이 덮어쓰지 않도록 함
+  alertBlinkCycleStart = HAL_GetTick();
   HAL_UART_Receive_IT(&huart1, &rxByte, 1);   // UART 1바이트 수신 대기 시작
   /* USER CODE END 2 */
 
@@ -483,12 +592,20 @@ int main(void)
     // 매트릭스는 계속 스캔해줘야 화면이 유지됨 (blocking delay로 막으면 안 됨)
     HUB75_RefreshOnce();
 
+    if (g_inAlertScreen)
+    {
+      UpdateAlertBorderBlink();
+    }
+
     PollUartRx();   // 링버퍼에 쌓인 바이트 파싱
 
-    if (g_dataUpdated)   // 새 패킷 도착 -> 화면 갱신 + ACK 응답
+    if (g_dataUpdated)   // 새 패킷 도착 -> 화면 갱신 + ACK 응답 (전환 화면 표시 중에는 무시)
     {
-      UpdateDynamicDisplay();
-      SendAckPacket(0x00);
+      if (!g_inAlertScreen)
+      {
+        UpdateDynamicDisplay();
+        SendAckPacket(0x00);
+      }
       g_dataUpdated = 0;
     }
     /* USER CODE END WHILE */
