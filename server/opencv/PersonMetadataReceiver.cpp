@@ -39,6 +39,7 @@ namespace
 {
     using Clock = chrono::steady_clock;
 
+    // ONVIF 좌표 변환은 프레임마다 Translate/Scale 값이 달라질 수 있다.
     struct CoordinateTransform
     {
         bool present = false;
@@ -59,6 +60,7 @@ namespace
         CoordinateTransform transform;
     };
 
+    // XML 네임스페이스 접두사와 대소문자 차이를 허용하는 최소 파서용 유틸리티다.
     string lowerCopy(string value)
     {
         transform(value.begin(), value.end(), value.begin(), [](unsigned char ch)
@@ -260,8 +262,7 @@ namespace
                     "Likelihood", confidence);
                 if (!likelihoodAttribute)
                 {
-                    // Older ONVIF schemas store likelihood as the next sibling
-                    // element inside ClassCandidate instead of an attribute.
+                    // 구형 ONVIF 스키마는 신뢰도를 속성이 아닌 다음 요소에 저장한다.
                     size_t likelihoodEnd = string::npos;
                     const size_t likelihoodOpen = findOpeningTag(
                         objectBlock, "Likelihood", closeEnd + 1, &likelihoodEnd);
@@ -288,7 +289,7 @@ namespace
             position = closeEnd + 1;
         }
 
-        // Hanwha firmware variants may encode class and score as SimpleItem.
+        // 일부 한화 펌웨어는 객체 종류를 SimpleItem으로 보낸다.
         position = 0;
         while (true)
         {
@@ -354,6 +355,7 @@ namespace
         return output;
     }
 
+    // 완성된 Frame XML에서 person 객체와 BoundingBox만 추출한다.
     vector<RawPersonBox> parseFrame(const string& frameBlock)
     {
         vector<RawPersonBox> output;
@@ -410,6 +412,7 @@ namespace
         return output;
     }
 
+    // ONVIF [-1,1], 영상 정규화 [0,1], 픽셀 좌표 형식을 자동 판별해 픽셀로 바꾼다.
     Rect toPixelBox(const RawPersonBox& raw, const Size& size)
     {
         if (size.width <= 0 || size.height <= 0) return Rect();
@@ -487,6 +490,7 @@ namespace
         return box;
     }
 
+    // pipe에서 XML이 임의 크기로 잘려 오므로 닫는 태그까지 모인 Frame만 꺼낸다.
     vector<string> extractCompleteFrames(string& buffer)
     {
         vector<string> output;
@@ -517,6 +521,7 @@ namespace
         return output;
     }
 
+    // 영상 스트림은 제외하고 첫 데이터 트랙을 stdout으로 그대로 복사한다.
     vector<string> ffmpegArguments(const string& rtspUrl)
     {
         return {
@@ -526,7 +531,7 @@ namespace
             "-loglevel", "error",
             "-rtsp_transport",
             person_metadata_config::RTSP_USE_TCP ? "tcp" : "udp",
-            "-timeout", to_string(person_metadata_config::SOCKET_TIMEOUT_US),
+            "-stimeout", to_string(person_metadata_config::SOCKET_TIMEOUT_US),
             "-allowed_media_types", "data",
             "-fflags", "nobuffer",
             "-i", rtspUrl,
@@ -644,6 +649,7 @@ public:
 
         output.ageMs =
             chrono::duration<double, milli>(Clock::now() - updateTime).count();
+        // 오래된 박스는 연결 상태와 별개로 반환하지 않는다.
         if (output.ageMs > person_metadata_config::FRESH_MS) return output;
 
         for (const RawPersonBox& raw : rawPersons)
@@ -689,6 +695,7 @@ private:
 
     void workerLoop()
     {
+        // FFmpeg가 종료되거나 트랙이 끊기면 설정된 주기로 새 프로세스를 시작한다.
         while (running_.load())
         {
             streamConnected_ = false;
@@ -709,6 +716,7 @@ private:
 #ifdef _WIN32
     void runWindowsOnce()
     {
+        // 숨김 FFmpeg 프로세스의 stdout만 익명 파이프로 읽는다.
         SECURITY_ATTRIBUTES security{};
         security.nLength = sizeof(security);
         security.bInheritHandle = TRUE;
@@ -791,6 +799,7 @@ private:
 #else
     void runPosixOnce()
     {
+        // Raspberry Pi에서는 fork/exec와 비차단 pipe로 같은 데이터 흐름을 구성한다.
         int outputPipe[2];
         if (pipe(outputPipe) != 0)
         {

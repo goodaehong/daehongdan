@@ -2,11 +2,7 @@
 
 #include <cstddef>
 
-// ==================================================
-// 입력 소스
-// ==================================================
-// 1: 동영상 파일
-// 0: RTSP 카메라
+// 입력 모드: 1이면 동영상 파일, 0이면 RTSP 카메라를 사용한다.
 
 #ifndef USE_VIDEO_FILE
 #define USE_VIDEO_FILE 0
@@ -40,8 +36,8 @@
 #define RTSP_PROFILE_SUFFIX "/profile10/media.smp"
 #endif
 
-// Up to four independent 360p camera streams. Leave an IP empty to be
-// prompted at startup; pressing Enter on an empty prompt disables that channel.
+// 최대 채널 수를 변경해야 하는 다른 실행 경로를 위한 빌드 설정이다.
+// 현재 콘솔 실행 경로는 IP 하나를 입력받아 카메라의 0~3번 채널을 연다.
 #ifndef RTSP_CAMERA_COUNT
 #define RTSP_CAMERA_COUNT 4
 #endif
@@ -58,23 +54,19 @@
 #define RTSP_CAMERA_IP_4 ""
 #endif
 
-// ==================================================
-// Hanwha WiseAI person metadata
-// ==================================================
-// PNM-C16083RVQ publishes analytics metadata as an ONVIF XML data track
-// alongside each RTSP video profile. OpenCV VideoCapture does not expose that
-// data track, so a lightweight FFmpeg process copies only the metadata stream.
+// 한화비전 WiseAI 사람 객체 메타데이터
+// PNM-C16083RVQ의 RTSP 데이터 트랙(ONVIF XML)은 OpenCV VideoCapture로 읽을 수
+// 없으므로 FFmpeg 보조 프로세스가 영상 디코딩 없이 메타데이터만 복사한다.
 namespace person_metadata_config
 {
+    // false로 바꾸면 WiseAI 수신기를 시작하지 않는다. 변경 후 재빌드가 필요하다.
     constexpr bool ENABLED = true;
     constexpr bool RTSP_USE_TCP = true;
 
-    // "ffmpeg" works on Windows when FFmpeg is in PATH and on Raspberry Pi
-    // after: sudo apt install ffmpeg
+    // Windows는 PATH의 ffmpeg.exe, Raspberry Pi는 ffmpeg 패키지를 사용한다.
     constexpr const char* FFMPEG_EXECUTABLE = "ffmpeg";
 
-    // First data stream in the RTSP session. The trailing '?' makes stream
-    // selection optional so a missing/disabled metadata track cannot stop video.
+    // 첫 번째 데이터 트랙을 선택한다. '?'는 트랙이 없어도 영상 실행을 막지 않는다.
     constexpr const char* STREAM_MAP = "0:d:0?";
     constexpr int SOCKET_TIMEOUT_US = 5000000;
     constexpr int RECONNECT_MS = 2000;
@@ -84,18 +76,16 @@ namespace person_metadata_config
     constexpr std::size_t BUFFER_LIMIT_BYTES = 4U * 1024U * 1024U;
     constexpr std::size_t BUFFER_KEEP_BYTES = 512U * 1024U;
 
-    // Extra margin is display-only and does not modify the camera's raw box.
+    // 표시 박스에만 적용하는 여백이며 카메라 원본 좌표는 변경하지 않는다.
     constexpr double BOX_PADDING_X_RATIO = 0.03;
     constexpr double BOX_PADDING_TOP_RATIO = 0.02;
     constexpr double BOX_PADDING_BOTTOM_RATIO = 0.02;
 
-    // Console output rate for coordinates consumed later by the Qt/server path.
+    // Qt/서버 연동용 사람 좌표를 콘솔에 출력하는 최소 주기다.
     constexpr int REPORT_INTERVAL_MS = 500;
 }
 
-// ==================================================
 // 화면 및 디버그
-// ==================================================
 // 라즈베리파이에서는 GUI를 자동으로 끄고, Windows 테스트에서는 켠다.
 #ifndef FIRE_ENABLE_GUI
 #if defined(__arm__) || defined(__aarch64__)
@@ -117,16 +107,14 @@ namespace person_metadata_config
 #define FIRE_DEBUG_TILE_HEIGHT 135
 #endif
 
-// ==================================================
-// GitHub flame-detection-system 기반 검출기 설정
-// ==================================================
+// OpenCV 화염 검출 설정
 #ifndef FLAME_ENABLE_SKIN_REJECTION
 #define FLAME_ENABLE_SKIN_REJECTION 1
 #endif
 
 namespace flame_config
 {
-    // 360p 입력을 960x540으로 다시 키우지 않는다.
+    // 360p 입력을 확대하지 않고 원본 픽셀로 분석한다.
     constexpr int ANALYSIS_WIDTH = 640;
     constexpr int ANALYSIS_HEIGHT = 360;
 
@@ -136,8 +124,7 @@ namespace flame_config
     // 4채널은 이미 채널 단위로 병렬 처리하므로 OpenCV 내부 스레드는 1개로 제한한다.
     constexpr int OPENCV_NUM_THREADS = 1;
 
-    // At 6 FPS, 20 frames blocked all fire results for about 3.3 seconds.
-    // Six frames still let MOG2 settle while keeping startup latency near one second.
+    // MOG2가 배경을 학습하는 동안의 오검출을 막되 시작 지연은 약 1초로 제한한다.
     constexpr int BACKGROUND_WARMUP_FRAMES = 6;
     constexpr double MOG2_LEARNING_RATE = 0.012;
 
@@ -145,7 +132,7 @@ namespace flame_config
     // 품질을 더 희생해 CPU를 줄일 때만 0.5로 변경한다.
     constexpr double MOG2_SCALE = 1.0;
 
-    // 원 공개 코드의 RGB 화염색 판정 계열
+    // RGB 기반 화염색 마스크의 기준값이다.
     constexpr int ORIGINAL_RED_THRESHOLD = 150;
     constexpr double ORIGINAL_SATURATION_COEFFICIENT = 0.40;
 
@@ -157,42 +144,35 @@ namespace flame_config
     constexpr double NEW_TRACK_MIN_SCORE = 0.43;
     constexpr double CONFIRM_MIN_SCORE = 0.50;
 
-    // 선택적 SVM XML 모델. 모델이 없으면 false 유지.
+    // 별도 학습한 SVM XML을 사용할 때만 true로 바꾼다.
     constexpr bool USE_OPTIONAL_SVM = false;
     constexpr const char* OPTIONAL_SVM_PATH = "flame_svm.xml";
 }
 
-// ==================================================
-// YOLO11n smoke-only NCNN configuration
-// ==================================================
+// 공개 D-Fire YOLOv8n 연기 NCNN 설정
 namespace smoke_config
 {
-    // The camera supplies 640x360. Keep all source pixels and letterbox only
-    // the height to a stride-32 NCNN tensor (12 px top + 12 px bottom).
+    // 640x360 원본을 확대하지 않고 위아래 12픽셀씩 패딩해 640x384로 추론한다.
     constexpr int INPUT_WIDTH = 640;
     constexpr int INPUT_HEIGHT = 384;
     constexpr int MAX_CHANNELS = 4;
 
-    // One shared model handles every channel. Each channel may submit at most
-    // one newest frame per second; queued old frames are overwritten.
+    // 모델 하나를 모든 채널이 공유하며 채널별로 1초에 최신 프레임 하나만 제출한다.
     constexpr int INFERENCE_INTERVAL_MS = 1000;
 #if defined(__arm__) || defined(__aarch64__)
-    // Leave CPU capacity for capture, OpenCV fire detection and the application.
+    // 영상 수신과 OpenCV 화염 검출에 CPU를 남기기 위해 NCNN 스레드를 제한한다.
     constexpr int NCNN_NUM_THREADS = 2;
 #else
     constexpr int NCNN_NUM_THREADS = 3;
 #endif
 
-    // Public D-Fire YOLOv8n model classes are 0: smoke, 1: fire.
-    // Fire is ignored because the OpenCV flame detector handles it separately.
+    // 공개 D-Fire 모델은 0: smoke, 1: fire이며 여기서는 smoke만 사용한다.
     constexpr int SMOKE_CLASS_ID = 0;
     constexpr float CONFIDENCE_THRESHOLD = 0.25F;
     constexpr float RAW_CANDIDATE_THRESHOLD = CONFIDENCE_THRESHOLD;
     constexpr float NMS_THRESHOLD = 0.45F;
 
-    // First evaluate the stronger public model on its raw score. The temporal
-    // motion measurements remain available for labels and a later field-tuned
-    // gate, but they do not alter or reject model output in this baseline.
+    // false이면 움직임 통계는 라벨에만 표시되고 YOLO 결과를 차단하지 않는다.
     constexpr bool REQUIRE_MOTION_VERIFICATION = false;
     constexpr int MOTION_ANALYSIS_WIDTH = 320;
     constexpr int MOTION_PIXEL_THRESHOLD = 14;
@@ -208,9 +188,7 @@ namespace smoke_config
     constexpr int MOTION_MIN_ACTIVE_CELLS = 3;
     constexpr float MOTION_MAX_BONUS = 0.00F;
 
-    // Consecutive positives must also refer to approximately the same region.
-    // This prevents unrelated weak boxes in different parts of a channel from
-    // accumulating into one smoke alarm.
+    // 연속 양성 박스가 같은 영역일 때만 hits를 누적해 서로 다른 오검출의 합산을 막는다.
     constexpr float TRACK_MIN_IOU = 0.08F;
     constexpr float TRACK_MAX_CENTER_DISTANCE_RATIO = 0.45F;
     constexpr int CONFIRM_HITS = 2;
