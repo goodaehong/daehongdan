@@ -14,7 +14,7 @@ struct SmokeRuntimeSnapshot
 {
     SmokeDetectionResult detection;
 
-    // Qt/server integration should send smokeDetected and smokeScore.
+    // Qt/서버 연동 시 최종 연기 여부와 점수는 이 두 값을 사용한다.
     bool smokeDetected = false;
     bool modelReady = false;
     bool hasResult = false;
@@ -33,8 +33,8 @@ struct SmokeRuntimeSnapshot
     std::string modelError;
 };
 
-// One NCNN model and one worker thread are shared by all camera channels.
-// Each channel owns only its newest pending frame; old queued frames are dropped.
+// NCNN 모델 하나와 작업 스레드 하나를 모든 채널이 공유한다.
+// 채널마다 최신 대기 프레임 하나만 유지하고 라운드로빈 방식으로 순차 추론한다.
 class SmokeDetectionRuntime
 {
 public:
@@ -58,6 +58,7 @@ public:
         TimePoint sourceTime = Clock::now()
     );
 
+    // 해당 채널의 프레임 이력, 움직임 이력, hits와 알람을 모두 초기화한다.
     void resetChannel(std::size_t channelIndex);
     SmokeRuntimeSnapshot poll(
         std::size_t channelIndex,

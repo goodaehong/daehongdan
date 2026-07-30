@@ -20,6 +20,8 @@ struct FireViewChannel
     std::string title;
 };
 
+// 화염·연기·WiseAI 결과를 채널 타일 또는 고정 2x2 화면으로 표시한다.
+// FIRE_ENABLE_GUI=0인 Raspberry Pi 빌드에서는 표시 함수가 no-op으로 동작한다.
 class FireView
 {
 public:
@@ -34,6 +36,7 @@ public:
 
     bool showGrid(const std::vector<FireViewChannel>& channels);
 
+    // q 또는 Esc 입력 시 false를 반환한다.
     bool processEvents(int delayMs = 1) const;
     void close();
 

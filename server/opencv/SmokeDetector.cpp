@@ -31,6 +31,7 @@
 
 namespace
 {
+    // 상대 모델 경로는 현재 작업 폴더와 실행 파일 폴더 순서로 확인한다.
     std::filesystem::path executableDirectory()
     {
 #ifdef _WIN32
@@ -79,6 +80,7 @@ namespace
         return unionArea > 0.0F ? intersectionArea / unionArea : 0.0F;
     }
 
+    // 같은 연기 영역에 겹친 저점수 박스를 NMS로 제거한다.
     std::vector<CandidateBox> nonMaximumSuppression(std::vector<CandidateBox> candidates)
     {
         std::sort(candidates.begin(), candidates.end(), [](const CandidateBox& a, const CandidateBox& b) {
@@ -118,6 +120,7 @@ public:
         return false;
 #else
         net_.clear();
+        // Raspberry Pi 4 CPU 배포를 기준으로 Vulkan은 사용하지 않는다.
         net_.opt.use_vulkan_compute = false;
         net_.opt.num_threads = smoke_config::NCNN_NUM_THREADS;
 
@@ -168,6 +171,7 @@ public:
         else
             cv::cvtColor(inputFrame, bgr, cv::COLOR_GRAY2BGR);
 
+        // 종횡비를 유지한 letterbox로 학습/내보내기 입력 크기와 맞춘다.
         const float scale = std::min(
             static_cast<float>(smoke_config::INPUT_WIDTH) / static_cast<float>(bgr.cols),
             static_cast<float>(smoke_config::INPUT_HEIGHT) / static_cast<float>(bgr.rows));
@@ -209,9 +213,8 @@ public:
             return result;
         }
 
-        // Ultralytics export is [1, 4 + class_count, 5040]:
-        // cx, cy, w, h, followed by one score per class.
-        // NCNN normally removes the batch dimension.
+        // Ultralytics 출력은 [1, 4+클래스 수, 예측 수]이며 NCNN은 보통 batch 축을 제거한다.
+        // 내보내기 버전에 따른 행/열/채널 배치를 모두 허용한다.
         ncnn::Mat matrix = output;
         if (output.dims == 3 && output.c == 1)
             matrix = output.channel(0);
@@ -249,6 +252,7 @@ public:
             return result;
         }
 
+        // fire 클래스 점수는 읽지 않고 설정된 smoke 클래스 열만 디코딩한다.
         const int smokeScoreAttribute = 4 + smoke_config::SMOKE_CLASS_ID;
         if (attributeCount <= smokeScoreAttribute)
         {
@@ -278,6 +282,7 @@ public:
             const float width = valueAt(2, index);
             const float height = valueAt(3, index);
 
+            // letterbox 패딩을 제거한 뒤 박스를 원본 프레임 좌표로 되돌린다.
             float x1 = (centerX - width * 0.5F - static_cast<float>(left)) / scale;
             float y1 = (centerY - height * 0.5F - static_cast<float>(top)) / scale;
             float x2 = (centerX + width * 0.5F - static_cast<float>(left)) / scale;
