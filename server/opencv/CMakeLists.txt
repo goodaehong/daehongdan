@@ -50,7 +50,7 @@ add_custom_command(TARGET fire_detection POST_BUILD
     VERBATIM)
 
 if(MSVC)
-    target_compile_options(fire_detection PRIVATE /O2 /EHsc)
+    target_compile_options(fire_detection PRIVATE /O2 /EHsc /utf-8)
 else()
     target_compile_options(fire_detection PRIVATE -O3 -DNDEBUG)
     target_link_libraries(fire_detection PRIVATE pthread)
