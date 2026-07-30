@@ -12,6 +12,9 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include "FireDetectionRuntime.h"
+#include "SmokeDetectionRuntime.h" 
+#include "PersonMetadataReceiver.h"
+#include "AppConfig.h"    
 #include "Database.h"
 #include <random>
 #include <ctime>
@@ -348,7 +351,11 @@ void sensorWorker(Sender& sender, FrameStore& store) {
             if (detState[i].fire)  { camFire  = true; if (detCh < 0) detCh = i; }   // ← 채널 기록 추가
             if (detState[i].smoke) { camSmoke = true; if (detCh < 0) detCh = i; }   // ← 채널 기록 추가
         }
-
+        // 연기 유지: 감지되면 5초 유지 (1초 추론 vs 매프레임 조회 타이밍 흡수)  
+        static int smokeHold = 0;
+        if (camSmoke) smokeHold = 5;                 // 감지 → 5초 충전
+        else if (smokeHold > 0) { --smokeHold; camSmoke = true; }   // 끊겨도 5초간 유지
+        
         Judgement j = judgeState(camFire, camSmoke, gasPpm, smokePpm, flameVal);     
 
         // ── 경고 무응답 타이머: warning 지속 중 관리자 미확인 시 위험 강제 전환 ──  
@@ -462,8 +469,15 @@ void sensorWorker(Sender& sender, FrameStore& store) {
 }
 
 // 채널 1개 담당. RTSP 연결 → 프레임 읽기 → 감지 → JSON 전송. 끊기면 재연결
-void worker(int ch, FrameStore& store, Sender& sender) {
+void worker(int ch, FrameStore& store, Sender& sender, SmokeDetectionRuntime& smoke) {
     std::string url = "rtsp://localhost:8554/cam" + std::to_string(ch + 1);
+
+    PersonMetadataReceiver person;                        
+    // 사람 메타데이터는 카메라 직접 (MediaMTX가 메타 트랙 안 넘김)              // <- 처음
+    std::string personUrl = "rtsp://admin:5hanwha!@172.20.35.200:554/"
+                          + std::to_string(ch) + "/profile2/media.smp";  
+    person.start(personUrl);   // 카메라 WiseAI 사람 메타데이터 수신 시작 (FFmpeg)
+  
 
     FireDetectionRuntime runtime;   // 복사 금지 타입 → 채널당 지역변수 1개
     std::uint64_t frameId = 0;
@@ -496,22 +510,39 @@ void worker(int ch, FrameStore& store, Sender& sender) {
 
             if (frameId % 1 == 0) {
                 runtime.submitFrame(frame, frameId);
+                smoke.submitFrame(ch, frame, frameId);
             }
             frameId++;
             FireRuntimeSnapshot snap = runtime.poll();
+
+            SmokeRuntimeSnapshot ssnap = smoke.poll(ch);        // 연기 결과
+            if (ssnap.hasResult) {                              //  (결과 있을 때만 갱신)
+                detState[ch].smoke = ssnap.smokeDetected;       // 없으면 이전 값 유지 → 깜빡임 방지
+            }
+            if (ssnap.hasResult && ssnap.smokeDetected) {       // 콘솔도 신선할 때만
+                std::cout << "[cam" << ch+1 << "] SMOKE score=" << ssnap.smokeScore << "\n";
+            }    
+        
+
+            PersonMetadataFrame pf = person.snapshot(frame.size());  
+            
+            if (!pf.persons.empty()) {
+                std::cout << "[cam" << ch+1 << "] PERSON x" << pf.persons.size()
+                          << " (연결:" << pf.streamConnected << ")\n";
+            }
+            
 
             if (snap.boxIsFresh) {
                 std::cout << "[cam" << ch + 1 << "] boxIsFresh! boxes="
                           << snap.detection.boxes.size()
                           << " alarm=" << snap.alarm.alarmActive << "\n";   // ★ 임시 디버그
 
-                bool hasFire = false, hasSmoke = false;                      
+                bool hasFire = false;                   
                 for (const auto& b : snap.detection.boxes) {
                     if (b.type == DetectionType::FIRE) hasFire = true;
-                    else                               hasSmoke = true;
                 }
                 detState[ch].fire  = hasFire && snap.alarm.alarmActive;
-                detState[ch].smoke = hasSmoke;                                
+                              
                           
                 // 계약① JSON 조립 (박스 0개여도 전송 → Qt가 오버레이 지움)
                 std::ostringstream oss;
@@ -547,8 +578,7 @@ void worker(int ch, FrameStore& store, Sender& sender) {
                     << ",\"alarm\":false,\"boxes\":[]}";
                 sender.send(oss.str());
                 wasShowingBoxes = false;               
-                detState[ch].fire  = false;                               
-                detState[ch].smoke = false; 
+                detState[ch].fire  = false;                                
             }
         }
 
@@ -572,6 +602,11 @@ int main() {
     FrameStore store;
     std::thread threads[4];
 
+    SmokeDetectionRuntime smoke(4,                           
+        smoke_config::MODEL_PARAM_PATH, smoke_config::MODEL_BIN_PATH);
+    if (smoke.isModelReady()) std::cout << "[연기] 모델 로드 완료\n";
+    else std::cerr << "[연기] 모델 로드 실패: " << smoke.modelError() << "\n"; 
+
     std::thread sensorThread(sensorWorker, std::ref(sender), std::ref(store));    
     sensorThread.detach();
 
@@ -579,7 +614,7 @@ int main() {
     recvThread.detach();
 
     for (int i = 0; i < 4; i++) {
-        threads[i] = std::thread(worker, i, std::ref(store), std::ref(sender));
+        threads[i] = std::thread(worker, i, std::ref(store), std::ref(sender), std::ref(smoke));
     }
 
     for (int i = 0; i < 4; i++) {
