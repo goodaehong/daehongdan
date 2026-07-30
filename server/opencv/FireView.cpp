@@ -87,6 +87,7 @@ Mat FireView::makeChannelTile(
         return tile;
     }
 
+    // 박스 좌표는 원본 프레임 기준이므로 먼저 그리고 640x360 타일로 축소한다.
     Mat displaySource = frame.clone();
     if (fireSnapshot.boxIsFresh)
         drawDetectionResult(displaySource, fireSnapshot.detection.boxes);
@@ -96,6 +97,7 @@ Mat FireView::makeChannelTile(
 
     resize(displaySource, tile, Size(GRID_TILE_WIDTH, GRID_TILE_HEIGHT), 0, 0, INTER_AREA);
 
+    // 오래된 비동기 결과가 화면에 남지 않도록 candidate도 유효시간을 확인한다.
     const bool fireCandidateVisible = fireSnapshot.resultIsFresh &&
         fireSnapshot.resultAgeMs <= fireSnapshot.boxFreshLimitMs &&
         (fireSnapshot.detection.candidateDisplayReady ||
@@ -229,6 +231,7 @@ bool FireView::showGrid(const vector<FireViewChannel>& channels)
         }
     }
 
+    // 입력 채널 수와 관계없이 빈 타일까지 채워 항상 2x2 레이아웃을 유지한다.
     Mat top, bottom, grid;
     hconcat(tiles[0], tiles[1], top);
     hconcat(tiles[2], tiles[3], bottom);
@@ -253,6 +256,7 @@ bool FireView::processEvents(int delayMs) const
 void FireView::close()
 {
 #if FIRE_ENABLE_GUI
+    // 이미 닫힌 창에서 발생하는 OpenCV 예외는 종료 과정이므로 무시한다.
     if (windowCreated_)
     {
         try { destroyWindow(windowName_); }

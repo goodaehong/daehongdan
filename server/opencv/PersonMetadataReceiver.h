@@ -7,8 +7,8 @@
 
 #include "DetectionTypes.h"
 
-// Reads the ONVIF analytics XML data track from a Hanwha RTSP profile.
-// FFmpeg only copies metadata packets; it does not decode the video again.
+// 한화비전 RTSP 프로필의 ONVIF 분석 XML 데이터 트랙에서 사람 박스를 읽는다.
+// FFmpeg는 영상을 다시 디코딩하지 않고 메타데이터 패킷만 복사한다.
 class PersonMetadataReceiver
 {
 public:
@@ -20,6 +20,7 @@ public:
 
     bool start(const std::string& rtspUrl);
     void stop();
+    // 최신 정규화 좌표를 현재 영상 크기의 픽셀 좌표로 변환해 반환한다.
     PersonMetadataFrame snapshot(const cv::Size& videoFrameSize) const;
 
 private:
