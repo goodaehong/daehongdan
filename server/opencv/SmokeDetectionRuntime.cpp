@@ -16,6 +16,7 @@
 
 namespace
 {
+    // 움직임 검증은 NCNN 입력과 별도로 작은 회색조 프레임에서 계산한다.
     cv::Mat makeMotionGray(const cv::Mat& frame)
     {
         if (frame.empty()) return {};
@@ -100,6 +101,7 @@ namespace
         bool verified = false;
     };
 
+    // 후보 박스 전체·내부·격자에서 움직임이 퍼져 있는지 측정한다.
     MotionEvidence analyzeMotion(
         const cv::Mat& motionMask,
         const cv::Rect& motionBox)
@@ -175,6 +177,7 @@ namespace
         double globalMotionRatio = 0.0;
         if (hasHistory)
         {
+            // 연속 추론 프레임의 절대 차이에서 작은 노이즈를 제거한다.
             cv::absdiff(previousGray, currentGray, motionMask);
             cv::threshold(
                 motionMask, motionMask, smoke_config::MOTION_PIXEL_THRESHOLD,
@@ -204,6 +207,7 @@ namespace
                 evidence = analyzeMotion(motionMask, motionBox);
             }
 
+            // 설정이 false이면 움직임은 진단 라벨에만 남고 YOLO 박스를 제거하지 않는다.
             if (smoke_config::REQUIRE_MOTION_VERIFICATION &&
                 (!hasHistory || !evidence.verified))
             {
@@ -243,6 +247,7 @@ namespace
         detection.candidate = !detection.boxes.empty();
     }
 
+    // 모델은 공유하지만 프레임 이력과 시간 누적 상태는 채널마다 분리한다.
     struct ChannelState
     {
         cv::Mat pendingFrame;
@@ -279,6 +284,7 @@ public:
               channelCount, static_cast<std::size_t>(smoke_config::MAX_CHANNELS))))
     {
         const TimePoint now = Clock::now();
+        // 채널별 첫 제출 시점을 분산해 동시에 대기열에 들어오는 것을 줄인다.
         for (std::size_t index = 0; index < channels_.size(); ++index)
         {
             const int phaseMs = static_cast<int>(index) *
@@ -309,6 +315,7 @@ public:
 
             channel.nextAcceptedTime =
                 sourceTime + std::chrono::milliseconds(smoke_config::INFERENCE_INTERVAL_MS);
+            // 대기 중이어도 큐를 늘리지 않고 이 채널의 가장 최신 프레임으로 교체한다.
             frame.copyTo(channel.pendingFrame);
             channel.pendingFrameId = frameId;
             channel.pendingEpoch = channel.epoch;
@@ -411,6 +418,7 @@ private:
         std::uint64_t& epoch,
         TimePoint& sourceTime)
     {
+        // 특정 채널이 작업을 독점하지 않도록 마지막 처리 채널 다음부터 탐색한다.
         for (std::size_t offset = 0; offset < channels_.size(); ++offset)
         {
             const std::size_t index = (roundRobinCursor_ + offset) % channels_.size();
@@ -471,6 +479,7 @@ private:
                 : channel.averageDetectMs * 0.90 + detectMs * 0.10;
             channel.hasResult = true;
 
+            // 같은 위치에서 연속 양성이 나온 경우에만 최종 smokeDetected를 켠다.
             if (channel.latestDetection.candidate)
             {
                 const auto bestBox = std::max_element(
@@ -501,6 +510,7 @@ private:
             }
             else
             {
+                // 일시적인 누락은 허용하고 연속 음성이 기준을 넘으면 추적을 해제한다.
                 channel.consecutiveMisses = std::min(
                     channel.consecutiveMisses + 1, smoke_config::RELEASE_MISSES);
                 if (channel.consecutiveMisses >= smoke_config::RELEASE_MISSES)
