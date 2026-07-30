@@ -17,8 +17,8 @@ struct FireTrackingResult
     std::vector<DetectionBox> boxes;
 };
 
-//  ,   ,       .
-//        .
+// 점수와 박스 위치의 연속성을 이용해 화염 후보를 시간축으로 확인한다.
+// 현재 주 실행 경로는 FlameDetector 내부 Track을 사용하므로 이 클래스는 호환용이다.
 class FireCandidateTracker
 {
 public:
@@ -28,8 +28,7 @@ public:
 
     void reset();
 
-    //         .
-    // FireDetector          .
+    // 확정됐거나 지속 유지 중인 추적 영역이 있는지 반환한다.
     bool hasTrustedTrack() const;
     cv::Rect trackedBox() const;
 

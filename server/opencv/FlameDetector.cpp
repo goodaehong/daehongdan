@@ -39,7 +39,7 @@ namespace
             (candidateBrightness + 8.0) /
             (surroundingBrightness + 8.0);
 
-        // Dark scenes: a real flame normally has clear local contrast.
+        // 어두운 장면의 실제 불꽃은 주변보다 뚜렷하게 밝아야 한다.
         if (surroundingBrightness < 80.0)
         {
             return
@@ -47,7 +47,7 @@ namespace
                 0.45 * clamp01((ratio - 1.06) / 0.34);
         }
 
-        // Normal scenes: use a slightly weaker local-contrast requirement.
+        // 일반 밝기에서는 국부 대비 조건을 조금 완화한다.
         if (surroundingBrightness < 170.0)
         {
             return
@@ -55,9 +55,7 @@ namespace
                 0.45 * clamp01((ratio - 1.03) / 0.25);
         }
 
-        // Bright scenes: do not require the flame to be much brighter than
-        // the background because camera exposure/WDR may compress the flame.
-        // This branch provides only a small positive signal and no rejection.
+        // 밝은 장면은 WDR과 노출로 불꽃 대비가 줄 수 있어 약한 가점만 계산한다.
         return
             0.60 * clamp01((delta + 2.0) / 28.0) +
             0.40 * clamp01((ratio - 0.99) / 0.18);
@@ -87,6 +85,7 @@ FlameDetector::FlameDetector()
 
 void FlameDetector::reset()
 {
+    // 스트림이 바뀌면 배경 모델과 이전 프레임 및 추적을 함께 초기화한다.
     mog2_ = createBackgroundSubtractorMOG2(300, 16.0, false);
     mog2_->setDetectShadows(false);
     previousGray_.release();
@@ -100,6 +99,7 @@ Mat FlameDetector::buildMotionMask(const Mat& frame, const Mat& gray)
 {
     Mat motion;
 
+    // MOG2 배경 차분과 직전 프레임 차분을 합쳐 느린 변화와 빠른 깜빡임을 모두 잡는다.
     if (flame_config::MOG2_SCALE < 0.999)
     {
         Mat smallGray;
@@ -134,8 +134,7 @@ Mat FlameDetector::buildOriginalColorMask(const Mat& frame, const Mat& motionMas
     GaussianBlur(frame, blurred, Size(3, 3), 0.0);
     Mat color = Mat::zeros(frame.size(), CV_8UC1);
 
-    // In the four-channel server, channels are already processed in parallel.
-    // Avoid nested per-detector parallelism here.
+    // 채널 단위 실행을 직렬화하므로 내부 픽셀 루프는 추가 병렬화하지 않는다.
     for (int y = 0; y < frame.rows; ++y)
     {
         const Vec3b* src = blurred.ptr<Vec3b>(y);
@@ -174,6 +173,7 @@ Mat FlameDetector::buildOriginalColorMask(const Mat& frame, const Mat& motionMas
 
 Mat FlameDetector::buildSkinMask(const Mat& frame, const Mat& hsv) const
 {
+    // YCrCb와 HSV 조건을 모두 만족한 영역만 피부로 보아 손 오검출을 줄인다.
     Mat ycrcb;
     cvtColor(frame, ycrcb, COLOR_BGR2YCrCb);
 
@@ -188,6 +188,7 @@ Mat FlameDetector::buildSkinMask(const Mat& frame, const Mat& hsv) const
 
 Mat FlameDetector::buildWhiteCoreMask(const Mat& hsv, const Mat& colorMask) const
 {
+    // 화염색 주변의 저채도·고명도 영역만 흰 불꽃 중심부로 인정한다.
     Mat white, halo, core;
     inRange(hsv, Scalar(0, 0, 220), Scalar(179, 75, 255), white);
     dilate(colorMask, halo, kernel7_);
@@ -201,6 +202,7 @@ void FlameDetector::calculateGlcm(
     double& entropy,
     double& energy) const
 {
+    // 후보의 거친 질감과 불규칙성을 표현하는 축소 GLCM 특징을 계산한다.
     entropy = 0.0;
     energy = 0.0;
     if (gray.empty() || mask.empty() || countNonZero(mask) < 8) return;
@@ -305,13 +307,8 @@ FlameDetector::Features FlameDetector::analyzeContour(
     features.candidateBrightness = meanV[0];
     features.vStd = stdV[0];
 
-    // ==================================================
-    // Local relative-brightness verification
-    // ==================================================
-    // Reuse the HSV V channel already calculated for the frame. The surrounding
-    // area is a ring outside the candidate box. Fire-colored pixels are removed
-    // from the ring when enough background pixels remain, so a large flame does
-    // not incorrectly become its own background.
+    // HSV V 채널에서 후보 바깥 링을 배경으로 잡아 국부 밝기 차이를 계산한다.
+    // 가능한 경우 링의 화염색 픽셀은 제외해 큰 불꽃이 자기 자신과 비교되지 않게 한다.
     const int ringX = max(4, cvRound(box.width * 0.35));
     const int ringY = max(4, cvRound(box.height * 0.35));
     const Rect expanded = clampRect(
@@ -337,8 +334,7 @@ FlameDetector::Features FlameDetector::analyzeContour(
         bitwise_not(colorMask(expanded), notFire);
         bitwise_and(ringMask, notFire, ringMaskWithoutFire);
 
-        // Prefer actual background pixels, but fall back to the full ring near
-        // image borders or when the candidate occupies most of the area.
+        // 유효 배경이 너무 적은 화면 가장자리에서는 전체 링을 대신 사용한다.
         const int usableBackgroundPixels = countNonZero(ringMaskWithoutFire);
         const Mat& selectedRingMask =
             usableBackgroundPixels >= 12 ? ringMaskWithoutFire : ringMask;
@@ -386,8 +382,7 @@ FlameDetector::Features FlameDetector::analyzeContour(
 
 Mat FlameDetector::Features::svmRow() const
 {
-    // Keep the optional SVM input at the original 13 features. Adding the new
-    // brightness values here would require retraining the XML model.
+    // 기존 SVM XML 호환을 위해 입력은 원래의 13개 특징으로 유지한다.
     return (Mat_<float>(1, 13) <<
         static_cast<float>(colorCoverage),
         static_cast<float>(motionCoverage),
@@ -412,9 +407,8 @@ double FlameDetector::classify(const Features& f) const
         if (prediction <= 0.0f) return 0.0;
     }
 
-    // Motion and compact-object shape are weak evidence because a hand-held
-    // yellow object can score strongly on those terms.  White core, brightness
-    // and temporal mask change receive relatively more weight instead.
+    // 움직이는 노란 물체의 오검출을 줄이기 위해 움직임·형태보다 흰 중심부와
+    // 시간에 따른 마스크 변화에 더 큰 비중을 둔다.
     double score =
         0.20 * clamp01(f.colorCoverage / 0.70) +
         0.06 * clamp01(f.motionCoverage / 0.70) +
@@ -427,17 +421,12 @@ double FlameDetector::classify(const Features& f) const
         0.08 * clamp01(f.textureEntropy / 3.0) +
         0.10 * clamp01(f.maskChange / 0.30);
 
-    // Reuse the already calculated candidate mean brightness.  No additional
-    // image operation is performed here.  A genuinely bright candidate can
-    // receive at most +0.11, which helps small lighter flames whose motion and
-    // contour scores are low.
+    // 작은 밝은 불꽃이 형태 점수 때문에 누락되지 않도록 절대 밝기에 최대 0.11을 더한다.
     const double absoluteBrightnessScore =
         clamp01((f.candidateBrightness - 165.0) / 65.0);
     score += 0.11 * absoluteBrightnessScore;
 
-    // A dim, highly moving, compact red/orange blob with almost no white core
-    // matches the observed hand-held yellow soft-object false positive.  This
-    // condition only combines values that are already available.
+    // 흰 중심부 없이 어둡고 단단하게 움직이는 적·주황 물체는 관측된 오검출 유형이다.
     const bool dimMovingBlob =
         f.surroundingBrightness >= 0.0 &&
         f.surroundingBrightness < 170.0 &&
@@ -450,14 +439,11 @@ double FlameDetector::classify(const Features& f) const
 
     if (f.surroundingBrightness >= 0.0)
     {
-        // Local-contrast evidence is reduced from +0.07 to +0.04.  The dim
-        // moving blob receives no relative-brightness bonus merely because it
-        // is in front of a dark monitor or wall.
+        // 어두운 모니터나 벽 앞의 물체가 대비만으로 점수를 얻지 않게 제한한다.
         if (!dimMovingBlob)
             score += 0.04 * f.relativeBrightnessScore;
 
-        // Retain the existing weak penalty for candidates that are not brighter
-        // than their surroundings.  Bright backgrounds remain excluded.
+        // 주변보다 밝지 않은 후보에는 작은 감점을 주되 밝은 배경에는 적용하지 않는다.
         if (f.surroundingBrightness < 170.0 &&
             f.brightnessDelta < 2.0 &&
             f.brightnessRatio < 1.02 &&
@@ -470,10 +456,7 @@ double FlameDetector::classify(const Features& f) const
     if (dimMovingBlob)
         score -= 0.18;
 
-    // Give a small extra bonus only when an already-bright candidate also has
-    // a visible low-saturation white core.  This combination is much more
-    // flame-specific than motion or compact shape, and the observed dim yellow
-    // soft object does not satisfy it.  No additional image operation is used.
+    // 충분히 밝으면서 흰 중심부와 적·주황 영역이 함께 있을 때만 화염 가점을 준다.
     const bool brightCoreFlameEvidence =
         !dimMovingBlob &&
         f.candidateBrightness >= 200.0 &&
@@ -520,6 +503,7 @@ bool FlameDetector::sameTarget(const Rect& a, const Rect& b)
 
 vector<DetectionBox> FlameDetector::updateTracks(const vector<Features>& detections)
 {
+    // 각 기존 트랙에 위치와 점수를 함께 고려한 최적 후보 하나를 연결한다.
     vector<bool> detectionUsed(detections.size(), false);
 
     for (Track& track : tracks_)
@@ -560,6 +544,7 @@ vector<DetectionBox> FlameDetector::updateTracks(const vector<Features>& detecti
             track.vStd = detection.vStd;
             track.maskChange = detection.maskChange;
 
+            // 연속 관측 횟수와 강한 점수 횟수를 모두 만족해야 화염으로 확정한다.
             if (track.hits >= flame_config::CONFIRM_HITS && track.strongHits >= 2)
                 track.confirmed = true;
         }
@@ -636,7 +621,7 @@ DetectionResult FlameDetector::detect(const Mat& inputFrame)
         static_cast<double>(flame_config::ANALYSIS_WIDTH) / inputFrame.cols,
         static_cast<double>(flame_config::ANALYSIS_HEIGHT) / inputFrame.rows);
 
-    // Do not enlarge 360p-or-smaller input; keep its original pixels.
+    // 360p 이하 입력은 확대하지 않고 큰 입력만 분석 크기로 축소한다.
     if (scale < 0.999)
     {
         const Size analysisSize(
@@ -658,6 +643,7 @@ DetectionResult FlameDetector::detect(const Mat& inputFrame)
     const Mat& hue = hsvChannels[0];
     const Mat& value = hsvChannels[2];
 
+    // 움직이는 화염색을 기본 후보로 만들고 주변의 밝은 중심부를 보완한다.
     Mat motionMask = buildMotionMask(frame, gray);
     Mat colorMask = buildOriginalColorMask(frame, motionMask);
     Mat skinMask = buildSkinMask(frame, hsv);
@@ -692,6 +678,7 @@ DetectionResult FlameDetector::detect(const Mat& inputFrame)
         accepted.push_back(features);
     }
 
+    // MOG2 초기 배경 학습 전에는 후보를 계산하되 추적 결과를 외부로 내보내지 않는다.
     if (frameIndex_ >= flame_config::BACKGROUND_WARMUP_FRAMES)
         result.boxes = updateTracks(accepted);
 

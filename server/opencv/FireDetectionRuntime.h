@@ -28,8 +28,8 @@ struct FireRuntimeSnapshot
     double boxFreshLimitMs = 0.0;
 };
 
-// 프레임 제출, 비동기 검출, 결과 freshness, 알람 유지까지 담당한다.
-// main이나 Qt에서는 이 클래스 인터페이스만 사용하면 된다.
+// 채널 하나의 프레임 제출, 비동기 화염 검출, 결과 유효시간과 알람을 관리한다.
+// 제출된 프레임은 누적하지 않고 최신 프레임으로 교체한다.
 class FireDetectionRuntime
 {
 public:
@@ -48,6 +48,7 @@ public:
         TimePoint sourceTime = Clock::now()
     );
 
+    // 카메라 재연결 또는 동영상 반복 시 이전 배경·추적·알람 상태를 폐기한다.
     void resetStream();
     FireRuntimeSnapshot poll(TimePoint now = Clock::now());
     void stop();

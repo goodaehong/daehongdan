@@ -36,6 +36,7 @@ void FireAlarmController::reset()
 
 double FireAlarmController::consumeResultIntervalMs(TimePoint now)
 {
+    // 분석 FPS가 달라도 확인 시간이 실제 시간 기준으로 유지되도록 간격을 누적한다.
     double intervalMs = DEFAULT_RESULT_INTERVAL_MS;
     if (hasLastResultTime_)
         intervalMs = std::chrono::duration<double, std::milli>(now - lastResultTime_).count();
@@ -63,6 +64,7 @@ bool FireAlarmController::isSameCandidate(const cv::Rect& previous, const cv::Re
     const double referenceSize = static_cast<double>(max(
         max(previous.width, previous.height), max(current.width, current.height)));
 
+    // 박스 겹침이 작아도 불꽃 형태 변화로 중심점이 가까우면 같은 후보로 본다.
     return iou >= 0.10 || centerDistance <= max(30.0, referenceSize * 0.90);
 }
 
@@ -101,6 +103,7 @@ FireAlarmStatus FireAlarmController::processNewResult(
     const bool sameCurrentCandidate = primaryBox &&
         (activeCandidateBox_.empty() || isSameCandidate(activeCandidateBox_, primaryBox->box));
 
+    // 검출기가 잠시 박스를 내지 않아도 내부 추적의 detected 신호는 약하게 누적한다.
     const bool detectorHoldFrame = result.detected && !primaryBox && hasTrackedCandidate;
     const bool detectorConfirmedFire = result.detected && (primaryBox || detectorHoldFrame);
     const bool detectorStrongCandidate = !detectorConfirmedFire && result.candidate && primaryBox &&
@@ -115,6 +118,7 @@ FireAlarmStatus FireAlarmController::processNewResult(
             if (!sameCandidate && !finalFireAlarm_) clearPendingEvidence();
 
             activeCandidateBox_ = primaryBox->box;
+            // 손가락·반사 등 애매한 후보는 일반 화염보다 오래 확인한다.
             const bool extended = primaryBox->requiresExtendedConfirmation;
             const double requiredMs = extended ? AMBIGUOUS_CONFIRM_MS : FINAL_CONFIRM_MS;
             const int requiredResults = extended ? MIN_AMBIGUOUS_RAW_FIRE_RESULTS : MIN_RAW_FIRE_RESULTS;
@@ -132,6 +136,7 @@ FireAlarmStatus FireAlarmController::processNewResult(
     }
     else
     {
+        // 단일 음성 프레임으로 알람이 바로 꺼지지 않도록 증거를 서서히 감소시킨다.
         double decayRate = finalFireAlarm_ ? POSTCONFIRM_DECAY_RATE : PRECONFIRM_DECAY_RATE;
         if (detectorStrongCandidate)
         {
