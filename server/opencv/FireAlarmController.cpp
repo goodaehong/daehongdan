@@ -86,7 +86,17 @@ FireAlarmStatus FireAlarmController::processNewResult(
     }
 
     const double intervalMs = consumeResultIntervalMs(now);
-    const DetectionBox* primaryBox = result.boxes.empty() ? nullptr : &result.boxes.front();
+    const DetectionBox* primaryBox = nullptr;
+    if (!result.boxes.empty())
+    {
+        const auto primary = std::max_element(
+            result.boxes.begin(), result.boxes.end(),
+            [](const DetectionBox& left, const DetectionBox& right)
+            {
+                return left.score < right.score;
+            });
+        primaryBox = &*primary;
+    }
     const bool hasTrackedCandidate = !activeCandidateBox_.empty();
     const bool sameCurrentCandidate = primaryBox &&
         (activeCandidateBox_.empty() || isSameCandidate(activeCandidateBox_, primaryBox->box));
