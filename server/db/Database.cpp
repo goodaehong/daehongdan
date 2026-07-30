@@ -142,15 +142,16 @@ void Database::insertEvent(long ts, const std::string& zone,
 }
 
 // ── 한 사태(incident)의 '진행중' 이벤트를 '해결됨'으로 일괄 변경 ── 
-void Database::resolveIncident(long incidentId) {
+void Database::resolveIncident(long incidentId, long durationMs) {   //  durationMs 인자 추가
     std::lock_guard<std::mutex> lock(mtx_);
     if (!db_ || incidentId <= 0) return;
     const char* sql =
-        "UPDATE event_log SET status='해결됨' "
+        "UPDATE event_log SET status='해결됨', duration_ms=? "   
         "WHERE incident_id=? AND status='진행중';";
     sqlite3_stmt* st = nullptr;
     if (sqlite3_prepare_v2(db_, sql, -1, &st, nullptr) != SQLITE_OK) return;
-    sqlite3_bind_int64(st, 1, incidentId);
+    sqlite3_bind_int64(st, 1, durationMs);       // 1번=duration
+    sqlite3_bind_int64(st, 2, incidentId);       // 2번=incidentId  
     sqlite3_step(st);
     sqlite3_finalize(st);
-}                                                              
+}                                                     

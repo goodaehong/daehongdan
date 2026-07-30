@@ -321,6 +321,7 @@ void sensorWorker(Sender& sender, FrameStore& store) {
     std::string prevCause = "";
     long incidentId = 0;   // 현재 위험 사태 번호 (danger 진입 시 발급, 0=사태 없음)
     long incidentSeq = 0;  // 사태 번호 발급용 카운터  
+    long incidentStartTs = 0;   // 사태 진입 시각 — duration 계산용
     const int WARN_TIMEOUT = 10;   // 경고 무응답 자동 전환까지 (초, N)   
     int  warnStartTick = -1;       // warning 진입 tick (-1 = 타이머 비활성)
     bool forcedDanger  = false;    // 무응답으로 강제 위험 전환된 상태     
@@ -398,7 +399,10 @@ void sensorWorker(Sender& sender, FrameStore& store) {
         // 엣지 트리거: 위험 "진입" 또는 위험 중 "원인 변경" 순간에만 발사
         // (가스로 팬 최대 배출 중 → 불 붙음(fire_gas) → 팬 차단으로 뒤집어야 함)
         if (j.state == "danger" && (prevState != "danger" || j.cause != prevCause)) {
-            if (prevState != "danger") incidentId = ++incidentSeq;   // 새 위험 진입 = 새 사태 번호
+            if (prevState != "danger") {
+                incidentId = ++incidentSeq;   // 새 위험 진입 = 새 사태 번호
+                incidentStartTs = std::time(nullptr); // 진입 시각 기록
+            }
 
             std::string src = "자동:" + j.cause;
             std::string resp;                                         // 대응 내역 문자열 (이벤트 로그용)
@@ -429,7 +433,10 @@ void sensorWorker(Sender& sender, FrameStore& store) {
             executeCommand("siren", "off",  0, src, sender);
             executeCommand("valve", "open", 0, src, sender);   // TODO: 자동 재개방 여부 팀 결정
             executeCommand("fan",   "low",  0, src, sender);   // 평상시 약 가동 복귀
-            g_db.resolveIncident(incidentId);   // 이 사태의 진행중 → 해결됨 일괄
+
+            long durationMs = (std::time(nullptr) - incidentStartTs) * 1000;  // <- 처음 (초→ms)
+
+            g_db.resolveIncident(incidentId, durationMs);   // 진행중→해결됨 + 지속시간 일괄  
             g_db.insertEvent(std::time(nullptr), "A", "resolve", "safe", "",
                              "", "auto", "위험 해제", "",
                              gasPpm, smokePpm, "해결됨", 0, "", incidentId, "");
