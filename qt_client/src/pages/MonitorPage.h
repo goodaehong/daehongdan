@@ -32,9 +32,13 @@ signals:
     void demoStateRequested(ZoneState state);
 
 private:
+    // 채널 카드를 더블클릭하면 같은 스트림을 새로 하나 더 연결해 확대 창으로 띄운다.
+    void showEnlargedView(int channel);
+
     StatusPanel *statusPanel;
     VideoWidget *videoWidgets[4];
     StreamReceiver *streamReceivers[4];
+    QString mediaMtxHost;
 };
 
 #endif // MONITORPAGE_H

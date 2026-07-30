@@ -26,6 +26,14 @@ public:
     // srcW/srcH: 계약①의 원본 영상 픽셀 크기. 위젯 크기에 맞게 내부에서 스케일해서 그림.
     void setDetectionBoxes(const QVector<DetectionBox> &boxes, int srcW, int srcH);
 
+signals:
+    // 카드 아무 곳이나(영상 영역 포함) 더블클릭하면 발생. MonitorPage가 받아서 확대 창을 띄운다.
+    void doubleClicked(int channel);
+
+protected:
+    void mouseDoubleClickEvent(QMouseEvent *event) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 private:
     int channelNumber;
     QLabel *titleLabel;

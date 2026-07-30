@@ -9,7 +9,7 @@
 class QStackedWidget;
 class QPushButton;
 class QLabel;
-class QTimer;
+class DangerGlowOverlay;
 class MonitorPage;
 class EventLogPage;
 class GraphPage;
@@ -41,8 +41,8 @@ private:
     void switchZone(int index);
     void refreshZoneUi();
     // zone.state가 Warning으로 새로 바뀐 순간에만 호출됨. 어느 탭을 보고 있든 팝업이 뜬다.
-    void showWarningAlert(const QString &zoneName, const QString &zoneId);
-    // 위험 배너 + 화면 테두리 펄스 + 모니터링 탭 강조. zones 상태가 바뀌거나 탭 전환할 때마다 호출.
+    void showWarningAlert(const QString &zoneName, const QString &zoneId, const QString &cause);
+    // 위험 배너 + 화면 가장자리 글로우 + 모니터링 탭 강조. zones 상태가 바뀌거나 탭 전환할 때마다 호출.
     void updateDangerIndicators();
 
     QStackedWidget *stack;
@@ -54,11 +54,10 @@ private:
     // 어느 탭에 있든 항상 보이는 상단 종합상태 배지("● A구역 안전" 등).
     QLabel *topStatusLabel;
 
-    QWidget *centralArea = nullptr;       // 위험 시 테두리 펄스를 적용할 최상위 위젯
+    QWidget *centralArea = nullptr;       // 루트 레이아웃을 담는 위젯 (setCentralWidget 대상)
     QPushButton *dangerBanner = nullptr;  // 위험 구역 있으면 상단에 표시, 클릭 시 해당 구역 모니터링으로 이동
     int dangerBannerZoneIndex = -1;
-    QTimer *dangerPulseTimer = nullptr;
-    bool dangerPulseOn = false;
+    DangerGlowOverlay *dangerGlow = nullptr; // 가장자리 은은한 빨간 글로우(숨쉬듯 펄스)
 
     MonitorPage *monitorPage;
     EventLogPage *eventLogPage;

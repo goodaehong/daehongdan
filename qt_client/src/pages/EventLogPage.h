@@ -3,6 +3,7 @@
 
 #include <QWidget>
 #include <QVector>
+#include <QDateTime>
 #include "../core/ZoneTypes.h"
 
 class QTableWidget;
@@ -13,14 +14,15 @@ class QPushButton;
 class GasGraphWidget;
 
 struct EventEntry {
-    QString time;
+    QString time;       // 표시용 "HH:mm:ss"
+    QDateTime timestamp; // 기간 필터링용 실제 시각
     QString zone;
     QString detection;
     QString response;
     QString admin;
-    QString severity;
+    QString severity;   // "안전"/"정보"/"경고"/"위험"
     QString sensorCombo;
-    QString status;
+    QString status;      // "해결됨"/"오탐 처리됨"
     QString duration;
 };
 
@@ -45,6 +47,9 @@ private slots:
 private:
     QTableWidget *eventTable;
     QComboBox *zoneFilterCombo;
+    QComboBox *severityFilterCombo;
+    QComboBox *periodFilterCombo;
+    QComboBox *statusFilterCombo;
     QLineEdit *searchEdit;
     QVector<EventEntry> eventEntries;
     GasGraphWidget *gasGraph;

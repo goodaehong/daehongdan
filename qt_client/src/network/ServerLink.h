@@ -34,8 +34,9 @@ signals:
     void connectionStateChanged(bool connected);
 
     void detectionReceived(int channel, int frameId, int srcW, int srcH, bool alarm, const QVector<DetectionBox> &boxes);
+    // cause: "gas"/"flame"/"smoke_fire"/"fire_gas"/"smoke_watch". 서버가 아직 안 보내면 빈 문자열.
     void sensorReceived(const QString &zone, qint64 ts, double temp, double humidity,
-                         double gasPpm, double smokePpm, const QString &state);
+                         double gasPpm, double smokePpm, const QString &state, const QString &cause);
     void ledMatrixStatusReceived(int status);
     void actuatorStatusReceived(int fan, int valve, int siren);
 

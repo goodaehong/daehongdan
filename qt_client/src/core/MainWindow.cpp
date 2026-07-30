@@ -6,6 +6,7 @@
 #include "../pages/HelpPage.h"
 #include "../network/ServerLink.h"
 #include "../widgets/WarningAlertDialog.h"
+#include "../widgets/DangerGlowOverlay.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -13,7 +14,7 @@
 #include <QLabel>
 #include <QFrame>
 #include <QStackedWidget>
-#include <QTimer>
+#include <QDateTime>
 
 namespace {
 const QString kMediaMtxHost = "172.20.35.53"; // MediaMTX가 도는 라즈베리파이 주소 (카메라 IP 아님)
@@ -49,12 +50,7 @@ MainWindow::MainWindow(QWidget *parent)
     rootLayout->addWidget(createTopBar());
     rootLayout->addWidget(createSubTabBar());
 
-    dangerPulseTimer = new QTimer(this);
-    connect(dangerPulseTimer, &QTimer::timeout, this, [this]() {
-        dangerPulseOn = !dangerPulseOn;
-        const QString borderColor = dangerPulseOn ? "#f87171" : "#7f1d1d";
-        centralArea->setStyleSheet(QString("background-color:%1; border:4px solid %2;").arg(kBg, borderColor));
-    });
+    dangerGlow = new DangerGlowOverlay(this);
 
     monitorPage = new MonitorPage(centralArea);
     eventLogPage = new EventLogPage(centralArea);
@@ -132,7 +128,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(serverLink, &ServerLink::sensorReceived, this,
             [this](const QString &zoneId, qint64, double temp, double humidity,
-                   double gasPpm, double smokePpm, const QString &state) {
+                   double gasPpm, double smokePpm, const QString &state, const QString &cause) {
                 for (Zone &zone : zones) {
                     if (!zone.name.startsWith(zoneId))
                         continue;
@@ -142,10 +138,25 @@ MainWindow::MainWindow(QWidget *parent)
                     zone.gasPpm = gasPpm;
                     zone.smokePpm = smokePpm;
                     zone.state = zoneStateFromString(state);
+                    zone.cause = cause;
                     zone.hasLiveSensorData = true;
+
+                    zone.gasHistory.append(gasPpm);
+                    zone.gasHistoryLabels.append(QDateTime::currentDateTime().toString("HH:mm:ss"));
+                    constexpr int kMaxGasHistory = 30;
+                    if (zone.gasHistory.size() > kMaxGasHistory) {
+                        zone.gasHistory.removeFirst();
+                        zone.gasHistoryLabels.removeFirst();
+                    }
                     // Warning으로 "새로" 바뀐 순간에만 팝업 (계속 warning이면 매번 안 뜸)
                     if (oldState != ZoneState::Warning && zone.state == ZoneState::Warning)
-                        showWarningAlert(zone.name, zoneId);
+                        showWarningAlert(zone.name, zoneId, cause);
+                    if (oldState != ZoneState::Danger && zone.state == ZoneState::Danger) {
+                        const QString detection = causeText(cause).isEmpty() ? "위험 상태 감지" : causeText(cause);
+                        eventLogPage->addEntry(zone.name, detection, "위험 배너/가장자리 경고 표시", "시스템(자동)", "위험", "-", "-");
+                    } else if (oldState == ZoneState::Danger && zone.state != ZoneState::Danger) {
+                        eventLogPage->addEntry(zone.name, "위험 해제", "정상/경고 상태로 복귀", "시스템(자동)", "안전", "-", "-");
+                    }
                     break;
                 }
                 if (!zones.isEmpty() && zones[currentZone].name.startsWith(zoneId))
@@ -179,8 +190,8 @@ QWidget *MainWindow::createDangerBanner()
     dangerBanner = new QPushButton(this);
     dangerBanner->setCursor(Qt::PointingHandCursor);
     dangerBanner->setStyleSheet(
-        "QPushButton { background-color:#7f1d1d; color:white; font-size:14px; font-weight:bold; "
-        "border:none; padding:10px 16px; text-align:left; }"
+        "QPushButton { background-color:#7f1d1d; color:white; font-size:22px; font-weight:bold; "
+        "border:none; padding:20px 16px; text-align:center; }"
         "QPushButton:hover { background-color:#991b1b; }");
     dangerBanner->setVisible(false);
     connect(dangerBanner, &QPushButton::clicked, this, [this]() {
@@ -286,9 +297,17 @@ void MainWindow::setZoneState(int zoneIndex, ZoneState state)
     const ZoneState oldState = zones[zoneIndex].state;
     zones[zoneIndex].state = state;
     // DEMO 버튼으로도 sensorReceived와 동일하게 "새로 Warning 진입" 시 팝업 (테스트용).
+    // 경고 단계의 원인은 표에서 smoke_watch(연기 감지 주의) 하나뿐이라 데모에서도 그걸로 고정.
     if (oldState != ZoneState::Warning && state == ZoneState::Warning) {
         const QString &zoneName = zones[zoneIndex].name;
-        showWarningAlert(zoneName, zoneName.left(1));
+        showWarningAlert(zoneName, zoneName.left(1), "smoke_watch");
+    }
+    if (oldState != ZoneState::Danger && state == ZoneState::Danger) {
+        const QString &zoneName = zones[zoneIndex].name;
+        const QString detection = causeText(zones[zoneIndex].cause).isEmpty() ? "위험 상태 감지" : causeText(zones[zoneIndex].cause);
+        eventLogPage->addEntry(zoneName, detection, "위험 배너/가장자리 경고 표시", "시스템(자동)", "위험", "-", "-");
+    } else if (oldState == ZoneState::Danger && state != ZoneState::Danger) {
+        eventLogPage->addEntry(zones[zoneIndex].name, "위험 해제", "정상/경고 상태로 복귀", "시스템(자동)", "안전", "-", "-");
     }
     if (zoneIndex == currentZone)
         refreshZoneUi();
@@ -308,17 +327,22 @@ void MainWindow::refreshZoneUi()
     topStatusLabel->setStyleSheet(QString("color:%1; border:1px solid %1; border-radius:10px; padding:3px 10px; font-weight:bold;").arg(color));
 }
 
-void MainWindow::showWarningAlert(const QString &zoneName, const QString &zoneId)
+void MainWindow::showWarningAlert(const QString &zoneName, const QString &zoneId, const QString &cause)
 {
-    // TODO: 서버가 sensor 메시지에 warnRemain(카운트다운 초)·cause(원인)를 추가하면
-    // 아래 고정값(10초, 원인 없음) 대신 그 값을 그대로 넘기면 된다.
+    // TODO: 서버가 sensor 메시지에 warnRemain(카운트다운 초)을 추가하면 아래 고정값(10초) 대신 그 값을 쓴다.
     constexpr int kFallbackCountdownSec = 10;
-    auto *dialog = new WarningAlertDialog(zoneName, QString(), kFallbackCountdownSec, this);
-    connect(dialog, &WarningAlertDialog::acknowledged, this, [this, zoneId]() {
+    const QString causePhrase = causeText(cause);
+    const QString detection = causePhrase.isEmpty() ? "경고 상태 감지" : causePhrase;
+    eventLogPage->addEntry(zoneName, detection, "관리자 확인 팝업 표시", "시스템(자동)", "경고", "-", "-");
+
+    auto *dialog = new WarningAlertDialog(zoneName, causePhrase, kFallbackCountdownSec, this);
+    connect(dialog, &WarningAlertDialog::acknowledged, this, [this, zoneId, zoneName]() {
         serverLink->sendWarningAck(zoneId, "ack", "admin");
+        eventLogPage->addEntry(zoneName, "경고 알림 확인", "관리자가 확인 버튼 클릭", "admin", "정보", "-", "-");
     });
-    connect(dialog, &WarningAlertDialog::timedOut, this, [this, zoneId]() {
+    connect(dialog, &WarningAlertDialog::timedOut, this, [this, zoneId, zoneName]() {
         serverLink->sendWarningAck(zoneId, "timeout", "admin");
+        eventLogPage->addEntry(zoneName, "경고 알림 무응답", "카운트다운 만료, 서버에 무응답 통보", "시스템(자동)", "경고", "-", "-");
     });
     connect(dialog, &QDialog::finished, dialog, &QObject::deleteLater);
     dialog->show();
@@ -338,21 +362,16 @@ void MainWindow::updateDangerIndicators()
     // 1) 위험 배너: 클릭하면 해당 구역 모니터링으로 이동, 해제되면 사라짐.
     dangerBannerZoneIndex = dangerZoneIndex;
     if (anyDanger) {
-        // TODO: 서버가 sensor 메시지에 cause 필드를 추가하면 causeText(cause)로 원인문구를 붙인다.
-        dangerBanner->setText(QString("🚨 %1 위험 상태 발생! (클릭 시 모니터링으로 이동)").arg(zones[dangerZoneIndex].name));
+        const QString &cause = zones[dangerZoneIndex].cause;
+        const QString situation = causeText(cause).isEmpty() ? "위험 상태 발생" : causeText(cause);
+        dangerBanner->setText(QString("🚨 %1 %2! (클릭 시 모니터링으로 이동)").arg(zones[dangerZoneIndex].name, situation));
         dangerBanner->setVisible(true);
     } else {
         dangerBanner->setVisible(false);
     }
 
-    // 2) 화면 테두리 펄스: safe로 복귀할 때까지 깜빡임 유지.
-    if (anyDanger) {
-        if (!dangerPulseTimer->isActive())
-            dangerPulseTimer->start(600);
-    } else {
-        dangerPulseTimer->stop();
-        centralArea->setStyleSheet(QString("background-color:%1;").arg(kBg));
-    }
+    // 2) 화면 가장자리 글로우: safe로 복귀할 때까지 은은하게 숨쉬듯 유지.
+    dangerGlow->setActive(anyDanger);
 
     // 3) 모니터링 탭 강조: 다른 탭을 보고 있을 때만 보조 신호로 표시.
     if (!tabButtons.isEmpty()) {

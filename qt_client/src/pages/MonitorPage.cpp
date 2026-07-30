@@ -5,6 +5,8 @@
 
 #include <QHBoxLayout>
 #include <QGridLayout>
+#include <QVBoxLayout>
+#include <QDialog>
 
 MonitorPage::MonitorPage(QWidget *parent)
     : QWidget(parent)
@@ -21,6 +23,7 @@ MonitorPage::MonitorPage(QWidget *parent)
     grid->setSpacing(12);
     for (int i = 0; i < 4; ++i) {
         videoWidgets[i] = new VideoWidget(i + 1, this);
+        connect(videoWidgets[i], &VideoWidget::doubleClicked, this, &MonitorPage::showEnlargedView);
         grid->addWidget(videoWidgets[i], i / 2, i % 2);
     }
     grid->setColumnStretch(0, 1);
@@ -39,6 +42,7 @@ void MonitorPage::updateZone(const Zone &zone)
 
 void MonitorPage::connectCameras(const QString &mediaMtxHost)
 {
+    this->mediaMtxHost = mediaMtxHost;
     for (int i = 0; i < 4; ++i) {
         streamReceivers[i] = new StreamReceiver(this);
         streamReceivers[i]->setVideoOutput(videoWidgets[i]->videoOutput());
@@ -78,4 +82,38 @@ void MonitorPage::updateDetection(int channel, int srcW, int srcH, const QVector
 void MonitorPage::setActuatorStatus(int fan, int valve, int siren)
 {
     statusPanel->setActuatorStatus(fan, valve, siren);
+}
+
+void MonitorPage::showEnlargedView(int channel)
+{
+    if (mediaMtxHost.isEmpty())
+        return; // 아직 카메라 연결 전
+
+    auto *dialog = new QDialog(this);
+    dialog->setWindowTitle(QString("Ch.%1 확대 보기").arg(channel));
+    dialog->resize(960, 720);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setStyleSheet("background-color:#0a0a12;");
+
+    auto *layout = new QVBoxLayout(dialog);
+    layout->setContentsMargins(12, 12, 12, 12);
+
+    // 같은 채널을 새로 하나 더 연결(MediaMTX는 다중 접속을 지원). 기존 작은 화면과는 독립적.
+    auto *bigVideo = new VideoWidget(channel, dialog);
+    layout->addWidget(bigVideo);
+
+    auto *receiver = new StreamReceiver(dialog);
+    receiver->setVideoOutput(bigVideo->videoOutput());
+    connect(receiver, &StreamReceiver::statusChanged, bigVideo, [bigVideo](bool ok) {
+        if (ok)
+            bigVideo->showConnected();
+        else
+            bigVideo->showPlaceholder("연결 오류");
+    });
+    connect(receiver, &StreamReceiver::errorOccurred, bigVideo, [bigVideo](const QString &) {
+        bigVideo->showPlaceholder("연결 오류");
+    });
+    receiver->connectToChannel(mediaMtxHost, channel - 1);
+
+    dialog->show();
 }

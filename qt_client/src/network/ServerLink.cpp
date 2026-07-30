@@ -140,7 +140,8 @@ void ServerLink::handleLine(const QByteArray &line)
                              obj.value("humidity").toDouble(),
                              obj.value("gasPpm").toDouble(),
                              obj.value("smokePpm").toDouble(),
-                             obj.value("state").toString());
+                             obj.value("state").toString(),
+                             obj.value("cause").toString());
     } else if (type == "led_matrix_status") {
         emit ledMatrixStatusReceived(obj.value("status").toInt());
     } else if (type == "actuator_status") {

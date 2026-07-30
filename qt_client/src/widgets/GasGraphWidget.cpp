@@ -44,7 +44,7 @@ void GasGraphWidget::paintEvent(QPaintEvent *)
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
 
-    const QRect area = rect().adjusted(12, 12, -12, -32);
+    const QRect area = rect().adjusted(40, 12, -12, -32); // 왼쪽 여백을 넓혀서 y축 값 표시 공간 확보
 
     painter.fillRect(rect(), QColor("#12121c"));
 
@@ -58,6 +58,13 @@ void GasGraphWidget::paintEvent(QPaintEvent *)
         maxVal = std::max(maxVal, m_dangerLevel);
     maxVal = std::max(maxVal, minVal + 1.0) * 1.15; // 위쪽 여백
 
+    // y축에 깔끔한 숫자가 찍히도록 눈금 상한을 5/10 단위로 올림.
+    double niceMax = maxVal;
+    if (niceMax <= 10.0) niceMax = std::ceil(niceMax);
+    else if (niceMax <= 50.0) niceMax = std::ceil(niceMax / 5.0) * 5.0;
+    else niceMax = std::ceil(niceMax / 10.0) * 10.0;
+    maxVal = niceMax;
+
     auto pointFor = [&](int i) {
         const double xRatio = double(i) / double(m_values.size() - 1);
         const double yRatio = (m_values[i] - minVal) / (maxVal - minVal);
@@ -68,6 +75,21 @@ void GasGraphWidget::paintEvent(QPaintEvent *)
         const double yRatio = (value - minVal) / (maxVal - minVal);
         return area.bottom() - yRatio * area.height();
     };
+
+    // y축 눈금(0 / 중간 / 최대) + 은은한 가로 기준선
+    {
+        QPen gridPen(QColor("#232333"), 1);
+        painter.setPen(QColor("#6a6478"));
+        for (double ratio : { 0.0, 0.5, 1.0 }) {
+            const double value = minVal + (maxVal - minVal) * ratio;
+            const int y = int(area.bottom() - ratio * area.height());
+            painter.setPen(gridPen);
+            painter.drawLine(QPoint(area.left(), y), QPoint(area.right(), y));
+            painter.setPen(QColor("#6a6478"));
+            painter.drawText(QRect(0, y - 8, area.left() - 6, 16), Qt::AlignRight | Qt::AlignVCenter,
+                              QString::number(value, 'f', 0));
+        }
+    }
 
     // 정상(초록)/경고(노랑)/위험(빨강) 범위 배경 밴드
     if (m_warningLevel > 0 || m_dangerLevel > 0) {

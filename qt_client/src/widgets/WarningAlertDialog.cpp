@@ -35,8 +35,9 @@ WarningAlertDialog::WarningAlertDialog(const QString &zoneName, const QString &c
     layout->addWidget(message);
 
     if (!cause.isEmpty()) {
-        auto *causeLabel = new QLabel("원인: " + cause, this);
-        causeLabel->setStyleSheet(QString("color:%1;").arg(kTextSecondary));
+        auto *causeLabel = new QLabel(cause + "!", this);
+        causeLabel->setStyleSheet("color:#fbbf24; font-size:22px; font-weight:bold;");
+        causeLabel->setWordWrap(true);
         layout->addWidget(causeLabel);
     }
 
