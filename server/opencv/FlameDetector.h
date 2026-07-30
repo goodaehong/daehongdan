@@ -35,6 +35,14 @@ private:
         double textureEnergy = 0.0;
         double maskChange = 0.0;
 
+        // Candidate brightness compared with its surrounding ring.
+        // This is only a weak score adjustment, never a hard reject condition.
+        double candidateBrightness = 0.0;
+        double surroundingBrightness = -1.0;
+        double brightnessDelta = 0.0;
+        double brightnessRatio = 1.0;
+        double relativeBrightnessScore = 0.0;
+
         cv::Mat svmRow() const;
     };
 

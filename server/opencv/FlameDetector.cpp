@@ -27,6 +27,41 @@ namespace
         return rect & Rect(0, 0, size.width, size.height);
     }
 
+    double calculateRelativeBrightnessScore(
+        double candidateBrightness,
+        double surroundingBrightness)
+    {
+        if (surroundingBrightness < 0.0)
+            return 0.0;
+
+        const double delta = candidateBrightness - surroundingBrightness;
+        const double ratio =
+            (candidateBrightness + 8.0) /
+            (surroundingBrightness + 8.0);
+
+        // Dark scenes: a real flame normally has clear local contrast.
+        if (surroundingBrightness < 80.0)
+        {
+            return
+                0.55 * clamp01((delta - 6.0) / 34.0) +
+                0.45 * clamp01((ratio - 1.06) / 0.34);
+        }
+
+        // Normal scenes: use a slightly weaker local-contrast requirement.
+        if (surroundingBrightness < 170.0)
+        {
+            return
+                0.55 * clamp01((delta - 3.0) / 30.0) +
+                0.45 * clamp01((ratio - 1.03) / 0.25);
+        }
+
+        // Bright scenes: do not require the flame to be much brighter than
+        // the background because camera exposure/WDR may compress the flame.
+        // This branch provides only a small positive signal and no rejection.
+        return
+            0.60 * clamp01((delta + 2.0) / 28.0) +
+            0.40 * clamp01((ratio - 0.99) / 0.18);
+    }
 }
 
 FlameDetector::FlameDetector()
@@ -99,7 +134,8 @@ Mat FlameDetector::buildOriginalColorMask(const Mat& frame, const Mat& motionMas
     GaussianBlur(frame, blurred, Size(3, 3), 0.0);
     Mat color = Mat::zeros(frame.size(), CV_8UC1);
 
-    // 4채널 환경에서는 채널 자체가 병렬이므로 검출기 내부 중첩 병렬화를 피한다.
+    // In the four-channel server, channels are already processed in parallel.
+    // Avoid nested per-detector parallelism here.
     for (int y = 0; y < frame.rows; ++y)
     {
         const Vec3b* src = blurred.ptr<Vec3b>(y);
@@ -266,7 +302,62 @@ FlameDetector::Features FlameDetector::analyzeContour(
 
     Scalar meanV, stdV;
     meanStdDev(roiValue, meanV, stdV, component);
+    features.candidateBrightness = meanV[0];
     features.vStd = stdV[0];
+
+    // ==================================================
+    // Local relative-brightness verification
+    // ==================================================
+    // Reuse the HSV V channel already calculated for the frame. The surrounding
+    // area is a ring outside the candidate box. Fire-colored pixels are removed
+    // from the ring when enough background pixels remain, so a large flame does
+    // not incorrectly become its own background.
+    const int ringX = max(4, cvRound(box.width * 0.35));
+    const int ringY = max(4, cvRound(box.height * 0.35));
+    const Rect expanded = clampRect(
+        Rect(
+            box.x - ringX,
+            box.y - ringY,
+            box.width + ringX * 2,
+            box.height + ringY * 2),
+        value.size());
+
+    if (!expanded.empty() && expanded.area() > box.area())
+    {
+        Mat ringMask(expanded.size(), CV_8UC1, Scalar(255));
+        const Rect innerBox(
+            box.x - expanded.x,
+            box.y - expanded.y,
+            box.width,
+            box.height);
+        rectangle(ringMask, innerBox, Scalar(0), FILLED);
+
+        Mat ringMaskWithoutFire;
+        Mat notFire;
+        bitwise_not(colorMask(expanded), notFire);
+        bitwise_and(ringMask, notFire, ringMaskWithoutFire);
+
+        // Prefer actual background pixels, but fall back to the full ring near
+        // image borders or when the candidate occupies most of the area.
+        const int usableBackgroundPixels = countNonZero(ringMaskWithoutFire);
+        const Mat& selectedRingMask =
+            usableBackgroundPixels >= 12 ? ringMaskWithoutFire : ringMask;
+
+        if (countNonZero(selectedRingMask) >= 8)
+        {
+            features.surroundingBrightness =
+                mean(value(expanded), selectedRingMask)[0];
+            features.brightnessDelta =
+                features.candidateBrightness - features.surroundingBrightness;
+            features.brightnessRatio =
+                (features.candidateBrightness + 8.0) /
+                (features.surroundingBrightness + 8.0);
+            features.relativeBrightnessScore =
+                calculateRelativeBrightnessScore(
+                    features.candidateBrightness,
+                    features.surroundingBrightness);
+        }
+    }
 
     vector<Point> hull;
     convexHull(contour, hull);
@@ -295,6 +386,8 @@ FlameDetector::Features FlameDetector::analyzeContour(
 
 Mat FlameDetector::Features::svmRow() const
 {
+    // Keep the optional SVM input at the original 13 features. Adding the new
+    // brightness values here would require retraining the XML model.
     return (Mat_<float>(1, 13) <<
         static_cast<float>(colorCoverage),
         static_cast<float>(motionCoverage),
@@ -319,17 +412,76 @@ double FlameDetector::classify(const Features& f) const
         if (prediction <= 0.0f) return 0.0;
     }
 
+    // Motion and compact-object shape are weak evidence because a hand-held
+    // yellow object can score strongly on those terms.  White core, brightness
+    // and temporal mask change receive relatively more weight instead.
     double score =
         0.20 * clamp01(f.colorCoverage / 0.70) +
-        0.14 * clamp01(f.motionCoverage / 0.70) +
+        0.06 * clamp01(f.motionCoverage / 0.70) +
         0.14 * clamp01(f.redOrangeCoverage / 0.45) +
-        0.10 * clamp01(f.whiteCoreCoverage / 0.12) +
+        0.15 * clamp01(f.whiteCoreCoverage / 0.12) +
         0.10 * clamp01(f.vStd / 55.0) +
-        0.07 * f.circularity +
-        0.07 * clamp01(f.solidity) +
-        0.04 * clamp01(f.extent / 0.70) +
-        0.06 * clamp01(f.textureEntropy / 3.0) +
-        0.08 * clamp01(f.maskChange / 0.30);
+        0.03 * f.circularity +
+        0.03 * clamp01(f.solidity) +
+        0.02 * clamp01(f.extent / 0.70) +
+        0.08 * clamp01(f.textureEntropy / 3.0) +
+        0.10 * clamp01(f.maskChange / 0.30);
+
+    // Reuse the already calculated candidate mean brightness.  No additional
+    // image operation is performed here.  A genuinely bright candidate can
+    // receive at most +0.11, which helps small lighter flames whose motion and
+    // contour scores are low.
+    const double absoluteBrightnessScore =
+        clamp01((f.candidateBrightness - 165.0) / 65.0);
+    score += 0.11 * absoluteBrightnessScore;
+
+    // A dim, highly moving, compact red/orange blob with almost no white core
+    // matches the observed hand-held yellow soft-object false positive.  This
+    // condition only combines values that are already available.
+    const bool dimMovingBlob =
+        f.surroundingBrightness >= 0.0 &&
+        f.surroundingBrightness < 170.0 &&
+        f.candidateBrightness < 190.0 &&
+        f.redOrangeCoverage >= 0.55 &&
+        f.whiteCoreCoverage < 0.015 &&
+        f.motionCoverage >= 0.65 &&
+        f.solidity >= 0.75 &&
+        f.extent >= 0.50;
+
+    if (f.surroundingBrightness >= 0.0)
+    {
+        // Local-contrast evidence is reduced from +0.07 to +0.04.  The dim
+        // moving blob receives no relative-brightness bonus merely because it
+        // is in front of a dark monitor or wall.
+        if (!dimMovingBlob)
+            score += 0.04 * f.relativeBrightnessScore;
+
+        // Retain the existing weak penalty for candidates that are not brighter
+        // than their surroundings.  Bright backgrounds remain excluded.
+        if (f.surroundingBrightness < 170.0 &&
+            f.brightnessDelta < 2.0 &&
+            f.brightnessRatio < 1.02 &&
+            f.whiteCoreCoverage < 0.020)
+        {
+            score -= 0.03 * clamp01((2.0 - f.brightnessDelta) / 20.0);
+        }
+    }
+
+    if (dimMovingBlob)
+        score -= 0.18;
+
+    // Give a small extra bonus only when an already-bright candidate also has
+    // a visible low-saturation white core.  This combination is much more
+    // flame-specific than motion or compact shape, and the observed dim yellow
+    // soft object does not satisfy it.  No additional image operation is used.
+    const bool brightCoreFlameEvidence =
+        !dimMovingBlob &&
+        f.candidateBrightness >= 200.0 &&
+        f.whiteCoreCoverage >= 0.010 &&
+        f.redOrangeCoverage >= 0.18;
+
+    if (brightCoreFlameEvidence)
+        score += 0.05;
 
 #if FLAME_ENABLE_SKIN_REJECTION
     const bool independentFlameStructure =
@@ -484,7 +636,7 @@ DetectionResult FlameDetector::detect(const Mat& inputFrame)
         static_cast<double>(flame_config::ANALYSIS_WIDTH) / inputFrame.cols,
         static_cast<double>(flame_config::ANALYSIS_HEIGHT) / inputFrame.rows);
 
-    // 입력이 360p 이하이면 확대하지 않고 원본 픽셀을 그대로 사용한다.
+    // Do not enlarge 360p-or-smaller input; keep its original pixels.
     if (scale < 0.999)
     {
         const Size analysisSize(

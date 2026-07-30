@@ -18,6 +18,7 @@ using std::unique_lock;
 namespace
 {
     std::atomic<int> gRuntimeInstanceCounter{ 0 };
+    std::mutex gFireDetectorExecutionMutex;
 
     int nextRuntimePhaseMs()
     {
@@ -51,9 +52,13 @@ public:
 
             // 호출자가 30 FPS로 계속 제출해도 Runtime 내부에서 채널당 검출률을 제한한다.
             // 각 FireDetectionRuntime 인스턴스가 독립적으로 적용되므로 4채널 서버에도 그대로 적용된다.
-            if (sourceTime < nextAcceptedSubmitTime_) return;
-            nextAcceptedSubmitTime_ = sourceTime +
-                std::chrono::milliseconds(flame_config::DETECTION_INTERVAL_MS);
+            if (sourceTime < nextAcceptedSubmitTime_)
+                return;
+
+            nextAcceptedSubmitTime_ =
+                sourceTime + std::chrono::milliseconds(
+                    flame_config::DETECTION_INTERVAL_MS
+                );
 
             frame.copyTo(pendingFrame_);
             pendingFrameId_ = frameId;
@@ -196,7 +201,14 @@ private:
             if (detectorResetRequested_.exchange(false)) detector_.reset();
 
             const TimePoint start = Clock::now();
-            DetectionResult detection = detector_.detect(frame);
+            DetectionResult detection;
+            {
+                // Raspberry Pi 4 has four CPU cores. Four channel runtimes may
+                // queue independently, but only one OpenCV fire detector runs
+                // at a time so they cannot oversubscribe the CPU.
+                lock_guard<mutex> detectorLock(gFireDetectorExecutionMutex);
+                detection = detector_.detect(frame);
+            }
             const double detectMs = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
             if (frameEpoch != streamEpoch_.load()) continue;
 
