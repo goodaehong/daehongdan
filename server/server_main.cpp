@@ -3,6 +3,7 @@
 #include <mutex>
 #include <iostream>
 #include <fstream> // ★ 추가: 파일 읽기용 (DHT22)
+#include <cmath> // ★ 추가: pow 필요
 #include <chrono>
 #include <sstream>
 #include <iomanip>
@@ -264,6 +265,49 @@ bool readDHT22(float& out_temp, float& out_hum) {
 }
 // ──────────────────────────────────────────────
 
+// ── [추가] ADS1115 raw -> ppm 환산 ──
+constexpr float ADS1115_LSB = 6.144f / 32768.0f; // V/count (PGA ±6.144V, 16bit)
+constexpr float SENSOR_VCC = 5.0f; // MQ 모듈 공급전압
+constexpr float RL_KOHM = 5.0f; // 모듈 로드저항 (보드 실측 필요, 보통 5kΩ)
+
+// 클린에어 보장값 - 반드시 클린에어에서 측정 후 갱신할 것
+constexpr float MQ2_RO_KOHM = 10.0f; // TODO: 실측값으로 교체
+constexpr float MQ9_RO_KOHM = 10.0f; // TODO: 실측값으로 교체
+
+float rawToRsKohm(int raw) {
+    float voltage = raw * ADS1115_LSB;
+    if (voltage < 0.05f) voltage = 0.05f; // 0 나눗셈 방지
+    return RL_KOHM * (SENSOR_VCC - voltage) / voltage;
+}
+
+// MQ-2 연기(smoke) 커브 (잠정치, 데이터시트 재검증 필요)
+float mq2ToSmokePpm(int raw) {
+    float ratio = rawToRsKohm(raw) / MQ2_RO_KOHM;
+    return 3616.1f * std::pow(ratio, -2.629f);
+}
+
+// MQ-9 가스(CO) 커브 (잠정치, 데이터시트 재검증 필요)
+float mq9ToGasPpm(int raw) {
+    float ratio = rawToRsKohm(raw) / MQ9_RO_KOHM;
+    return 605.0f * std::pow(ratio, -2.336f);
+}
+
+// ── [추가] ADS1115 드라이버에서 raw 값 읽기 ── 
+bool readADS1115(int& raw_mq9, int& raw_mq2) {
+    // ⚠️ 경로 확인 필요: i2c 드라이버라 platform/이 아니라
+    //    /sys/bus/i2c/devices/1-0048/ 쪽일 가능성 높음
+    //    확인: find /sys -name "mq9_value" 2>/dev/null
+    std::ifstream mq9f("/sys/devices/platform/soc/fe804000.i2c/i2c-1/1-0048/mq9_value");
+    std::ifstream mq2f("/sys/devices/platform/soc/fe804000.i2c/i2c-1/1-0048/mq2_value");
+
+    if (mq9f.is_open() && mq2f.is_open()) {
+        mq9f >> raw_mq9;
+        mq2f >> raw_mq2;
+        return true;
+    }
+    return false;
+}
+
 // mock 센서 스레드. 부품 오면 값 생성부만 실제 드라이버 읽기로 교체
 void sensorWorker(Sender& sender) {
     std::mt19937 rng(std::random_device{}());
@@ -292,15 +336,31 @@ void sensorWorker(Sender& sender) {
         // // 평상시 기준값 + 흔들림
         // float temp     = 26.0f + jitter(rng) * 2.0f;
         // float humidity = 45.0f + jitter(rng) * 5.0f;
-        // 가스/연기는 아직! 기존 mock 그대로 유지 (state/danger 로직 테스트용)
-        float gasPpm   = 45.0f + jitter(rng) * 10.0f;
-        float smokePpm = 8.0f  + jitter(rng) * 3.0f;
 
-        // 데모 스파이크: 60초 주기 중 45~60초 구간은 가스 급상승 (Qt 경고 UI 테스트용)
-        if (tick % 60 >= 45) {
-            gasPpm   = 250.0f + jitter(rng) * 30.0f;
-            smokePpm = 180.0f + jitter(rng) * 20.0f;
+        // // 가스/연기는 아직! 기존 mock 그대로 유지 (state/danger 로직 테스트용)
+        // float gasPpm   = 45.0f + jitter(rng) * 10.0f;
+        // float smokePpm = 8.0f  + jitter(rng) * 3.0f;
+
+        static float prevGasPpm = 45.0f, prevSmokePpm = 8.0f; // 실패 시 폴백용 초기값
+        float gasPpm, smokePpm;
+        int raw_mq9, raw_mq2;
+
+        if (!readADS1115(raw_mq9, raw_mq2)) {
+            std::cerr << "[ADS1115] 읽기 실패ㅡ 이전 값 유지\n";
+            gasPpm = prevGasPpm;
+            smokePpm = prevSmokePpm;
+        } else {
+            gasPpm = mq9ToGasPpm(raw_mq9);
+            smokePpm = mq2ToSmokePpm(raw_mq2);
+            prevGasPpm = gasPpm;
+            prevSmokePpm = smokePpm;
         }
+
+        // // 데모 스파이크: 60초 주기 중 45~60초 구간은 가스 급상승 (Qt 경고 UI 테스트용)
+        // if (tick % 60 >= 45) {
+        //     gasPpm   = 250.0f + jitter(rng) * 30.0f;
+        //     smokePpm = 180.0f + jitter(rng) * 20.0f;
+        // }
 
         // ── [카메라 상태 종합] 4채널 중 하나라도 감지면 true ──
         bool camFire = false, camSmoke = false;
