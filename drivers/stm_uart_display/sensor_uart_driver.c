@@ -19,6 +19,11 @@
  *
  * 주의: MQ-9는 아직 원시 ADC 값만 나오고(팀원이 환산식 미작성),
  *       GasRawToPpm()은 임시 선형 매핑임 - 실제 환산 로직 나오면 교체 필요.
+ *
+ * [수정] 센서 원시값이 초 단위로 미세하게 흔들리면서(예: 26.4 -> 26.6 -> 26.5)
+ * 반올림 경계(x.5)를 계속 넘나들어 전광판 표시 숫자가 26/27/28 사이를
+ * 빠르게 오가며 깜빡이는 문제가 있었음. 이동평균(EMA)으로 값을 스무딩해서
+ * 해결함 - 실제 변화는 따라가되 노이즈는 눌러줌.
  */
 #include <stdio.h>
 #include <stdint.h>
@@ -35,10 +40,14 @@
 #define GAS_CAUTION_THRESHOLD 300
 #define GAS_DANGER_THRESHOLD  700
 
+/* 이동평균 계수 (0~1). 작을수록 더 부드럽게(느리게) 따라가고,
+   클수록 센서 원시값에 더 빨리 반응함. 0.2~0.3 권장, 필요시 튜닝. */
+#define SMOOTHING_ALPHA 0.25f
+
 /* ===== 커널 드라이버가 노출하는 sysfs 경로 (환경에 따라 확인 후 수정) ===== */
 #define DHT22_TEMP_PATH  "/sys/devices/platform/dht22/temp_value"
 #define DHT22_HUMID_PATH "/sys/devices/platform/dht22/humid_value"
-#define MQ9_RAW_PATH     "/sys/bus/i2c/devices/1-0048/mq9_value"
+#define MQ9_RAW_PATH     "/sys/devices/platform/soc/fe804000.i2c/i2c-1/1-0048/mq9_value"
 
 /* ===== UART 패킷 빌드 (send_test_uart.c와 동일한 프로토콜) ===== */
 static int open_uart(const char *devPath)
@@ -124,6 +133,14 @@ static uint16_t GasRawToPpm(long raw)
     return (uint16_t)ppm;
 }
 
+/* 지수이동평균(EMA): prev와 new를 alpha 비율로 섞어서 부드럽게 갱신.
+   센서 원시값이 반올림 경계를 미세하게 넘나들 때 전광판 숫자가
+   튀는 현상을 줄여줌. */
+static float ema_update(float prev, float newValue, float alpha)
+{
+    return prev * (1.0f - alpha) + newValue * alpha;
+}
+
 int main(void)
 {
     const char *devPath = "/dev/serial0";
@@ -133,9 +150,14 @@ int main(void)
         return 1;
     }
 
-    printf("센서 드라이버 시작 (DHT22 sysfs + MQ-9 via ADS1115 sysfs)\n");
+    printf("센서 드라이버 시작 (DHT22 sysfs + MQ-9 via ADS1115 sysfs, 스무딩 alpha=%.2f)\n", SMOOTHING_ALPHA);
 
+    /* lastTemp/lastHumidity: sysfs 읽기 실패 시 유지할 최근값
+       smoothedTemp/smoothedHumidity/smoothedGas: EMA로 부드럽게 만든 값 (실제 전송에 사용) */
     float lastTemp = 25.0f, lastHumidity = 50.0f;
+    float smoothedTemp = 25.0f, smoothedHumidity = 50.0f;
+    float smoothedGas = 0.0f;
+    int firstReading = 1;   /* 첫 값은 스무딩 없이 그대로 시작점으로 사용 */
 
     while (1)
     {
@@ -159,15 +181,32 @@ int main(void)
         }
 
         long mq9Raw = 0;
-        uint16_t gas = 0;
+        uint16_t gasRawPpm = 0;
         if (read_sysfs_long(MQ9_RAW_PATH, &mq9Raw) == 0)
         {
-            gas = GasRawToPpm(mq9Raw);
+            gasRawPpm = GasRawToPpm(mq9Raw);
         }
         else
         {
             fprintf(stderr, "MQ9 값 읽기 실패 (%s), 가스값 0으로 전송\n", MQ9_RAW_PATH);
         }
+
+        /* 스무딩 적용: 첫 루프는 그대로 시작점으로 세팅, 이후부터는 EMA로 갱신 */
+        if (firstReading)
+        {
+            smoothedTemp = lastTemp;
+            smoothedHumidity = lastHumidity;
+            smoothedGas = (float)gasRawPpm;
+            firstReading = 0;
+        }
+        else
+        {
+            smoothedTemp = ema_update(smoothedTemp, lastTemp, SMOOTHING_ALPHA);
+            smoothedHumidity = ema_update(smoothedHumidity, lastHumidity, SMOOTHING_ALPHA);
+            smoothedGas = ema_update(smoothedGas, (float)gasRawPpm, SMOOTHING_ALPHA);
+        }
+
+        uint16_t gas = (uint16_t)(smoothedGas + 0.5f);
 
         time_t now = time(NULL);
         struct tm *lt = localtime(&now);
@@ -177,8 +216,8 @@ int main(void)
         else if (gas >= GAS_CAUTION_THRESHOLD) { face = 1; gasColor = 1; }
         else                                    { face = 0; gasColor = 0; }
 
-        uint8_t temp8 = (uint8_t)(lastTemp + 0.5f);
-        uint8_t humidity8 = (uint8_t)(lastHumidity + 0.5f);
+        uint8_t temp8 = (uint8_t)(smoothedTemp + 0.5f);
+        uint8_t humidity8 = (uint8_t)(smoothedHumidity + 0.5f);
 
         uint8_t data[11] = {
             face, gasColor,
@@ -197,9 +236,9 @@ int main(void)
         }
         else
         {
-            printf("전송: %02d:%02d %04d-%02d-%02d 온도%.1f 습도%.1f%% 가스%dppm(raw=%ld) 표정%d\n",
+            printf("전송: %02d:%02d %04d-%02d-%02d 온도%.1f(raw%.1f) 습도%.1f%%(raw%.1f) 가스%dppm(raw=%ld) 표정%d\n",
                    lt->tm_hour, lt->tm_min, lt->tm_year + 1900, lt->tm_mon + 1, lt->tm_mday,
-                   lastTemp, lastHumidity, gas, mq9Raw, face);
+                   smoothedTemp, lastTemp, smoothedHumidity, lastHumidity, gas, mq9Raw, face);
         }
 
         sleep(1);
