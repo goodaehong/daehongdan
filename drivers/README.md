@@ -117,10 +117,10 @@ ls -l /sys/bus/i2c/devices/1-0048/driver
 ```
 /sys/devices/platform/dht22/temp_value
 /sys/devices/platform/dht22/humid_value
-/sys/bus/i2c/devices/1-0048/mq9_value
+/sys/devices/platform/soc/fe804000.i2c/i2c-1/1-0048/mq9_value
 ```
 
-ADS1115 쪽(`1-0048`)은 위 블랙리스트 이슈 문서에도 나오는 값이라 확실하지만, DHT22 쪽 경로(`/sys/devices/platform/dht22/`)는 device tree가 실제로 어떤 이름으로 플랫폼 디바이스를 등록하느냐에 따라 달라질 수 있어 미검증 상태입니다. 실제 파이에서 아래로 검증 후, 다르면 `sensor_uart_driver.c` 상단의 경로 상수만 맞춰서 수정.
+MQ9 경로는 유나 팀원이 실제 파이에서 검증해서 확정한 값(`/sys/devices/platform/soc/fe804000.i2c/i2c-1/1-0048/`)입니다. DHT22 쪽 경로(`/sys/devices/platform/dht22/`)는 device tree가 실제로 어떤 이름으로 플랫폼 디바이스를 등록하느냐에 따라 달라질 수 있어 아직 미검증 상태입니다. 실제 파이에서 아래로 검증 후, 다르면 `sensor_uart_driver.c` 상단의 경로 상수만 맞춰서 수정.
 
 ```bash
 find /sys -name temp_value -o -name humid_value -o -name mq9_value 2>/dev/null
