@@ -226,8 +226,11 @@ void recvWorker(Sender& sender) {
             while ((pos = buf.find('\n')) != std::string::npos) {  // \n 단위로 자르기
                 std::string line = buf.substr(0, pos);
                 buf.erase(0, pos + 1);
-                if (line.find("\"type\":\"warning_ack\"") != std::string::npos)  
+                if (line.find("\"type\":\"warning_ack\"") != std::string::npos)  {
                     g_warningAck = true;   // 관리자 인지 → 센서 스레드가 타이머 취소
+                    std::cout << "[수신] warning_ack 받음: " << line << "\n";   // 진단용 
+                }
+                
                 else                 
                     handleControl(line, sender);
             }
@@ -314,6 +317,7 @@ std::string saveSnapshot(FrameStore& store, int ch, const std::string& zone, lon
 
 // mock 센서 스레드. 부품 오면 값 생성부만 실제 드라이버 읽기로 교체
 void sensorWorker(Sender& sender, FrameStore& store) {
+    bool warnAckLogged = false;   // 확인 로그 중복 방지
     std::mt19937 rng(std::random_device{}());
     std::uniform_real_distribution<float> jitter(-1.0f, 1.0f);
     int tick = 0;
@@ -358,6 +362,7 @@ void sensorWorker(Sender& sender, FrameStore& store) {
         else if (smokeHold > 0) { --smokeHold; camSmoke = true; }   // 끊겨도 5초간 유지
         
         Judgement j = judgeState(camFire, camSmoke, gasPpm, smokePpm, flameVal);     
+        
 
         // ── 경고 무응답 타이머: warning 지속 중 관리자 미확인 시 위험 강제 전환 ──  
         int warnRemain = -1;   // -1 = JSON에 미포함 (warning 아닐 때)
@@ -366,6 +371,7 @@ void sensorWorker(Sender& sender, FrameStore& store) {
                 warnStartTick = tick;
                 g_warningAck  = false;      // 새 경고 시작 → 이전 ack 무효화
                 forcedDanger  = false;
+                std::cout << "[경고] " << j.cause << " 발생 → 관리자 알림 (10초 대기)\n";   // 경고 발생 로그 
                 // 경고 진입 = event_log 기록 + 스냅샷 (액추에이터 대응은 없음)  
                 std::string snap = saveSnapshot(store, detCh, "A", std::time(nullptr));
                 g_db.insertEvent(std::time(nullptr), "A", "warning", j.state, j.cause,
@@ -373,15 +379,23 @@ void sensorWorker(Sender& sender, FrameStore& store) {
                                  gasPpm, smokePpm, "진행중", 0, snap, 0, "");
             }
             if (g_warningAck.load()) {
+                if (!warnAckLogged) {   // 한 번만 <- 처음
+                    std::cout << "[경고] 관리자 확인함 → 자동 전환 취소\n";
+                    warnAckLogged = true;
+                }
                 warnRemain = 0;             // 관리자 확인함 → 카운트다운 종료(전환 안 함)
             } else {
                 warnRemain = WARN_TIMEOUT - (tick - warnStartTick);
                 if (warnRemain <= 0) {      // 무응답 → 강제 위험 전환
                     warnRemain   = 0;
+                    if (!forcedDanger)   // 전환되는 순간만 (한 번)
+                        std::cout << "[경고] 10초 무응답 → 강제 위험 전환!\n";
                     forcedDanger = true;
                 }
             }
         } else {
+            if (warnStartTick >= 0 && !forcedDanger)   // warning이었다가 안전 복귀 
+                std::cout << "[경고] 해제됨 (감지 사라짐)\n";
             warnStartTick = -1;             // warning 벗어남 → 타이머 리셋
             if (j.state == "safe") forcedDanger = false;   // 안전 복귀 시 강제상태 해제
         }
@@ -394,7 +408,11 @@ void sensorWorker(Sender& sender, FrameStore& store) {
             else if (j.cause == "fire_visual" ) j.cause = "fire_confirmed";   // 화재 경고 → 화재 위험
             else if (j.cause == "flame_sensor") j.cause = "fire_confirmed";   // 불꽃센서 경고 → 화재 위험
             else                                j.cause = "fire_confirmed";   // 기본        // <- 끝
-        }                                                                         
+        }                      
+        if (j.state != prevState)   // 판단 상태 전이 로그 (강제전환 반영된 최종 상태)
+            std::cout << "[판단] " << prevState << " → " << j.state
+                      << " (" << (j.cause.empty() ? "정상" : j.cause) << ")\n";
+                                                       
 
         // 엣지 트리거: 위험 "진입" 또는 위험 중 "원인 변경" 순간에만 발사
         // (가스로 팬 최대 배출 중 → 불 붙음(fire_gas) → 팬 차단으로 뒤집어야 함)
@@ -480,15 +498,14 @@ void worker(int ch, FrameStore& store, Sender& sender, SmokeDetectionRuntime& sm
     std::string url = "rtsp://localhost:8554/cam" + std::to_string(ch + 1);
 
     PersonMetadataReceiver person;                        
-    // 사람 메타데이터는 카메라 직접 (MediaMTX가 메타 트랙 안 넘김)              // <- 처음
-    std::string personUrl = "rtsp://admin:5hanwha!@172.20.35.200:554/"
-                          + std::to_string(ch) + "/profile2/media.smp";  
-    person.start(personUrl);   // 카메라 WiseAI 사람 메타데이터 수신 시작 (FFmpeg)
+    
+    person.start(url);   // 카메라 WiseAI 사람 메타데이터 수신 시작 (FFmpeg)
   
 
     FireDetectionRuntime runtime;   // 복사 금지 타입 → 채널당 지역변수 1개
     std::uint64_t frameId = 0;
     bool wasShowingBoxes = false;  
+    bool prevSmoke = false, prevPerson = false, prevFire = false;   // 감지 로그: 변화 시에만 출력용 
 
     while (true) {
         cv::VideoCapture cap;
@@ -526,30 +543,34 @@ void worker(int ch, FrameStore& store, Sender& sender, SmokeDetectionRuntime& sm
             if (ssnap.hasResult) {                              //  (결과 있을 때만 갱신)
                 detState[ch].smoke = ssnap.smokeDetected;       // 없으면 이전 값 유지 → 깜빡임 방지
             }
-            if (ssnap.hasResult && ssnap.smokeDetected) {       // 콘솔도 신선할 때만
-                std::cout << "[cam" << ch+1 << "] SMOKE score=" << ssnap.smokeScore << "\n";
-            }    
-        
+            bool nowSmoke = ssnap.hasResult && ssnap.smokeDetected;   // 연기 로그: 시작/해제 순간만
+            if (nowSmoke && !prevSmoke)
+                std::cout << "[cam" << ch+1 << "] 연기 감지 (score " << ssnap.smokeScore << ")\n";
+            else if (!nowSmoke && prevSmoke)
+                std::cout << "[cam" << ch+1 << "] 연기 해제\n";
+            prevSmoke = nowSmoke;                               
 
             PersonMetadataFrame pf = person.snapshot(frame.size());  
-            
-            if (!pf.persons.empty()) {
-                std::cout << "[cam" << ch+1 << "] PERSON x" << pf.persons.size()
-                          << " (연결:" << pf.streamConnected << ")\n";
-            }
-            
+            bool nowPerson = !pf.persons.empty();   // 사람 로그: 등장/사라짐 순간만
+            if (nowPerson && !prevPerson)
+                std::cout << "[cam" << ch+1 << "] 사람 감지 (" << pf.persons.size() << "명)\n";
+            else if (!nowPerson && prevPerson)
+                std::cout << "[cam" << ch+1 << "] 사람 사라짐\n";
+            prevPerson = nowPerson;                 
 
             if (snap.boxIsFresh) {
-                std::cout << "[cam" << ch + 1 << "] boxIsFresh! boxes="
-                          << snap.detection.boxes.size()
-                          << " alarm=" << snap.alarm.alarmActive << "\n";   // ★ 임시 디버그
-
                 bool hasFire = false;                   
                 for (const auto& b : snap.detection.boxes) {
                     if (b.type == DetectionType::FIRE) hasFire = true;
                 }
                 detState[ch].fire  = hasFire && snap.alarm.alarmActive;
                               
+                bool nowFire = detState[ch].fire;   // 화재 로그: 확정/해제 순간만
+                if (nowFire && !prevFire)
+                    std::cout << "[cam" << ch+1 << "] 화재 감지 (알람 확정)\n";
+                else if (!nowFire && prevFire)
+                    std::cout << "[cam" << ch+1 << "] 화재 해제\n";
+                prevFire = nowFire;                
                           
                 // 계약① JSON 조립 (박스 0개여도 전송 → Qt가 오버레이 지움)
                 std::ostringstream oss;
