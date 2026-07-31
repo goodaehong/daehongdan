@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include "FireDetectionRuntime.h"
+#include "../drivers/stm_uart_display/stm_display_protocol.h"
 #include <random>
 #include <ctime>
 #include <atomic>
@@ -309,7 +310,7 @@ bool readADS1115(int& raw_mq9, int& raw_mq2) {
 }
 
 // mock 센서 스레드. 부품 오면 값 생성부만 실제 드라이버 읽기로 교체
-void sensorWorker(Sender& sender) {
+void sensorWorker(Sender& sender, int stmFd) {
     std::mt19937 rng(std::random_device{}());
     std::uniform_real_distribution<float> jitter(-1.0f, 1.0f);
     int tick = 0;
@@ -407,12 +408,13 @@ void sensorWorker(Sender& sender) {
                 executeCommand("siren", "on",    0, src, sender);
                 executeCommand("valve", "close", 0, src, sender);
                 executeCommand("fan",   "high",  0, src, sender);
+                StmDisplay_SendAlert(stmFd, STM_DISPLAY_DISASTER_GAS, 0x01);   // 전광판: 가스유출 화면
             }
             else {                                     // 1~3행 화재 계열 → 팬 차단 (산소 차단)
                 executeCommand("siren", "on",    0, src, sender);
                 executeCommand("valve", "close", 0, src, sender);
                 executeCommand("fan",   "off",   0, src, sender);
-                // TODO(광렬님 STM 후): 전광판 위험 화면 (cause별 문구 구분 가능)
+                StmDisplay_SendAlert(stmFd, STM_DISPLAY_DISASTER_FIRE, 0x01);  // 전광판: 화재발생 화면
             }
         }
         else if (prevState == "danger" && j.state == "safe") {
@@ -422,7 +424,26 @@ void sensorWorker(Sender& sender) {
             executeCommand("fan",   "low",  0, src, sender);   // 평상시 약 가동 복귀
         }
         prevState = j.state;
-        prevCause = j.cause;                                         
+        prevCause = j.cause;
+
+        // ── STM32 전광판 평상시 갱신 (CMD 0x80) ──
+        {
+            uint8_t face, gasColor;
+            if      (j.state == "danger")  { face = STM_DISPLAY_STATE_DANGER;  gasColor = STM_DISPLAY_STATE_DANGER; }
+            else if (j.state == "warning") { face = STM_DISPLAY_STATE_WARNING; gasColor = STM_DISPLAY_STATE_WARNING; }
+            else                            { face = STM_DISPLAY_STATE_SAFE;    gasColor = STM_DISPLAY_STATE_SAFE; }
+
+            std::time_t nowT = std::time(nullptr);
+            std::tm* lt = std::localtime(&nowT);
+
+            if (!StmDisplay_SendUpdate(stmFd, face, gasColor, (uint16_t)gasPpm,
+                                       (uint8_t)temp, (uint8_t)humidity,
+                                       (uint8_t)lt->tm_hour, (uint8_t)lt->tm_min,
+                                       (uint8_t)(lt->tm_year % 100), (uint8_t)(lt->tm_mon + 1), (uint8_t)lt->tm_mday))
+            {
+                std::cerr << "[STM 전광판] 갱신 전송 실패\n";
+            }
+        }
 
         // ── [JSON 조립] 명세서 "센서 정보" 스키마 그대로 ──
         std::ostringstream oss;
@@ -449,6 +470,24 @@ void sensorWorker(Sender& sender) {
             sender.send(st.str());
         }  
         std::this_thread::sleep_for(std::chrono::seconds(1));  // 전송 주기 1초
+    }
+}
+
+// ── [테스트용] 콘솔에 "fire"/"gas" 입력하면 STM32로 CMD 0x90(위험 대피 전환) 수동 전송.
+//    실제 센서 없이도 STM32 쪽 화재/가스 전환 화면 동작을 확인할 수 있게 하기 위한 용도 ──
+void stmAlertTestWorker(int stmFd) {
+    std::cout << "[테스트] 콘솔에 'fire' 또는 'gas' 입력 후 엔터 -> STM32 전환 화면 전송\n";
+    std::string line;
+    while (std::getline(std::cin, line)) {
+        if (line == "fire") {
+            bool ok = StmDisplay_SendAlert(stmFd, STM_DISPLAY_DISASTER_FIRE, 0x01);
+            std::cout << "[테스트] 화재발생 전환 패킷 전송 " << (ok ? "성공" : "실패") << "\n";
+        } else if (line == "gas") {
+            bool ok = StmDisplay_SendAlert(stmFd, STM_DISPLAY_DISASTER_GAS, 0x01);
+            std::cout << "[테스트] 가스유출 전환 패킷 전송 " << (ok ? "성공" : "실패") << "\n";
+        } else if (!line.empty()) {
+            std::cout << "[테스트] 'fire' 또는 'gas'만 입력 가능\n";
+        }
     }
 }
 
@@ -559,8 +598,16 @@ int main() {
     FrameStore store;
     std::thread threads[4];
 
-    std::thread sensorThread(sensorWorker, std::ref(sender));    
+    int stmFd = StmDisplay_Open("/dev/serial0");   // STM32 display_board UART
+    if (stmFd < 0) {
+        std::cerr << "[STM 전광판] UART 열기 실패 - 전광판 업데이트 없이 계속 진행\n";
+    }
+
+    std::thread sensorThread(sensorWorker, std::ref(sender), stmFd);
     sensorThread.detach();
+
+    std::thread alertTestThread(stmAlertTestWorker, stmFd);
+    alertTestThread.detach();
 
     std::thread recvThread(recvWorker, std::ref(sender));
     recvThread.detach();

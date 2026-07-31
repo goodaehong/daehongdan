@@ -18,6 +18,10 @@ set(FIRE_CORE_SRC
     ${FIRE_CORE_DIR}/FireDetectionRuntime.cpp
 )
 
-add_executable(server_main server_main.cpp ${FIRE_CORE_SRC})
-target_include_directories(server_main PRIVATE ${OpenCV_INCLUDE_DIRS} ${FIRE_CORE_DIR})
+# 광렬님 STM32 전광판 UART 프로토콜 (drivers/stm_uart_display)
+set(STM_DISPLAY_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../drivers/stm_uart_display)
+set(STM_DISPLAY_SRC ${STM_DISPLAY_DIR}/stm_display_protocol.c)
+
+add_executable(server_main server_main.cpp ${FIRE_CORE_SRC} ${STM_DISPLAY_SRC})
+target_include_directories(server_main PRIVATE ${OpenCV_INCLUDE_DIRS} ${FIRE_CORE_DIR} ${STM_DISPLAY_DIR})
 target_link_libraries(server_main PRIVATE ${OpenCV_LIBS} Threads::Threads)

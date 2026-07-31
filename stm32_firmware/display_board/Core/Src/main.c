@@ -216,7 +216,10 @@ static void DrawGasGraph(uint8_t index)
   DrawBitmap8(34, 41, HUB75_Number6, 8, HUB75_CYAN);    // 가스 농도 백의 자리
 }
 
-// 위험 대피 전환 화면 (CMD 0x90 수신 시 표시될 화면 - 지금은 패킷 연동 없이 그냥 테스트로 띄움)
+static void DrawStaticScene(void);   /* 전방 선언: 전환 화면 5초 경과 후 평상시 화면 복귀용 */
+static uint8_t g_inAlertScreen = 0;  /* 전환 화면 표시 중이면 평상시 갱신 패킷 무시 */
+
+// 위험 대피 전환 화면 (CMD 0x90 수신 시 표시)
 // disasterType: 0 = A구역 화재발생!, 1 = A구역 가스유출! (둘 다 RED)
 static HUB75_Color AlertScreenColor(uint8_t disasterType)
 {
@@ -252,35 +255,26 @@ static void DrawAlertScreen(uint8_t disasterType)
   DrawBitmap16(57, 33, HUB75_Shape14, 12, color);
 }
 
-// 테두리 점멸: 0.25초 간격으로 3초간(12번) 깜빡인 뒤, 10초 쉬고 반복 (총 주기 13초)
-// 화재발생/가스유출 화면은 이 13초 주기가 한 바퀴 돌 때마다 번갈아 표시됨
-#define ALERT_BLINK_INTERVAL_MS 100
-#define ALERT_BLINK_PHASE_MS    3000
-#define ALERT_REST_PHASE_MS     10000
-#define ALERT_CYCLE_MS          (ALERT_BLINK_PHASE_MS + ALERT_REST_PHASE_MS)
+// 테두리 점멸: 0.1초 간격으로 계속 깜빡임. 전환 화면 표시 시작 후 5초 지나면 자동으로 평상시 화면 복귀
+#define ALERT_BLINK_INTERVAL_MS  100
+#define ALERT_DISPLAY_DURATION_MS 5000
 
-static uint32_t alertBlinkCycleStart = 0;
+static uint32_t alertBlinkCycleStart = 0;   /* 전환 화면 진입 시각(ms) - 점멸 기준 + 5초 타이머 겸용 */
 static uint8_t alertBorderVisible = 1;
 static uint8_t alertDisasterType = 0;
-static uint32_t alertLastCycleIndex = 0;
 
 static void UpdateAlertBorderBlink(void)
 {
-  uint32_t sinceStart = HAL_GetTick() - alertBlinkCycleStart;
-  uint32_t cycleIndex = sinceStart / ALERT_CYCLE_MS;
-  uint32_t elapsed = sinceStart % ALERT_CYCLE_MS;
+  uint32_t elapsed = HAL_GetTick() - alertBlinkCycleStart;
 
-  if (cycleIndex != alertLastCycleIndex)   // 새 주기 시작 -> 화재/가스 화면 전환
+  if (elapsed >= ALERT_DISPLAY_DURATION_MS)   // 5초 경과 -> 평상시 화면으로 자동 복귀
   {
-    alertLastCycleIndex = cycleIndex;
-    alertDisasterType = !alertDisasterType;
-    DrawAlertScreen(alertDisasterType);
-    alertBorderVisible = 1;
+    DrawStaticScene();
+    g_inAlertScreen = 0;
+    return;
   }
 
-  uint8_t shouldBeVisible = (elapsed < ALERT_BLINK_PHASE_MS)
-                              ? (((elapsed / ALERT_BLINK_INTERVAL_MS) % 2) == 0)
-                              : 1;
+  uint8_t shouldBeVisible = ((elapsed / ALERT_BLINK_INTERVAL_MS) % 2) == 0;
 
   if (shouldBeVisible != alertBorderVisible)
   {
@@ -336,8 +330,10 @@ static void DrawStaticScene(void)
 #define PACKET_STX     0xAA
 #define PACKET_ETX     0x55
 #define CMD_UPDATE     0x80   /* 평상시 화면 갱신 (Pi -> STM32) */
+#define CMD_ALERT      0x90   /* 위험 대피 전환 (Pi -> STM32) */
 #define CMD_ACK        0xB0   /* 전광판 상태 응답 (STM32 -> Pi) */
 #define UPDATE_DATA_LEN 11    /* 표정,가스색,가스H,가스L,온도,습도,시,분,년,월,일 */
+#define ALERT_DATA_LEN  2     /* 재난종류,구역ID */
 
 static const uint8_t * const NumberDigits[10] = {
   HUB75_Number0, HUB75_Number1, HUB75_Number2, HUB75_Number3, HUB75_Number4,
@@ -392,7 +388,6 @@ static uint16_t g_gas = 0;
 static uint8_t g_temp = 0, g_humidity = 0, g_hour = 0, g_minute = 0;
 static uint8_t g_year = 0, g_month = 0, g_day = 0;
 static volatile uint8_t g_dataUpdated = 0;
-static uint8_t g_inAlertScreen = 0;   /* 위험 대피 전환 화면 표시 중이면 평상시 갱신 패킷 무시 */
 
 static void SendAckPacket(uint8_t status)
 {
@@ -421,6 +416,16 @@ static void HandlePacket(uint8_t cmd, const uint8_t *data, uint8_t len)
     g_month     = data[9];
     g_day       = data[10];
     g_dataUpdated = 1;
+  }
+  else if (cmd == CMD_ALERT && len >= ALERT_DATA_LEN)
+  {
+    uint8_t disasterType = (data[0] == 0x02) ? 1 : 0;   /* 0x01=화재->0, 0x02=가스->1 */
+    /* data[1] = 구역 ID, 지금은 A구역 문구만 있어서 미사용 */
+    alertDisasterType = disasterType;
+    DrawAlertScreen(alertDisasterType);
+    g_inAlertScreen = 1;
+    alertBlinkCycleStart = HAL_GetTick();
+    alertBorderVisible = 1;
   }
 }
 
@@ -579,9 +584,6 @@ int main(void)
   HUB75_SetBrightness(30); // 30%로 시작, 눈부시면 더 낮추기
   HUB75_Clear(HUB75_BLACK);
   DrawStaticScene();
-  DrawAlertScreen(alertDisasterType);   // 임시 테스트: 0x90 패킷 연동 전이라 그냥 바로 띄워서 배치 확인
-  g_inAlertScreen = 1; // 전환 화면 표시 중에는 평상시 갱신 패킷이 덮어쓰지 않도록 함
-  alertBlinkCycleStart = HAL_GetTick();
   HAL_UART_Receive_IT(&huart1, &rxByte, 1);   // UART 1바이트 수신 대기 시작
   /* USER CODE END 2 */
 
