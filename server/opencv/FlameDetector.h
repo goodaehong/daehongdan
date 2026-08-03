@@ -8,6 +8,8 @@
 
 #include "DetectionTypes.h"
 
+// RGB/HSV 색상, MOG2 움직임, 형태·질감 특징과 시간 추적을 결합한 화염 검출기다.
+// 연기 검출은 포함하지 않으며 SmokeDetector가 별도로 담당한다.
 class FlameDetector
 {
 public:
@@ -19,6 +21,7 @@ public:
 private:
     struct Features
     {
+        // analyzeContour가 후보 하나에서 추출해 규칙식 또는 선택적 SVM에 전달한다.
         cv::Rect box;
         double score = 0.0;
         double colorCoverage = 0.0;
@@ -35,11 +38,19 @@ private:
         double textureEnergy = 0.0;
         double maskChange = 0.0;
 
+        // 후보 밝기와 주변 링 밝기의 차이는 약한 가감점으로만 사용한다.
+        double candidateBrightness = 0.0;
+        double surroundingBrightness = -1.0;
+        double brightnessDelta = 0.0;
+        double brightnessRatio = 1.0;
+        double relativeBrightnessScore = 0.0;
+
         cv::Mat svmRow() const;
     };
 
     struct Track
     {
+        // 같은 위치의 후보를 여러 분석 프레임에 걸쳐 확인하는 내부 추적 상태다.
         int id = -1;
         cv::Rect box;
         int hits = 0;

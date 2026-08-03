@@ -18,7 +18,9 @@ using std::unique_lock;
 namespace
 {
     std::atomic<int> gRuntimeInstanceCounter{ 0 };
+    std::mutex gFireDetectorExecutionMutex;
 
+    // 네 채널의 제출 시점을 분산해 같은 순간에 CPU 작업이 몰리지 않게 한다.
     int nextRuntimePhaseMs()
     {
         constexpr int CHANNEL_PHASE_COUNT = 4;
@@ -49,11 +51,14 @@ public:
         {
             lock_guard<mutex> lock(jobMutex_);
 
-            // 호출자가 30 FPS로 계속 제출해도 Runtime 내부에서 채널당 검출률을 제한한다.
-            // 각 FireDetectionRuntime 인스턴스가 독립적으로 적용되므로 4채널 서버에도 그대로 적용된다.
-            if (sourceTime < nextAcceptedSubmitTime_) return;
-            nextAcceptedSubmitTime_ = sourceTime +
-                std::chrono::milliseconds(flame_config::DETECTION_INTERVAL_MS);
+            // 호출자가 30 FPS로 제출해도 채널별 분석률을 설정값으로 제한한다.
+            if (sourceTime < nextAcceptedSubmitTime_)
+                return;
+
+            nextAcceptedSubmitTime_ =
+                sourceTime + std::chrono::milliseconds(
+                    flame_config::DETECTION_INTERVAL_MS
+                );
 
             frame.copyTo(pendingFrame_);
             pendingFrameId_ = frameId;
@@ -66,6 +71,7 @@ public:
 
     void resetStream()
     {
+        // epoch가 다른 진행 중 결과는 작업 완료 후에도 게시되지 않는다.
         streamEpoch_.fetch_add(1);
         detectorResetRequested_ = true;
 
@@ -128,6 +134,7 @@ public:
             snapshot.completedAgeMs = std::chrono::duration<double, std::milli>(now - completedTime).count();
         }
 
+        // 느린 장치에서는 실제 평균 처리 시간에 맞춰 결과 유효시간을 자동 보정한다.
         snapshot.resultFreshLimitMs = clampValue(
             averageDetectMs_ * 2.2 + 300.0,
             1000.0,
@@ -196,7 +203,13 @@ private:
             if (detectorResetRequested_.exchange(false)) detector_.reset();
 
             const TimePoint start = Clock::now();
-            DetectionResult detection = detector_.detect(frame);
+            DetectionResult detection;
+            {
+                // 네 채널 런타임은 독립적이지만 OpenCV 화염 분석은 한 번에 하나만 실행한다.
+                // Raspberry Pi 4에서 채널 간 CPU 과다 경쟁이 생기는 것을 막기 위함이다.
+                lock_guard<mutex> detectorLock(gFireDetectorExecutionMutex);
+                detection = detector_.detect(frame);
+            }
             const double detectMs = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
             if (frameEpoch != streamEpoch_.load()) continue;
 

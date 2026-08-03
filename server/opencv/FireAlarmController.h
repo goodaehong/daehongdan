@@ -10,11 +10,13 @@ struct FireAlarmStatus
     bool rawFireTiming = false;
     bool ambiguousWarmObject = false;
     int rawFireResultCount = 0;
-    int requiredRawFireResults = 2;
+    int requiredRawFireResults = 1;
     double pendingFireMs = 0.0;
-    double requiredConfirmMs = 350.0;
+    double requiredConfirmMs = 120.0;
 };
 
+// FlameDetector가 확정한 결과에 짧은 히스테리시스를 적용해 최종 화재 알람을 만든다.
+// 애매한 따뜻한 색 물체는 더 긴 확인 시간과 더 많은 결과를 요구한다.
 class FireAlarmController
 {
 public:
@@ -31,8 +33,9 @@ public:
     void reset();
 
 private:
-    static constexpr double FINAL_CONFIRM_MS = 350.0;
-    static constexpr int MIN_RAW_FIRE_RESULTS = 2;
+    // 일반 화염은 검출기 내부 추적을 이미 통과했으므로 추가 확인을 짧게 유지한다.
+    static constexpr double FINAL_CONFIRM_MS = 120.0;
+    static constexpr int MIN_RAW_FIRE_RESULTS = 1;
     static constexpr double AMBIGUOUS_CONFIRM_MS = 900.0;
     static constexpr int MIN_AMBIGUOUS_RAW_FIRE_RESULTS = 3;
     static constexpr double DEFAULT_RESULT_INTERVAL_MS = 33.0;
