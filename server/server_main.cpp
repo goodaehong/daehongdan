@@ -48,9 +48,9 @@ std::string saveSnapshot(FrameStore& store, int ch, const std::string& zone, lon
         if (store.frames[ch].empty()) return "";
         frame = store.frames[ch].clone();
     }
-    const std::string dir = "db/snapshots";
-    ::mkdir("db", 0755);
-    ::mkdir(dir.c_str(), 0755);
+    
+    const std::string dir = SNAPSHOT_DIR;   // 실행 위치와 무관하게 고정 <- 처음
+    ::mkdir(dir.c_str(), 0755); 
     std::string path = dir + "/" + zone + "_" + std::to_string(ts)
                      + "_cam" + std::to_string(ch + 1) + ".jpg";
     if (!cv::imwrite(path, frame)) return "";

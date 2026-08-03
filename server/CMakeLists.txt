@@ -88,7 +88,8 @@ target_link_libraries(server_main PRIVATE
     ${OpenCV_LIBS} Threads::Threads ${SQLite3_LIBRARIES})
 
 target_compile_definitions(server_main PRIVATE
-    DB_PATH="${CMAKE_CURRENT_SOURCE_DIR}/db/factory.db")
+    DB_PATH="${CMAKE_CURRENT_SOURCE_DIR}/db/factory.db"
+    SNAPSHOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/db/snapshots")
 
 if(ENABLE_TLS)
     find_package(OpenSSL REQUIRED)
