@@ -6,11 +6,10 @@
 #include <poll.h>
 #include <string.h>
 
-/* 체크섬: Command + Data 바이트를 모두 XOR (Length는 미포함 - 명세 문구 그대로.
-   실제 STM32 파싱 코드와 다르면 여기 한 군데만 고치면 됨) */
-static uint8_t calc_checksum(uint8_t cmd, const uint8_t *data, uint8_t dataLen)
+/* 체크섬: Command + Data 바이트를 모두 XOR */
+static uint8_t calc_checksum(uint8_t len, uint8_t cmd, const uint8_t *data, uint8_t dataLen)
 {
-    uint8_t checksum = cmd;
+    uint8_t checksum = len ^ cmd;
     for (uint8_t i = 0; i < dataLen; i++)
     {
         checksum ^= data[i];
@@ -37,7 +36,7 @@ static bool send_packet(int fd, uint8_t cmd, const uint8_t *data, uint8_t dataLe
         packet[idx++] = data[i]; // [데이터 바이트들]
     }
  
-    packet[idx++] = calc_checksum(cmd, data, dataLen); // [체크섬]
+    packet[idx++] = calc_checksum(dataLen, cmd, data, dataLen); // [체크섬]
     packet[idx++] = STM_ACTUATOR_ETX; // [0x03]
  
     ssize_t written = write(fd, packet, idx); // UART로 실제 전송
@@ -190,7 +189,7 @@ bool StmActuator_ReadResponse(int fd, int timeoutMs, uint8_t *outCmd, StmActuato
         return false;   /* 프레임 깨짐 */
     }
  
-    uint8_t expected = calc_checksum(cmd, data, len);
+    uint8_t expected = calc_checksum(len, cmd, data, len);
     if (checksum != expected)
     {
         return false;   /* 체크섬 불일치 */
