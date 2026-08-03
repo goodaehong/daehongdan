@@ -1,9 +1,9 @@
 #include "judgement.h"
 
-// 판단 임계값 (mock 기준, 실센서 오면 유나님 보정값으로)
-constexpr float GAS_THRESHOLD   = 200.0f;   // MQ-9 가스
-constexpr float SMOKE_THRESHOLD = 150.0f;   // MQ-2 연기센서
-constexpr float FLAME_THRESHOLD = 400.0f;   // DFR0076 불꽃센서(AO)
+// 판단 임계값 — 클린에어 실측(가스 0.0 / 연기 27) 기준 임시치. 위험 상황 실측 후 재조정
+constexpr float GAS_THRESHOLD   = 50.0f;    // MQ-9 가스   (클린에어 0.0)
+constexpr float SMOKE_THRESHOLD = 100.0f;   // MQ-2 연기   (클린에어 27 — 마진 확보)
+constexpr float FLAME_THRESHOLD = 400.0f;   // DFR0076 불꽃센서(AO, 환산 없음)        
 
 // cause 코드값 → Qt 표시용 센서 조합 문구 (트리거 센서 칸)
 std::string causeToCombo(const std::string& cause) {

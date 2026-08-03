@@ -72,11 +72,15 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
 
     while (true) {
         SensorReading s;
-        if (!SensorReader_Read(s)) {   // 실패 시 판단 건너뜀 (0을 "안전"으로 오판 방지)
-            std::cerr << "[센서] 읽기 실패 — 이번 주기 건너뜀\n";
+        static bool prevSensorOk = true;   // 센서 상태 로그: 변화 시에만 (실패 시 1초마다 도배 방지) 
+        if (!SensorReader_Read(s)) {
+            if (prevSensorOk) std::cerr << "[센서] 읽기 실패 — 판단 중단\n";
+            prevSensorOk = false;
             std::this_thread::sleep_for(std::chrono::seconds(1));
             continue;
         }
+        if (!prevSensorOk) std::cout << "[센서] 복구됨\n";
+        prevSensorOk = true; 
 
         // 4채널 중 하나라도 감지면 true + 감지 채널 기록 (스냅샷용)
         bool camFire = false, camSmoke = false;
@@ -221,7 +225,7 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
                     if (b.type == DetectionType::FIRE) hasFire = true;
                     boxes.push_back({ b.box.x, b.box.y, b.box.width, b.box.height,
                                       b.type == DetectionType::FIRE ? "FIRE" : "SMOKE",
-                                      b.score });
+                                      (float)b.score });
                 }
                 // TODO: 연기(NCNN) 박스도 여기 boxes에 push_back (cls="SMOKE")
 
