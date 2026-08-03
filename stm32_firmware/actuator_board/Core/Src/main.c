@@ -80,6 +80,8 @@ uint8_t rx_recv_cs = 0;      // 라즈베리파이가 보낸 Checksum
 
 static volatile uint32_t siren_freq = 600;
 static volatile int8_t siren_dir = 1;
+static uint32_t siren_start_tick = 0;
+static uint8_t  siren_buzzer_started = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -105,8 +107,9 @@ void Siren_ON(void)
 
   siren_freq = 600;
   siren_dir = 1;
+  siren_start_tick = HAL_GetTick(); 
+  siren_buzzer_started = 0;
 
-  HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
   current_status.siren = 0x01;
 }
 
@@ -116,6 +119,7 @@ void Siren_ON(void)
 void Siren_OFF(void)
 {
   current_status.siren = 0x00;
+  siren_buzzer_started = 0;
   __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, 0);
   HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_1);
   HAL_GPIO_WritePin(GPIOC, RELAY_WARN_Pin, GPIO_PIN_RESET);
@@ -240,29 +244,37 @@ int main(void)
     // 1ms마다 도는 인터럽트 대신, 메인 루프에서 시간을 체크하여 실행 (논블로킹 딜레이)
     if (current_status.siren == 0x01)
     {
-      static uint32_t last_siren_tick = 0;
-      
-      // HAL_GetTick()을 이용해 이전 실행 시간으로부터 5ms가 지났는지 확인
-      if (HAL_GetTick() - last_siren_tick >= 5) 
+      if (!siren_buzzer_started && (HAL_GetTick() - siren_start_tick >= 50))
       {
-        last_siren_tick = HAL_GetTick(); // 시간 갱신
+        HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
+        siren_buzzer_started = 1;
+      }
 
-        siren_freq += (siren_dir * 25);
+      // 부저가 시작된 후 Sweep 주파수 변조 실행
+      if (siren_buzzer_started)
+      {
+        static uint32_t last_siren_tick = 0;
+        if (HAL_GetTick() - last_siren_tick >= 5)
+        {
+          last_siren_tick = HAL_GetTick();
 
-        if (siren_freq >= 1600) {
-          siren_freq = 1600;
-          siren_dir = -1;
-        } else if (siren_freq <= 600) {
-          siren_freq = 600;
-          siren_dir = 1;
+          siren_freq += (siren_dir * 25);
+
+          if (siren_freq >= 1600) {
+            siren_freq = 1600;
+            siren_dir = -1;
+          } else if (siren_freq <= 600) {
+            siren_freq = 600;
+            siren_dir = 1;
+          }
+
+          uint32_t period = (1000000 / siren_freq) - 1;
+          uint32_t pulse = (period + 1) / 80;
+          if (pulse == 0) pulse = 1;
+
+          __HAL_TIM_SET_AUTORELOAD(&htim4, period);
+          __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, pulse);
         }
-
-        uint32_t period = (1000000 / siren_freq) - 1;
-        uint32_t pulse = (period + 1) / 80; 
-        if (pulse == 0) pulse = 1;
-
-        __HAL_TIM_SET_AUTORELOAD(&htim4, period);
-        __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, pulse);
       }
     }
     else
