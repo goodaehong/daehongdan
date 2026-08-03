@@ -36,7 +36,7 @@ public:
                      long incidentId = 0,
                      const std::string& detail = "");
 
-    void resolveIncident(long incidentId);   // <- 처음, 끝 (사태의 진행중→해결됨 일괄)
+    void resolveIncident(long incidentId, long durationMs);  
 
     ~Database() { close(); }
 
