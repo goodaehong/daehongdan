@@ -11,6 +11,7 @@ struct AlarmOutcome {
     bool warnEntered;       // 경고 진입 순간 → event_log(warning) + 스냅샷
     bool dangerEntered;     // 위험 진입 or 원인 변경 → 대응 실행 + event_log(danger)
     bool released;          // 위험 해제 → 복귀 대응 + resolveIncident + event_log(resolve)
+    bool wasDanger;         // 이 사태가 위험까지 갔었나 (해제 처리 구분용)
     long durationMs;        // released일 때 위험 지속시간
 };
 
@@ -34,6 +35,7 @@ private:
     long incidentId_      = 0;    // 현재 위험 사태 번호
     long incidentSeq_     = 0;    // 사태 번호 발급용 카운터
     long incidentStartTs_ = 0;    // 사태 진입 시각 — duration 계산용
+    bool wasDanger_       = false;   // 사태 중 위험 도달 여부
 
     std::string prevState_ = "safe";
     std::string prevCause_ = "";

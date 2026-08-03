@@ -98,7 +98,7 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
             std::string snap = saveSnapshot(store, detCh, "A", now);
             g_db.insertEvent(now, "A", "warning", o.j.state, o.j.cause,
                              causeToCombo(o.j.cause), "auto", "", "",
-                             s.gasPpm, s.smokePpm, "진행중", 0, snap, 0, "");
+                             s.gasPpm, s.smokePpm, "진행중", 0, snap, o.incidentId, "");
         }
 
         // 위험 진입 또는 원인 변경 = 자동 대응 + 전광판 + 기록
@@ -117,13 +117,16 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
 
         // 위험 해제 = 복귀 대응 + 지속시간 확정
         if (o.released) {
-            Actuator_Apply(responseForSafe(), "자동:해제");
-            QtLink_SendActuator(link, Actuator_GetState());
-            StmDisplay_SendClear();
+            if (o.wasDanger) {                          // 위험까지 갔던 사태만 복귀 대응
+                Actuator_Apply(responseForSafe(), "자동:해제");
+                QtLink_SendActuator(link, Actuator_GetState());
+                StmDisplay_SendClear();
+            }
+            const char* resp = o.wasDanger ? "위험 해제" : "경고 해제";     
 
             g_db.resolveIncident(o.incidentId, o.durationMs);   // 진행중→해결됨 + 지속시간 일괄
             g_db.insertEvent(now, "A", "resolve", "safe", "", "", "auto", "위험 해제", "",
-                             s.gasPpm, s.smokePpm, "해결됨", 0, "", o.incidentId, "");
+                             s.gasPpm, s.smokePpm, "해결됨", o.durationMs, "", o.incidentId, "");
         }
 
         QtLink_SendSensor(link, s, o);
