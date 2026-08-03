@@ -8,6 +8,7 @@
 
 #include "DetectionTypes.h"
 #include "FireAlarmController.h"
+#include "IgnoreRegionFilter.h"
 
 struct FireRuntimeSnapshot
 {
@@ -28,9 +29,8 @@ struct FireRuntimeSnapshot
     double boxFreshLimitMs = 0.0;
 };
 
-// FireDetector  ,   ,  freshness,
-// FireAlarmController    .
-//  main Qt        .
+// 채널 하나의 프레임 제출, 비동기 화염 검출, 결과 유효시간과 알람을 관리한다.
+// 제출된 프레임은 누적하지 않고 최신 프레임으로 교체한다.
 class FireDetectionRuntime
 {
 public:
@@ -43,21 +43,18 @@ public:
     FireDetectionRuntime(const FireDetectionRuntime&) = delete;
     FireDetectionRuntime& operator=(const FireDetectionRuntime&) = delete;
 
-    //        .
     void submitFrame(
         const cv::Mat& frame,
         std::uint64_t frameId,
         TimePoint sourceTime = Clock::now()
     );
 
-    //       Detector/Alarm   .
+    // 스레드 안전. 빈 regions 또는 모두 disabled이면 기존 검출을 그대로 사용한다.
+    void setIgnoreRegionConfig(const IgnoreRegionConfig& config);
+
+    // 카메라 재연결 또는 동영상 반복 시 이전 배경·추적·알람 상태를 폐기한다.
     void resetStream();
-
-    // UI  .     Alarm  .
-    FireRuntimeSnapshot poll(
-        TimePoint now = Clock::now()
-    );
-
+    FireRuntimeSnapshot poll(TimePoint now = Clock::now());
     void stop();
 
 private:

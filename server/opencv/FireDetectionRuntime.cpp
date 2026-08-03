@@ -2,12 +2,14 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <thread>
 #include <utility>
 
-#include "FireDetector_1.h"
+#include "AppConfig.h"
+#include "FlameDetector.h"
 
 using std::lock_guard;
 using std::mutex;
@@ -15,6 +17,17 @@ using std::unique_lock;
 
 namespace
 {
+    std::atomic<int> gRuntimeInstanceCounter{ 0 };
+    std::mutex gFireDetectorExecutionMutex;
+
+    // 네 채널의 제출 시점을 분산해 같은 순간에 CPU 작업이 몰리지 않게 한다.
+    int nextRuntimePhaseMs()
+    {
+        constexpr int CHANNEL_PHASE_COUNT = 4;
+        const int index = gRuntimeInstanceCounter.fetch_add(1) % CHANNEL_PHASE_COUNT;
+        return index * flame_config::DETECTION_INTERVAL_MS / CHANNEL_PHASE_COUNT;
+    }
+
     double clampValue(double value, double minimum, double maximum)
     {
         return std::max(minimum, std::min(value, maximum));
@@ -24,7 +37,12 @@ namespace
 class FireDetectionRuntime::Impl
 {
 public:
-    Impl() : workerThread_(&Impl::workerLoop, this) {}
+    Impl()
+        : submitPhaseOffsetMs_(nextRuntimePhaseMs()),
+        nextAcceptedSubmitTime_(Clock::now() + std::chrono::milliseconds(submitPhaseOffsetMs_)),
+        workerThread_(&Impl::workerLoop, this)
+    {
+    }
     ~Impl() { stop(); }
 
     void submitFrame(const cv::Mat& frame, std::uint64_t frameId, TimePoint sourceTime)
@@ -32,7 +50,17 @@ public:
         if (frame.empty() || !running_.load()) return;
         {
             lock_guard<mutex> lock(jobMutex_);
-            pendingFrame_ = frame;
+
+            // 호출자가 30 FPS로 제출해도 채널별 분석률을 설정값으로 제한한다.
+            if (sourceTime < nextAcceptedSubmitTime_)
+                return;
+
+            nextAcceptedSubmitTime_ =
+                sourceTime + std::chrono::milliseconds(
+                    flame_config::DETECTION_INTERVAL_MS
+                );
+
+            frame.copyTo(pendingFrame_);
             pendingFrameId_ = frameId;
             pendingEpoch_ = streamEpoch_.load();
             pendingSourceTime_ = sourceTime;
@@ -41,8 +69,31 @@ public:
         jobCondition_.notify_one();
     }
 
+    void setIgnoreRegionConfig(const IgnoreRegionConfig& config)
+    {
+        {
+            lock_guard<mutex> lock(ignoreConfigMutex_);
+            pendingIgnoreConfig_ = config;
+            pendingIgnoreConfigVersion_ = ignoreConfigVersion_.fetch_add(1) + 1;
+        }
+
+        // 새 ROI가 적용되기 전에 게시된 결과와 경보 누적을 즉시 폐기한다.
+        {
+            lock_guard<mutex> lock(resultMutex_);
+            latestResult_ = DetectionResult{};
+            latestResultFrameId_ = 0;
+            hasResult_ = false;
+        }
+        {
+            lock_guard<mutex> lock(stateMutex_);
+            alarmController_.reset();
+            lastAlarmProcessedFrameId_ = 0;
+        }
+    }
+
     void resetStream()
     {
+        // epoch가 다른 진행 중 결과는 작업 완료 후에도 게시되지 않는다.
         streamEpoch_.fetch_add(1);
         detectorResetRequested_ = true;
 
@@ -51,6 +102,8 @@ public:
             pendingFrame_.release();
             pendingFrameId_ = 0;
             pendingEpoch_ = streamEpoch_.load();
+            nextAcceptedSubmitTime_ = Clock::now() +
+                std::chrono::milliseconds(submitPhaseOffsetMs_);
             jobReady_ = false;
         }
         {
@@ -103,6 +156,7 @@ public:
             snapshot.completedAgeMs = std::chrono::duration<double, std::milli>(now - completedTime).count();
         }
 
+        // 느린 장치에서는 실제 평균 처리 시간에 맞춰 결과 유효시간을 자동 보정한다.
         snapshot.resultFreshLimitMs = clampValue(
             averageDetectMs_ * 2.2 + 300.0,
             1000.0,
@@ -147,6 +201,17 @@ public:
     }
 
 private:
+    std::uint64_t applyPendingIgnoreConfig()
+    {
+        lock_guard<mutex> lock(ignoreConfigMutex_);
+        if (appliedIgnoreConfigVersion_ != pendingIgnoreConfigVersion_)
+        {
+            detector_.setIgnoreRegionConfig(pendingIgnoreConfig_);
+            appliedIgnoreConfigVersion_ = pendingIgnoreConfigVersion_;
+        }
+        return appliedIgnoreConfigVersion_;
+    }
+
     void workerLoop()
     {
         while (true)
@@ -170,10 +235,20 @@ private:
             if (frame.empty()) continue;
             if (detectorResetRequested_.exchange(false)) detector_.reset();
 
+            const std::uint64_t ignoreConfigVersion = applyPendingIgnoreConfig();
+
             const TimePoint start = Clock::now();
-            DetectionResult detection = detector_.detect(frame);
+            DetectionResult detection;
+            {
+                // 네 채널 런타임은 독립적이지만 OpenCV 화염 분석은 한 번에 하나만 실행한다.
+                // Raspberry Pi 4에서 채널 간 CPU 과다 경쟁이 생기는 것을 막기 위함이다.
+                lock_guard<mutex> detectorLock(gFireDetectorExecutionMutex);
+                detection = detector_.detect(frame);
+            }
             const double detectMs = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
-            if (frameEpoch != streamEpoch_.load()) continue;
+            if (frameEpoch != streamEpoch_.load() ||
+                ignoreConfigVersion != ignoreConfigVersion_.load())
+                continue;
 
             lock_guard<mutex> lock(resultMutex_);
             latestResult_ = std::move(detection);
@@ -186,12 +261,20 @@ private:
         }
     }
 
-    FireDetector detector_;
+    FlameDetector detector_;
     FireAlarmController alarmController_;
+    int submitPhaseOffsetMs_ = 0;
+    TimePoint nextAcceptedSubmitTime_{};
     std::atomic<bool> running_{ true };
     std::atomic<bool> detectorResetRequested_{ false };
     std::atomic<std::uint64_t> streamEpoch_{ 0 };
+    std::atomic<std::uint64_t> ignoreConfigVersion_{ 0 };
     std::thread workerThread_;
+
+    mutex ignoreConfigMutex_;
+    IgnoreRegionConfig pendingIgnoreConfig_;
+    std::uint64_t pendingIgnoreConfigVersion_ = 0;
+    std::uint64_t appliedIgnoreConfigVersion_ = 0;
 
     mutex jobMutex_;
     std::condition_variable jobCondition_;
@@ -222,6 +305,11 @@ FireDetectionRuntime::~FireDetectionRuntime() = default;
 void FireDetectionRuntime::submitFrame(const cv::Mat& frame, std::uint64_t frameId, TimePoint sourceTime)
 {
     impl_->submitFrame(frame, frameId, sourceTime);
+}
+
+void FireDetectionRuntime::setIgnoreRegionConfig(const IgnoreRegionConfig& config)
+{
+    impl_->setIgnoreRegionConfig(config);
 }
 
 void FireDetectionRuntime::resetStream() { impl_->resetStream(); }
