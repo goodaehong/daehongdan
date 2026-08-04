@@ -1,25 +1,42 @@
 #include "sensor_reader.h"
 #include "sensor_conversion.h"
+#include <fstream>
 
-// 실센서. 유나님 sensor_conversion의 읽기·환산 함수를 SensorReading에 담기만 함
-bool SensorReader_Read(SensorReading& out) {
-    // 온습도 — 부가 정보라 실패해도 이전 값 유지하고 계속 진행
-    static float lastTemp = 0.0f, lastHum = 0.0f;
-    if (readDHT22(out.temp, out.humidity)) {
-        lastTemp = out.temp;
-        lastHum  = out.humidity;
-    } else {
-        out.temp     = lastTemp;
-        out.humidity = lastHum;
+namespace {
+
+    bool readDHT22(float& outTemp, float& outHum) {
+        std::ifstream tempFile("/sys/devices/platform/dht22/temp_value");
+        std::ifstream humFile("/sys/devices/platform/dht22/humid_value");
+        if (!tempFile.is_open() || !humFile.is_open()) return false;
+        tempFile >> outTemp;
+        humFile >> outHum;
+        return true;
     }
 
-    // 가스·연기 — 판단의 핵심 입력. 실패하면 이번 주기는 판단 자체를 건너뜀
-    int rawMq9 = 0, rawMq2 = 0;
-    if (!readADS1115(rawMq9, rawMq2)) return false;   // 로그는 호출부에서
+    bool readADS1115(int& rawMq9, int& rawMq2, int& rawFlame) {
+        std::ifstream mq9f("/sys/devices/platform/soc/fe804000.i2c/i2c-1/1-0048/mq9_value");
+        std::ifstream mq2f("/sys/devices/platform/soc/fe804000.i2c/i2c-1/1-0048/mq2_value");
+        std::ifstream flamef("/sys/devices/platform/soc/fe804000.i2c/i2c-1/1-0048/flame_value");
+        if (!mq9f.is_open() || !mq2f.is_open() || !flamef.is_open()) return false;
+        mq9f >> rawMq9;
+        mq2f >> rawMq2;
+        flamef >> rawFlame;
+        return true;
+    }
 
-    out.gasPpm   = mq9ToGasPpm(rawMq9);
+} // namespace
+
+bool SensorReader_Read(SensorReading& out) {
+    float temp, hum;
+    if (!readDHT22(temp, hum)) return false;
+
+    int rawMq9, rawMq2, rawFlame;
+    if (!readADS1115(rawMq9, rawMq2, rawFlame)) return false;
+
+    out.temp = temp;
+    out.humidity = hum;
+    out.gasPpm = mq9ToGasPpm(rawMq9);
     out.smokePpm = mq2ToSmokePpm(rawMq2);
-
-    out.flameVal = 0.0f;   // 불꽃센서(DFR0076) 아직 없음 — 유나님 추가 대기
+    out.flameVal = rawToVoltage(rawFlame);
     return true;
 }
