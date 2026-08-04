@@ -56,10 +56,10 @@ static void InputWorker(int fd)
 
 int main()
 {
-    int fd = StmDisplayProtocol_Open("/dev/serial0");
+    int fd = StmDisplayProtocol_Open("/dev/ttyACM1");
     if (fd < 0)
     {
-        std::cerr << "UART 열기 실패 (/dev/serial0)\n";
+        std::cerr << "UART 열기 실패 (/dev/ttyACM1)\n";
         return 1;
     }
 
