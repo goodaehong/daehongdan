@@ -23,6 +23,14 @@ std::string causeToCombo(const std::string& cause) {
     return "-";
 }
 
+// 가스 농도 → 전광판 표시 단계 (0=정상, 1=주의, 2=위험)     
+// 주의(200~2000)는 표시 전용 — 판단 매트릭스는 위험만 씀
+int gasLevel(float gasPpm) {
+    if (gasPpm > GAS_DANGER_THRESHOLD) return 2;
+    if (gasPpm > GAS_WARN_THRESHOLD)   return 1;
+    return 0;
+}          
+
 // 판단 매트릭스 2차. 영상 감지(O/X) + 센서 값 → 종합 판정
 Judgement judgeState(bool camFire, bool camSmoke, const SensorReading& s) {
     bool gasHigh   = s.gasPpm   > GAS_DANGER_THRESHOLD;    // MQ-9 (전광판 주황 표시는 GAS_WARN_THRESHOLD로 별도 처리)

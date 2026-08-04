@@ -72,11 +72,15 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
 
     while (true) {
         SensorReading s;
-        if (!SensorReader_Read(s)) {   // 실패 시 판단 건너뜀 (0을 "안전"으로 오판 방지)
-            std::cerr << "[센서] 읽기 실패 — 이번 주기 건너뜀\n";
+        static bool prevSensorOk = true;   // 센서 상태 로그: 변화 시에만 (실패 시 1초마다 도배 방지) 
+        if (!SensorReader_Read(s)) {
+            if (prevSensorOk) std::cerr << "[센서] 읽기 실패 — 판단 중단\n";
+            prevSensorOk = false;
             std::this_thread::sleep_for(std::chrono::seconds(1));
             continue;
         }
+        if (!prevSensorOk) std::cout << "[센서] 복구됨\n";
+        prevSensorOk = true; 
 
         // 4채널 중 하나라도 감지면 true + 감지 채널 기록 (스냅샷용)
         bool camFire = false, camSmoke = false;
@@ -98,7 +102,7 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
             std::string snap = saveSnapshot(store, detCh, "A", now);
             g_db.insertEvent(now, "A", "warning", o.j.state, o.j.cause,
                              causeToCombo(o.j.cause), "auto", "", "",
-                             s.gasPpm, s.smokePpm, "진행중", 0, snap, 0, "");
+                             s.gasPpm, s.smokePpm, "진행중", 0, snap, o.incidentId, "");
         }
 
         // 위험 진입 또는 원인 변경 = 자동 대응 + 전광판 + 기록
@@ -117,13 +121,16 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
 
         // 위험 해제 = 복귀 대응 + 지속시간 확정
         if (o.released) {
-            Actuator_Apply(responseForSafe(), "자동:해제");
-            QtLink_SendActuator(link, Actuator_GetState());
-            StmDisplay_SendClear();
+            if (o.wasDanger) {                          // 위험까지 갔던 사태만 복귀 대응
+                Actuator_Apply(responseForSafe(), "자동:해제");
+                QtLink_SendActuator(link, Actuator_GetState());
+                StmDisplay_SendClear();
+            }
+            const char* resp = o.wasDanger ? "위험 해제" : "경고 해제";     
 
             g_db.resolveIncident(o.incidentId, o.durationMs);   // 진행중→해결됨 + 지속시간 일괄
             g_db.insertEvent(now, "A", "resolve", "safe", "", "", "auto", "위험 해제", "",
-                             s.gasPpm, s.smokePpm, "해결됨", 0, "", o.incidentId, "");
+                             s.gasPpm, s.smokePpm, "해결됨", o.durationMs, "", o.incidentId, "");
         }
 
         QtLink_SendSensor(link, s, o);
@@ -218,7 +225,7 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
                     if (b.type == DetectionType::FIRE) hasFire = true;
                     boxes.push_back({ b.box.x, b.box.y, b.box.width, b.box.height,
                                       b.type == DetectionType::FIRE ? "FIRE" : "SMOKE",
-                                      b.score });
+                                      (float)b.score });
                 }
                 // TODO: 연기(NCNN) 박스도 여기 boxes에 push_back (cls="SMOKE")
 
