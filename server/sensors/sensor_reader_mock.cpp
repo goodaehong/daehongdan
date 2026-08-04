@@ -13,7 +13,7 @@ bool SensorReader_Read(SensorReading& out) {
     out.humidity = 45.0f  + jitter(rng) * 5.0f;
     out.gasPpm   = 45.0f  + jitter(rng) * 10.0f;
     out.smokePpm = 8.0f   + jitter(rng) * 3.0f;
-    out.flameVal = 100.0f + jitter(rng) * 30.0f;   // 평상시 ~100, 임계 400 미만
+    out.flameVal = 0.1f + jitter(rng) * 0.05f;   // 평상시 ~0.1V, 임계 1.0V 미만
 
     // 데모 스파이크: 60초 주기 중 45~60초 구간은 가스 급상승 (Qt 경고 UI 테스트용)
     if (tick % 60 >= 45) {
@@ -23,7 +23,7 @@ bool SensorReader_Read(SensorReading& out) {
 
     // 데모 스파이크2: 불꽃센서 (가스와 다른 타이밍 = 20~35초 구간)
     if (tick % 60 >= 20 && tick % 60 < 35) {
-        out.flameVal = 600.0f + jitter(rng) * 50.0f;   // 임계 400 초과 → 불꽃 감지
+        out.flameVal = 2.5f + jitter(rng) * 1.0f;   // 임계 1.0V 초과 → 불꽃 감지
     }
 
     return true;   // mock은 항상 성공
