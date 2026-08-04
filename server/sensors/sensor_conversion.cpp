@@ -17,8 +17,8 @@ static float rawToRsKohm(int raw, float rl_kohm) {
 float mq9ToGasPpm(int raw) {
     float rs = rawToRsKohm(raw, RL_MQ9_KOHM);
     float ratio = rs / MQ9_RO_KOHM;
-    if (ratio >= 9.0f) return 0.0f;
-    return 504.8f * std::pow(ratio, -2.754f);
+    if (ratio >= 2.0f) return 0.0f;   // LPG 곡선: 그래프 유효범위(200ppm) 미만은 0 처리
+    return 924.5f * std::pow(ratio, -2.208f);   // LPG 곡선 기준 재계산 (2026-08-04, MQ-9 데이터시트 Fig.1)
 }
 
 float mq2ToSmokePpm(int raw) {

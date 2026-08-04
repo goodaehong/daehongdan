@@ -1,7 +1,8 @@
 #include "judgement.h"
 
 // 판단 임계값 (mock 기준, 실센서 오면 유나님 보정값으로)
-constexpr float GAS_THRESHOLD   = 200.0f;   // MQ-9 가스
+constexpr float GAS_WARN_THRESHOLD = 200.0f; // MQ-9 주의
+constexpr float GAS_DANGER_THRESHOLD = 2000.0f;   // MQ-9 위험 (200 (CO 기준) -> 2000 (LPG 기준) )
 constexpr float SMOKE_THRESHOLD = 150.0f;   // MQ-2 연기센서
 constexpr float FLAME_THRESHOLD = 1.0f;   // DFR0076 불꽃센서(AO) (400 -> 1.0V 보정)
 // 실측 기준(2026-08-04): 평시 0.08~0.15V, 화염 노출 시 0.7~4.8V
@@ -24,7 +25,7 @@ std::string causeToCombo(const std::string& cause) {
 
 // 판단 매트릭스 2차. 영상 감지(O/X) + 센서 값 → 종합 판정
 Judgement judgeState(bool camFire, bool camSmoke, const SensorReading& s) {
-    bool gasHigh   = s.gasPpm   > GAS_THRESHOLD;    // MQ-9
+    bool gasHigh   = s.gasPpm   > GAS_DANGER_THRESHOLD;    // MQ-9 (전광판 주황 표시는 GAS_WARN_THRESHOLD로 별도 처리)
     bool smokeHigh = s.smokePpm > SMOKE_THRESHOLD;  // MQ-2
     bool flameHigh = s.flameVal > FLAME_THRESHOLD;  // DFR0076 (역방향이면 < 로)
 
