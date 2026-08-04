@@ -37,7 +37,7 @@ AlarmOutcome AlarmState::update(const Judgement& in, long nowTs) {
             }
         }
     } else {
-        if (warnStartTs_ >= 0 && o.j.state == "safe")   // 안전 복귀일 때만
+        if (warnStartTs_ >= 0 && o.j.state == "safe" && !forcedDanger_)   // 위험까지 안 간 경우, 안전 복귀일 때만
             std::cout << "[경고] 해제됨 (감지 사라짐)\n";
         warnStartTs_ = -1;               // warning 벗어남 → 타이머 리셋
         if (o.j.state == "safe") forcedDanger_ = false;   // 안전 복귀 시 강제상태 해제
