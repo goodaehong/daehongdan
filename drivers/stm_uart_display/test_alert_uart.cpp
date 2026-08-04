@@ -76,10 +76,13 @@ int main()
             continue;
         }
 
-        // 평상시 갱신 패킷은 항상 "정상" 표정/색으로 보냄 - 위험/복귀 화면 전환은
-        // 1/2 입력으로 별도 전송하는 CMD 0x90/0xA0가 전담 (전환 화면 표시 중엔
-        // STM32가 이 0x80 패킷을 무시하도록 되어있어서 서로 안 부딪힘)
-        uint8_t faceGasColor = STM_DISPLAY_STATE_SAFE;
+        // 평상시 갱신 패킷의 표정/가스색도 실제 가스 ppm 기준으로 계산해서 보냄
+        // (전환화면 표시 중엔 STM32가 이 0x80 패킷을 무시하게 되어있어서, 1/2 입력으로
+        // 보내는 CMD 0x90/0xA0랑은 서로 안 부딪힘)
+        uint8_t faceGasColor;
+        if (s.gasPpm >= 2001.0f)      faceGasColor = STM_DISPLAY_STATE_DANGER;
+        else if (s.gasPpm >= 201.0f)  faceGasColor = STM_DISPLAY_STATE_WARNING;
+        else                          faceGasColor = STM_DISPLAY_STATE_SAFE;
 
         float gasClamped = s.gasPpm < 0.0f ? 0.0f : (s.gasPpm > 9999.0f ? 9999.0f : s.gasPpm);
         uint16_t gas = (uint16_t)(gasClamped + 0.5f);

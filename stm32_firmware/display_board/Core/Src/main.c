@@ -274,27 +274,38 @@ static void DrawAlertScreen(uint8_t disasterType)
   DrawBitmap16(57, 33, HUB75_Shape14, 12, color);
 }
 
-// 대피도 화면 (임시) - 지금은 "대피도" 글자만, 추후 구역별 경로/화살표 등 추가 예정
+// 대피도 화면 (임시) - 지금은 "대피도" 글자 + 테두리만, 추후 구역별 경로/화살표 등 추가 예정
 static void DrawEvacuationScreen(void)
 {
   HUB75_Clear(HUB75_BLACK);
+  DrawBitmap64(0, 0, HUB75_Shape13, 64, HUB75_RED);      // 테두리
   DrawBitmap16(9, 29, HUB75_Korean15, 12, HUB75_RED);    // 대
   DrawBitmap16(22, 29, HUB75_Korean16, 12, HUB75_RED);   // 피
   DrawBitmap16(35, 29, HUB75_Korean17, 12, HUB75_RED);   // 도
 }
 
 // 테두리 점멸: 0.1초 간격으로 계속 깜빡임. CMD 0xA0(비상 해제)을 받기 전까지는
-// 계속 전환 화면 유지 - 시간이 지났다고 자동으로 평상시 복귀하지 않음
-// (위험이 5초 넘게 이어져도 화면이 멋대로 "괜찮음"으로 안 바뀌게 하려는 것)
+// 계속 위험 화면(전환->대피도) 유지 - 시간이 지났다고 자동으로 평상시 복귀하지 않음
+// (위험이 오래 이어져도 화면이 멋대로 "괜찮음"으로 안 바뀌게 하려는 것)
 #define ALERT_BLINK_INTERVAL_MS  100
+#define ALERT_TO_EVACUATION_MS   3000   /* 전환 화면 표시 후 대피도 화면으로 자동 전환까지 걸리는 시간 */
 
-static uint32_t alertBlinkCycleStart = 0;   /* 전환 화면 진입 시각(ms) - 점멸 기준 */
+static uint32_t alertBlinkCycleStart = 0;   /* 전환 화면 진입 시각(ms) - 점멸 + 3초 전환 기준 */
 static uint8_t alertBorderVisible = 1;
 static uint8_t alertDisasterType = 0;
+static uint8_t alertShowingEvacuation = 0;  /* 0=전환 화면, 1=대피도 화면 */
 
 static void UpdateAlertBorderBlink(void)
 {
   uint32_t elapsed = HAL_GetTick() - alertBlinkCycleStart;
+
+  if (!alertShowingEvacuation && elapsed >= ALERT_TO_EVACUATION_MS)   // 3초 경과 -> 대피도 화면으로 전환
+  {
+    DrawEvacuationScreen();
+    alertShowingEvacuation = 1;
+    alertBorderVisible = 1;   /* 방금 테두리 포함해서 다시 그렸으니 "보이는 상태"로 동기화 */
+  }
+
   uint8_t shouldBeVisible = ((elapsed / ALERT_BLINK_INTERVAL_MS) % 2) == 0;
 
   if (shouldBeVisible != alertBorderVisible)
@@ -307,6 +318,7 @@ static void UpdateAlertBorderBlink(void)
 // 좌표는 (1,1)~(64,64) 기준표를 0-index로 변환(-1)해서 배치. 지금은 랜덤 없이 표에 있는 값 그대로 고정 표시.
 static void DrawStaticScene(void)
 {
+  HUB75_Clear(HUB75_BLACK);   // 이전 화면(전환/대피도 등) 잔상 없이 항상 깨끗하게 시작
   DrawBitmap8(6, 8, HUB75_Alphabet, 9, HUB75_WHITE);          // A
   DrawBitmap16(16, 8, HUB75_Korean1, 10, HUB75_WHITE);        // 구
   DrawBitmap16(26, 8, HUB75_Korean2, 10, HUB75_WHITE);        // 역
@@ -448,6 +460,7 @@ static void HandlePacket(uint8_t cmd, const uint8_t *data, uint8_t len)
     g_inAlertScreen = 1;
     alertBlinkCycleStart = HAL_GetTick();
     alertBorderVisible = 1;
+    alertShowingEvacuation = 0;   /* 새 위험 진입이니 전환 화면부터 다시 시작 */
   }
   else if (cmd == CMD_CLEAR)
   {
