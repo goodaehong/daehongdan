@@ -1,15 +1,32 @@
 #pragma once
 
 #include <opencv2/opencv.hpp>
+#include <cstdint>
+#include <limits>
 #include <string>
 #include <vector>
 
-enum class DetectionType
+enum class DetectionType { FIRE, SMOKE };
+
+// 카메라 WiseAI 메타데이터를 원본 영상 픽셀 좌표로 변환한 사람 객체다.
+struct PersonDetection
 {
-    FIRE,
-    SMOKE
+    cv::Rect box;
+    double confidence = 0.0;
+    std::string objectId;
 };
 
+struct PersonMetadataFrame
+{
+    std::vector<PersonDetection> persons;
+    bool receiverRunning = false;
+    bool streamConnected = false;
+    double ageMs = std::numeric_limits<double>::infinity();
+    std::uint64_t bytesReceived = 0;
+    std::string status;
+};
+
+// FIRE_DEBUG_VIEW에서 화염 검출 단계별 마스크를 확인할 때 사용한다.
 struct FireDebugImages
 {
     cv::Mat fireColorMask;
@@ -18,6 +35,7 @@ struct FireDebugImages
     cv::Mat candidateMask;
 };
 
+// 화염과 연기 검출기가 화면 표시 및 후속 판정에 공통으로 전달하는 박스다.
 struct DetectionBox
 {
     cv::Rect box;
@@ -25,54 +43,46 @@ struct DetectionBox
     DetectionType type = DetectionType::FIRE;
     double score = 0.0;
 
-    // 최종 점수와 별개로, 실제 화염의 색상 층·밝기 변화가 있는지 표시한다.
-    // 움직이는 노란 물체가 점수만 높게 나와 화재로 확정되는 것을 막는 데 사용한다.
     bool strongFireEvidence = false;
-    double yellowDominantRatio = 0.0;
-
-    // 작은 후보의 비율값이 1~2픽셀 노이즈로 과대평가되는 것을 막기 위한 정보
     bool tinyCandidate = false;
     bool skinLikeCandidate = false;
     bool coreHaloEvidence = false;
-
-    // 반사광과 밝은 배경 화염을 구분하기 위한 정보
     bool reflectionLikeCandidate = false;
     bool brightBackgroundEvidence = false;
-
-    // 손가락 끝 반사광과 실제 화염을 구분하기 위한 정보
     bool fingerLikeCandidate = false;
     bool skinSeparatedFlameEvidence = false;
-    double surroundingSkinRatio = 0.0;
-    double haloSkinRatio = 0.0;
+    bool requiresExtendedConfirmation = false;
+
+    // 이미 신뢰한 ROI에서 색상만으로 살아남은 정지 화염 유지용 후보다.
+    bool trackedPersistenceEvidence = false;
 
     double brightnessDiffMean = 0.0;
     double maskChangeRatio = 0.0;
-    double whiteCoreRatio = 0.0;
     double redOrangeRatio = 0.0;
-    double pureRedRatio = 0.0;
-
-    double candidateSkinRatio = 0.0;
-    double boxAreaPixels = 0.0;
-    int firePixelCount = 0;
-    int pureRedPixelCount = 0;
-    int whiteCorePixelCount = 0;
 };
 
+// FlameDetector의 한 번의 분석 결과이며 최종 알람 상태와는 구분된다.
 struct DetectionResult
 {
     bool candidate = false;
     bool detected = false;
     bool flicker = false;
-    double area = 0.0;
+    bool candidateDisplayReady = false;
 
+    double area = 0.0;
     int hitCount = 0;
     int confirmCount = 0;
 
-    // 원시 후보 존재 여부와 별개로, 거의 확정 직전일 때만 UI에 후보 문구를 표시한다.
-    bool candidateDisplayReady = false;
-
     std::vector<DetectionBox> boxes;
-
-    // 디버그용 중간 마스크. FIRE_DEBUG_VIEW가 1일 때만 채워진다.
     FireDebugImages debugImages;
+};
+
+// SmokeDetector의 NCNN 1회 추론 결과다.
+struct SmokeDetectionResult
+{
+    bool modelReady = false;
+    bool candidate = false;
+    double maxScore = 0.0;
+    std::vector<DetectionBox> boxes;
+    std::string error;
 };

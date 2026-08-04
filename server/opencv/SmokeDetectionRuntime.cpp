@@ -1,0 +1,570 @@
+#include "SmokeDetectionRuntime.h"
+
+#include <algorithm>
+#include <atomic>
+#include <cmath>
+#include <condition_variable>
+#include <cstdio>
+#include <mutex>
+#include <stdexcept>
+#include <thread>
+#include <utility>
+#include <vector>
+
+#include "AppConfig.h"
+#include "SmokeDetector.h"
+
+namespace
+{
+    // 움직임 검증은 NCNN 입력과 별도로 작은 회색조 프레임에서 계산한다.
+    cv::Mat makeMotionGray(const cv::Mat& frame)
+    {
+        if (frame.empty()) return {};
+
+        cv::Mat gray;
+        if (frame.channels() == 1)
+            gray = frame;
+        else if (frame.channels() == 4)
+            cv::cvtColor(frame, gray, cv::COLOR_BGRA2GRAY);
+        else
+            cv::cvtColor(frame, gray, cv::COLOR_BGR2GRAY);
+
+        const int width = std::min(smoke_config::MOTION_ANALYSIS_WIDTH, gray.cols);
+        const int height = std::max(1, static_cast<int>(std::round(
+            static_cast<double>(gray.rows) * width / std::max(1, gray.cols))));
+
+        cv::Mat resized;
+        if (gray.cols != width || gray.rows != height)
+            cv::resize(gray, resized, cv::Size(width, height), 0.0, 0.0, cv::INTER_AREA);
+        else
+            resized = gray.clone();
+
+        cv::GaussianBlur(resized, resized, cv::Size(5, 5), 0.0);
+        return resized;
+    }
+
+    cv::Rect scaleBox(
+        const cv::Rect& box,
+        const cv::Size& sourceSize,
+        const cv::Size& targetSize)
+    {
+        if (sourceSize.width <= 0 || sourceSize.height <= 0) return {};
+
+        const double scaleX =
+            static_cast<double>(targetSize.width) / static_cast<double>(sourceSize.width);
+        const double scaleY =
+            static_cast<double>(targetSize.height) / static_cast<double>(sourceSize.height);
+        const int x1 = static_cast<int>(std::floor(box.x * scaleX));
+        const int y1 = static_cast<int>(std::floor(box.y * scaleY));
+        const int x2 = static_cast<int>(std::ceil((box.x + box.width) * scaleX));
+        const int y2 = static_cast<int>(std::ceil((box.y + box.height) * scaleY));
+        return cv::Rect(x1, y1, x2 - x1, y2 - y1) &
+            cv::Rect(0, 0, targetSize.width, targetSize.height);
+    }
+
+    double intersectionOverUnion(const cv::Rect& a, const cv::Rect& b)
+    {
+        const cv::Rect intersection = a & b;
+        if (intersection.empty()) return 0.0;
+
+        const double intersectionArea = static_cast<double>(intersection.area());
+        const double unionArea =
+            static_cast<double>(a.area()) + static_cast<double>(b.area()) -
+            intersectionArea;
+        return unionArea > 0.0 ? intersectionArea / unionArea : 0.0;
+    }
+
+    bool belongsToTrackedRegion(const cv::Rect& previous, const cv::Rect& current)
+    {
+        if (previous.empty() || current.empty()) return false;
+        if (intersectionOverUnion(previous, current) >= smoke_config::TRACK_MIN_IOU)
+            return true;
+
+        const double previousCenterX = previous.x + previous.width * 0.5;
+        const double previousCenterY = previous.y + previous.height * 0.5;
+        const double currentCenterX = current.x + current.width * 0.5;
+        const double currentCenterY = current.y + current.height * 0.5;
+        const double centerDistance = std::hypot(
+            currentCenterX - previousCenterX,
+            currentCenterY - previousCenterY);
+        const double referenceSize = static_cast<double>(std::max({
+            previous.width, previous.height, current.width, current.height, 1 }));
+        return centerDistance <=
+            referenceSize * smoke_config::TRACK_MAX_CENTER_DISTANCE_RATIO;
+    }
+
+    struct MotionEvidence
+    {
+        double localRatio = 0.0;
+        double innerRatio = 0.0;
+        int activeCells = 0;
+        bool verified = false;
+    };
+
+    // 후보 박스 전체·내부·격자에서 움직임이 퍼져 있는지 측정한다.
+    MotionEvidence analyzeMotion(
+        const cv::Mat& motionMask,
+        const cv::Rect& motionBox)
+    {
+        MotionEvidence evidence;
+        if (motionMask.empty() || motionBox.empty()) return evidence;
+
+        const cv::Mat localMask = motionMask(motionBox);
+        evidence.localRatio =
+            static_cast<double>(cv::countNonZero(localMask)) /
+            static_cast<double>(localMask.total());
+
+        const int marginX = std::min(
+            motionBox.width / 3,
+            static_cast<int>(std::round(
+                motionBox.width * smoke_config::MOTION_INNER_MARGIN_RATIO)));
+        const int marginY = std::min(
+            motionBox.height / 3,
+            static_cast<int>(std::round(
+                motionBox.height * smoke_config::MOTION_INNER_MARGIN_RATIO)));
+        const cv::Rect innerBox(
+            marginX,
+            marginY,
+            std::max(1, motionBox.width - marginX * 2),
+            std::max(1, motionBox.height - marginY * 2));
+        const cv::Mat innerMask = localMask(innerBox);
+        evidence.innerRatio =
+            static_cast<double>(cv::countNonZero(innerMask)) /
+            static_cast<double>(innerMask.total());
+
+        for (int row = 0; row < smoke_config::MOTION_GRID_ROWS; ++row)
+        {
+            const int y1 = localMask.rows * row / smoke_config::MOTION_GRID_ROWS;
+            const int y2 =
+                localMask.rows * (row + 1) / smoke_config::MOTION_GRID_ROWS;
+            for (int column = 0; column < smoke_config::MOTION_GRID_COLUMNS; ++column)
+            {
+                const int x1 =
+                    localMask.cols * column / smoke_config::MOTION_GRID_COLUMNS;
+                const int x2 =
+                    localMask.cols * (column + 1) / smoke_config::MOTION_GRID_COLUMNS;
+                const cv::Rect cell(x1, y1, x2 - x1, y2 - y1);
+                if (cell.empty()) continue;
+
+                const cv::Mat cellMask = localMask(cell);
+                const double cellRatio =
+                    static_cast<double>(cv::countNonZero(cellMask)) /
+                    static_cast<double>(cellMask.total());
+                if (cellRatio >= smoke_config::MOTION_MIN_CELL_RATIO)
+                    ++evidence.activeCells;
+            }
+        }
+
+        evidence.verified =
+            evidence.localRatio >= smoke_config::MOTION_MIN_RATIO &&
+            evidence.localRatio <= smoke_config::MOTION_MAX_VALID_RATIO &&
+            evidence.innerRatio >= smoke_config::MOTION_MIN_INNER_RATIO &&
+            evidence.activeCells >= smoke_config::MOTION_MIN_ACTIVE_CELLS;
+        return evidence;
+    }
+
+    void applyMotionScore(
+        const cv::Mat& frame,
+        const cv::Mat& previousGray,
+        SmokeDetectionResult& detection,
+        cv::Mat& currentGray)
+    {
+        currentGray = makeMotionGray(frame);
+        const bool hasHistory = !previousGray.empty() && !currentGray.empty() &&
+            previousGray.size() == currentGray.size();
+
+        cv::Mat motionMask;
+        double globalMotionRatio = 0.0;
+        if (hasHistory)
+        {
+            // 연속 추론 프레임의 절대 차이에서 작은 노이즈를 제거한다.
+            cv::absdiff(previousGray, currentGray, motionMask);
+            cv::threshold(
+                motionMask, motionMask, smoke_config::MOTION_PIXEL_THRESHOLD,
+                255, cv::THRESH_BINARY);
+            const cv::Mat kernel = cv::getStructuringElement(
+                cv::MORPH_ELLIPSE, cv::Size(3, 3));
+            cv::morphologyEx(motionMask, motionMask, cv::MORPH_OPEN, kernel);
+            globalMotionRatio =
+                static_cast<double>(cv::countNonZero(motionMask)) /
+                static_cast<double>(motionMask.total());
+        }
+
+        double bestAdjustedScore = 0.0;
+        std::vector<DetectionBox> accepted;
+        accepted.reserve(detection.boxes.size());
+
+        for (DetectionBox box : detection.boxes)
+        {
+            const double rawScore = box.score;
+            MotionEvidence evidence;
+
+            if (hasHistory &&
+                globalMotionRatio <= smoke_config::GLOBAL_MOTION_MAX_RATIO)
+            {
+                const cv::Rect motionBox =
+                    scaleBox(box.box, frame.size(), motionMask.size());
+                evidence = analyzeMotion(motionMask, motionBox);
+            }
+
+            // 설정이 false이면 움직임은 진단 라벨에만 남고 YOLO 박스를 제거하지 않는다.
+            if (smoke_config::REQUIRE_MOTION_VERIFICATION &&
+                (!hasHistory || !evidence.verified))
+            {
+                continue;
+            }
+
+            const double motionStrength = evidence.verified
+                ? std::clamp(
+                    (evidence.localRatio - smoke_config::MOTION_MIN_RATIO) /
+                    (smoke_config::MOTION_FULL_RATIO -
+                        smoke_config::MOTION_MIN_RATIO),
+                    0.0, 1.0)
+                : 0.0;
+            const double motionBonus =
+                motionStrength * smoke_config::MOTION_MAX_BONUS;
+            const double adjustedScore =
+                std::clamp(rawScore + motionBonus, 0.0, 1.0);
+            if (adjustedScore < smoke_config::CONFIDENCE_THRESHOLD) continue;
+            bestAdjustedScore = std::max(bestAdjustedScore, adjustedScore);
+
+            char label[128];
+            std::snprintf(label, sizeof(label),
+                "smoke %.2f raw %.2f move %.1f%% grid %d/%d",
+                adjustedScore,
+                rawScore,
+                evidence.localRatio * 100.0,
+                evidence.activeCells,
+                smoke_config::MOTION_GRID_COLUMNS * smoke_config::MOTION_GRID_ROWS);
+
+            box.label = label;
+            box.score = adjustedScore;
+            accepted.push_back(std::move(box));
+        }
+
+        detection.boxes = std::move(accepted);
+        detection.maxScore = bestAdjustedScore;
+        detection.candidate = !detection.boxes.empty();
+    }
+
+    // 모델은 공유하지만 프레임 이력과 시간 누적 상태는 채널마다 분리한다.
+    struct ChannelState
+    {
+        cv::Mat pendingFrame;
+        std::uint64_t pendingFrameId = 0;
+        std::uint64_t pendingEpoch = 0;
+        SmokeDetectionRuntime::TimePoint pendingSourceTime{};
+        SmokeDetectionRuntime::TimePoint nextAcceptedTime{};
+        bool pending = false;
+
+        cv::Mat previousMotionGray;
+        SmokeDetectionResult latestDetection;
+        std::uint64_t latestResultFrameId = 0;
+        std::uint64_t latestResultEpoch = 0;
+        SmokeDetectionRuntime::TimePoint latestSourceTime{};
+        SmokeDetectionRuntime::TimePoint latestCompletedTime{};
+        bool hasResult = false;
+
+        bool smokeDetected = false;
+        int positiveHits = 0;
+        int consecutiveMisses = 0;
+        double latestDetectMs = 0.0;
+        double averageDetectMs = 0.0;
+        cv::Rect trackedSmokeBox;
+        bool hasTrackedSmokeBox = false;
+        std::uint64_t epoch = 0;
+    };
+}
+
+class SmokeDetectionRuntime::Impl
+{
+public:
+    Impl(std::size_t channelCount, const std::string& paramPath, const std::string& binPath)
+        : channels_(std::max<std::size_t>(1, std::min<std::size_t>(
+              channelCount, static_cast<std::size_t>(smoke_config::MAX_CHANNELS))))
+    {
+        const TimePoint now = Clock::now();
+        // 채널별 첫 제출 시점을 분산해 동시에 대기열에 들어오는 것을 줄인다.
+        for (std::size_t index = 0; index < channels_.size(); ++index)
+        {
+            const int phaseMs = static_cast<int>(index) *
+                smoke_config::INFERENCE_INTERVAL_MS / static_cast<int>(channels_.size());
+            channels_[index].nextAcceptedTime = now + std::chrono::milliseconds(phaseMs);
+        }
+
+        modelReady_ = detector_.load(paramPath, binPath);
+        modelError_ = detector_.lastError();
+        workerThread_ = std::thread(&Impl::workerLoop, this);
+    }
+
+    ~Impl() { stop(); }
+
+    bool submitFrame(
+        std::size_t channelIndex,
+        const cv::Mat& frame,
+        std::uint64_t frameId,
+        TimePoint sourceTime)
+    {
+        if (frame.empty() || channelIndex >= channels_.size() || !running_.load() || !modelReady_)
+            return false;
+
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            ChannelState& channel = channels_[channelIndex];
+            if (sourceTime < channel.nextAcceptedTime) return false;
+
+            channel.nextAcceptedTime =
+                sourceTime + std::chrono::milliseconds(smoke_config::INFERENCE_INTERVAL_MS);
+            // 대기 중이어도 큐를 늘리지 않고 이 채널의 가장 최신 프레임으로 교체한다.
+            frame.copyTo(channel.pendingFrame);
+            channel.pendingFrameId = frameId;
+            channel.pendingEpoch = channel.epoch;
+            channel.pendingSourceTime = sourceTime;
+            channel.pending = true;
+        }
+        condition_.notify_one();
+        return true;
+    }
+
+    void resetChannel(std::size_t channelIndex)
+    {
+        if (channelIndex >= channels_.size()) return;
+        std::lock_guard<std::mutex> lock(mutex_);
+        ChannelState& channel = channels_[channelIndex];
+        ++channel.epoch;
+        channel.pendingFrame.release();
+        channel.pending = false;
+        channel.previousMotionGray.release();
+        channel.latestDetection = SmokeDetectionResult{};
+        channel.latestResultFrameId = 0;
+        channel.latestResultEpoch = channel.epoch;
+        channel.hasResult = false;
+        channel.smokeDetected = false;
+        channel.positiveHits = 0;
+        channel.consecutiveMisses = 0;
+        channel.latestDetectMs = 0.0;
+        channel.averageDetectMs = 0.0;
+        channel.trackedSmokeBox = {};
+        channel.hasTrackedSmokeBox = false;
+        const int phaseMs = static_cast<int>(channelIndex) *
+            smoke_config::INFERENCE_INTERVAL_MS / static_cast<int>(channels_.size());
+        channel.nextAcceptedTime = Clock::now() + std::chrono::milliseconds(phaseMs);
+    }
+
+    SmokeRuntimeSnapshot poll(std::size_t channelIndex, TimePoint now) const
+    {
+        SmokeRuntimeSnapshot snapshot;
+        snapshot.modelReady = modelReady_;
+        snapshot.modelError = modelError_;
+        if (channelIndex >= channels_.size())
+        {
+            snapshot.modelError = "Smoke channel index is out of range.";
+            return snapshot;
+        }
+
+        std::lock_guard<std::mutex> lock(mutex_);
+        const ChannelState& channel = channels_[channelIndex];
+        snapshot.detection = channel.latestDetection;
+        snapshot.hasResult = channel.hasResult && channel.latestResultEpoch == channel.epoch;
+        snapshot.resultFrameId = channel.latestResultFrameId;
+        snapshot.smokeScore = channel.latestDetection.maxScore;
+        snapshot.detectMs = channel.latestDetectMs;
+        snapshot.averageDetectMs = channel.averageDetectMs;
+        snapshot.positiveHits = channel.positiveHits;
+        snapshot.consecutiveMisses = channel.consecutiveMisses;
+
+        if (snapshot.hasResult)
+        {
+            snapshot.resultAgeMs =
+                std::chrono::duration<double, std::milli>(now - channel.latestSourceTime).count();
+            snapshot.completedAgeMs =
+                std::chrono::duration<double, std::milli>(now - channel.latestCompletedTime).count();
+        }
+
+        snapshot.resultIsFresh = snapshot.hasResult &&
+            snapshot.resultAgeMs <= smoke_config::RESULT_FRESH_MS;
+        snapshot.smokeDetected = snapshot.resultIsFresh && channel.smokeDetected;
+        snapshot.boxIsFresh = snapshot.resultIsFresh &&
+            snapshot.resultAgeMs <= smoke_config::BOX_FRESH_MS &&
+            channel.latestDetection.candidate && !channel.latestDetection.boxes.empty();
+        return snapshot;
+    }
+
+    bool isModelReady() const { return modelReady_; }
+    std::string modelError() const { return modelError_; }
+
+    void stop()
+    {
+        bool expected = true;
+        if (!running_.compare_exchange_strong(expected, false)) return;
+        condition_.notify_one();
+        if (workerThread_.joinable()) workerThread_.join();
+    }
+
+private:
+    bool hasPendingFrame() const
+    {
+        for (const ChannelState& channel : channels_)
+        {
+            if (channel.pending) return true;
+        }
+        return false;
+    }
+
+    bool takeNextJob(
+        std::size_t& channelIndex,
+        cv::Mat& frame,
+        std::uint64_t& frameId,
+        std::uint64_t& epoch,
+        TimePoint& sourceTime)
+    {
+        // 특정 채널이 작업을 독점하지 않도록 마지막 처리 채널 다음부터 탐색한다.
+        for (std::size_t offset = 0; offset < channels_.size(); ++offset)
+        {
+            const std::size_t index = (roundRobinCursor_ + offset) % channels_.size();
+            ChannelState& channel = channels_[index];
+            if (!channel.pending) continue;
+
+            channelIndex = index;
+            frame = channel.pendingFrame;
+            frameId = channel.pendingFrameId;
+            epoch = channel.pendingEpoch;
+            sourceTime = channel.pendingSourceTime;
+            channel.pendingFrame.release();
+            channel.pending = false;
+            roundRobinCursor_ = (index + 1) % channels_.size();
+            return true;
+        }
+        return false;
+    }
+
+    void workerLoop()
+    {
+        while (true)
+        {
+            std::size_t channelIndex = 0;
+            cv::Mat frame;
+            std::uint64_t frameId = 0;
+            std::uint64_t epoch = 0;
+            TimePoint sourceTime{};
+
+            {
+                std::unique_lock<std::mutex> lock(mutex_);
+                condition_.wait(lock, [&] { return !running_.load() || hasPendingFrame(); });
+                if (!running_.load() && !hasPendingFrame()) break;
+                if (!takeNextJob(channelIndex, frame, frameId, epoch, sourceTime)) continue;
+            }
+
+            const TimePoint started = Clock::now();
+            SmokeDetectionResult detection = detector_.detect(frame);
+            cv::Mat currentMotionGray;
+
+            std::lock_guard<std::mutex> lock(mutex_);
+            ChannelState& channel = channels_[channelIndex];
+            if (epoch != channel.epoch) continue;
+
+            applyMotionScore(
+                frame, channel.previousMotionGray, detection, currentMotionGray);
+            channel.previousMotionGray = std::move(currentMotionGray);
+            const double detectMs =
+                std::chrono::duration<double, std::milli>(Clock::now() - started).count();
+            channel.latestDetection = std::move(detection);
+            channel.latestResultFrameId = frameId;
+            channel.latestResultEpoch = epoch;
+            channel.latestSourceTime = sourceTime;
+            channel.latestCompletedTime = Clock::now();
+            channel.latestDetectMs = detectMs;
+            channel.averageDetectMs = channel.averageDetectMs <= 0.0
+                ? detectMs
+                : channel.averageDetectMs * 0.90 + detectMs * 0.10;
+            channel.hasResult = true;
+
+            // 같은 위치에서 연속 양성이 나온 경우에만 최종 smokeDetected를 켠다.
+            if (channel.latestDetection.candidate)
+            {
+                const auto bestBox = std::max_element(
+                    channel.latestDetection.boxes.begin(),
+                    channel.latestDetection.boxes.end(),
+                    [](const DetectionBox& left, const DetectionBox& right) {
+                        return left.score < right.score;
+                    });
+                const bool sameRegion =
+                    !channel.hasTrackedSmokeBox ||
+                    belongsToTrackedRegion(channel.trackedSmokeBox, bestBox->box);
+
+                if (sameRegion)
+                {
+                    channel.positiveHits =
+                        std::min(channel.positiveHits + 1, smoke_config::CONFIRM_HITS);
+                }
+                else
+                {
+                    channel.positiveHits = 1;
+                    channel.smokeDetected = false;
+                }
+                channel.trackedSmokeBox = bestBox->box;
+                channel.hasTrackedSmokeBox = true;
+                channel.consecutiveMisses = 0;
+                if (channel.positiveHits >= smoke_config::CONFIRM_HITS)
+                    channel.smokeDetected = true;
+            }
+            else
+            {
+                // 일시적인 누락은 허용하고 연속 음성이 기준을 넘으면 추적을 해제한다.
+                channel.consecutiveMisses = std::min(
+                    channel.consecutiveMisses + 1, smoke_config::RELEASE_MISSES);
+                if (channel.consecutiveMisses >= smoke_config::RELEASE_MISSES)
+                {
+                    channel.smokeDetected = false;
+                    channel.positiveHits = 0;
+                    channel.trackedSmokeBox = {};
+                    channel.hasTrackedSmokeBox = false;
+                }
+            }
+        }
+    }
+
+    SmokeDetector detector_;
+    bool modelReady_ = false;
+    std::string modelError_;
+
+    mutable std::mutex mutex_;
+    std::condition_variable condition_;
+    std::vector<ChannelState> channels_;
+    std::size_t roundRobinCursor_ = 0;
+    std::atomic<bool> running_{ true };
+    std::thread workerThread_;
+};
+
+SmokeDetectionRuntime::SmokeDetectionRuntime(
+    std::size_t channelCount,
+    const std::string& paramPath,
+    const std::string& binPath)
+    : impl_(new Impl(channelCount, paramPath, binPath))
+{
+}
+
+SmokeDetectionRuntime::~SmokeDetectionRuntime() = default;
+
+bool SmokeDetectionRuntime::submitFrame(
+    std::size_t channelIndex,
+    const cv::Mat& frame,
+    std::uint64_t frameId,
+    TimePoint sourceTime)
+{
+    return impl_->submitFrame(channelIndex, frame, frameId, sourceTime);
+}
+
+void SmokeDetectionRuntime::resetChannel(std::size_t channelIndex)
+{
+    impl_->resetChannel(channelIndex);
+}
+
+SmokeRuntimeSnapshot SmokeDetectionRuntime::poll(std::size_t channelIndex, TimePoint now)
+{
+    return impl_->poll(channelIndex, now);
+}
+
+bool SmokeDetectionRuntime::isModelReady() const { return impl_->isModelReady(); }
+std::string SmokeDetectionRuntime::modelError() const { return impl_->modelError(); }
+void SmokeDetectionRuntime::stop() { impl_->stop(); }
