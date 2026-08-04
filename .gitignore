@@ -72,3 +72,13 @@ drivers/gas_sensor/.tmp_versions/
 drivers/gas_sensor/*.dtbo
 drivers/gas_sensor/Module.symvers
 *.dtbo
+
+# TLS 인증서·키 (개인키는 커밋 금지)
+*.key
+*.crt
+auto.*
+
+#DB
+*.db
+# 스냅샷 이미지 (실행 중 생성되는 데이터)
+**/snapshots/
