@@ -19,6 +19,7 @@ extern "C" {
 #define STM_DISPLAY_CMD_UPDATE 0x80  /* 평상시 화면 갱신: Pi -> STM32 */
 #define STM_DISPLAY_CMD_ALERT  0x90  /* 위험 대피 전환: Pi -> STM32 */
 #define STM_DISPLAY_CMD_ACK    0xB0  /* 상태 응답: STM32 -> Pi (지금은 안 읽고 무시해도 됨) */
+#define STM_DISPLAY_CMD_CLEAR  0xA0  /* 비상 해제(평상시 화면 복귀): Pi -> STM32 */
 
 /* CMD_UPDATE의 face/gasColor 공통 값 (0=정상/웃음, 1=주의/무표정, 2=위험/찡그림) */
 #define STM_DISPLAY_STATE_SAFE    0
@@ -29,23 +30,31 @@ extern "C" {
 #define STM_DISPLAY_DISASTER_FIRE 0x01
 #define STM_DISPLAY_DISASTER_GAS  0x02
 
+/* 이름에 Protocol_이 붙는 이유: server/display/stm_display.h가 서버에서 부르는
+   고수준 함수로 StmDisplay_Open/SendUpdate/SendAlert라는 "같은 이름"을 이미 쓰고 있음.
+   이 파일은 그 고수준 함수의 내부 구현이 호출하는 저수준(바이트/UART) 계층이라
+   이름이 겹치면 헷갈리므로 전부 Protocol_ 접두어로 구분함. */
+
 /* devPath(보통 "/dev/serial0")를 115200 8N1로 열어서 fd 반환. 실패 시 -1.
    실패해도 호출자는 죽을 필요 없음 - 이후 Send 함수들은 fd<0이면 그냥 false만 반환함 */
-int StmDisplay_Open(const char *devPath);
+int StmDisplayProtocol_Open(const char *devPath);
 
 /* 평상시 갱신 패킷(CMD 0x80) 전송. gas는 ppm 값(0~9999), temp/humidity는 정수부만.
    성공하면 true, UART 쓰기 실패하면 false */
-bool StmDisplay_SendUpdate(int fd,
-                            uint8_t face, uint8_t gasColor, uint16_t gas,
-                            uint8_t temp, uint8_t humidity,
-                            uint8_t hour, uint8_t minute,
-                            uint8_t year, uint8_t month, uint8_t day);
+bool StmDisplayProtocol_SendUpdate(int fd,
+                                    uint8_t face, uint8_t gasColor, uint16_t gas,
+                                    uint8_t temp, uint8_t humidity,
+                                    uint8_t hour, uint8_t minute,
+                                    uint8_t year, uint8_t month, uint8_t day);
 
 /* 위험 대피 전환 패킷(CMD 0x90) 전송. disasterType은 STM_DISPLAY_DISASTER_*,
    zoneId는 1=A구역, 2=B구역, 3=C구역 (프로토콜 문서 기준) */
-bool StmDisplay_SendAlert(int fd, uint8_t disasterType, uint8_t zoneId);
+bool StmDisplayProtocol_SendAlert(int fd, uint8_t disasterType, uint8_t zoneId);
 
-void StmDisplay_Close(int fd);
+/* 비상 해제 패킷(CMD 0xA0) 전송. 데이터 없음(0바이트) - STM32가 평상시 화면으로 복귀함 */
+bool StmDisplayProtocol_SendClear(int fd);
+
+void StmDisplayProtocol_Close(int fd);
 
 #ifdef __cplusplus
 }

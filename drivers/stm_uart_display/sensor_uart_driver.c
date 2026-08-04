@@ -37,8 +37,8 @@
 #define ETX 0x55
 #define CMD_UPDATE 0x80
 
-#define GAS_CAUTION_THRESHOLD 300
-#define GAS_DANGER_THRESHOLD  700
+#define GAS_CAUTION_THRESHOLD 201
+#define GAS_DANGER_THRESHOLD  2001
 
 /* 이동평균 계수 (0~1). 작을수록 더 부드럽게(느리게) 따라가고,
    클수록 센서 원시값에 더 빨리 반응함. 0.2~0.3 권장, 필요시 튜닝. */
@@ -123,13 +123,14 @@ static int read_sysfs_long(const char *path, long *outValue)
     return (n == 1) ? 0 : -1;
 }
 
-/* 임시 선형 매핑: MQ-9 원시 ADC값 -> 0~999 표시값
+/* 임시 선형 매핑: MQ-9 원시 ADC값 -> 0~25000ppm 표시값
+   LPG 위험 기준(LEL=21000ppm)까지 표현 가능하게 범위 확장.
    팀원이 실제 환산식(Rs/Ro 캘리브레이션 등) 작성하면 이 함수만 교체하면 됨 */
 static uint16_t GasRawToPpm(long raw)
 {
     if (raw < 0) raw = 0;
-    long ppm = (raw * 999) / 32767;
-    if (ppm > 999) ppm = 999;
+    long ppm = (raw * 25000) / 32767;
+    if (ppm > 25000) ppm = 25000;
     return (uint16_t)ppm;
 }
 

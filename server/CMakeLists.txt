@@ -61,10 +61,14 @@ else()
     set(ACTUATOR_SRC ${CMAKE_CURRENT_SOURCE_DIR}/actuator/actuator_control_uart.cpp)
 endif()
 
+# 광렬님 STM32 전광판 UART 프로토콜 (drivers/stm_uart_display) - 실물 전광판 구현이 사용
+set(STM_DISPLAY_PROTOCOL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../drivers/stm_uart_display)
+
 if(USE_MOCK_DISPLAY)
     set(DISPLAY_SRC ${CMAKE_CURRENT_SOURCE_DIR}/display/stm_display_mock.cpp)
 else()
-    set(DISPLAY_SRC ${CMAKE_CURRENT_SOURCE_DIR}/display/stm_display.cpp)
+    set(DISPLAY_SRC ${CMAKE_CURRENT_SOURCE_DIR}/display/stm_display.cpp
+                    ${STM_DISPLAY_PROTOCOL_DIR}/stm_display_protocol.c)
 endif()
 
 if(ENABLE_TLS)
@@ -82,7 +86,7 @@ add_executable(server_main
 
 target_include_directories(server_main PRIVATE
     ${OpenCV_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}
-    ${FIRE_CORE_DIR} ${DB_DIR} ${SQLite3_INCLUDE_DIRS})
+    ${FIRE_CORE_DIR} ${DB_DIR} ${SQLite3_INCLUDE_DIRS} ${STM_DISPLAY_PROTOCOL_DIR})
 
 target_link_libraries(server_main PRIVATE
     ${OpenCV_LIBS} Threads::Threads ${SQLite3_LIBRARIES})

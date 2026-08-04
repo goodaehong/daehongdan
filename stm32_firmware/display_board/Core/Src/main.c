@@ -91,6 +91,9 @@ extern const uint16_t HUB75_Korean11[12];
 extern const uint16_t HUB75_Korean12[12];
 extern const uint16_t HUB75_Korean13[12];
 extern const uint16_t HUB75_Korean14[12];
+extern const uint16_t HUB75_Korean15[12];
+extern const uint16_t HUB75_Korean16[12];
+extern const uint16_t HUB75_Korean17[12];
 extern const uint16_t HUB75_Shape14[12];
 extern const uint16_t HUB75_Alphabet1[12];
 /* USER CODE END PV */
@@ -193,22 +196,39 @@ static void DrawFace(uint8_t index)
   DrawBitmap16(26, 8, HUB75_Korean2, 10, HUB75_WHITE);   // "역" 글자가 지우는 영역과 겹쳐서 같이 다시 그림
 }
 
-// 가스 그래프 채워지는 높이: 웃음=2줄(초록), 무표정=5줄(노랑), 찡그림=10줄(빨강) - 아래부터 채워짐
-static const uint8_t gasFillRows[3] = { 2, 5, 11 };
+// 가스 그래프 색상 (표정/상태 index 기준): 0=정상(초록), 1=주의(노랑), 2=위험(빨강)
 static const HUB75_Color gasColors[3] = { HUB75_GREEN, HUB75_YELLOW, HUB75_RED };
 
-static void DrawGasGraph(uint8_t index)
+// 가스 농도(ppm, LPG 기준)에 따라 채워지는 칸 수(1~11) 계산
+// 0~100=1, 101~200=2, 201~400=3, 401~600=4, 601~800=5, 801~1000=6,
+// 1001~1200=7, 1201~1400=8, 1401~1600=9, 1601~2000=10, 2001 이상=11(가득)
+static uint8_t GasPpmToFilledRows(uint16_t ppm)
+{
+  if (ppm <= 100)  return 1;
+  if (ppm <= 200)  return 2;
+  if (ppm <= 400)  return 3;
+  if (ppm <= 600)  return 4;
+  if (ppm <= 800)  return 5;
+  if (ppm <= 1000) return 6;
+  if (ppm <= 1200) return 7;
+  if (ppm <= 1400) return 8;
+  if (ppm <= 1600) return 9;
+  if (ppm <= 2000) return 10;
+  return 11;
+}
+
+static void DrawGasGraph(uint8_t colorIndex, uint16_t gasPpm)
 {
   HUB75_FillRect(22, 40, 16, 11, HUB75_BLACK);   // 이전 채움 지우기
 
-  uint8_t filledRows = gasFillRows[index];
+  uint8_t filledRows = GasPpmToFilledRows(gasPpm);
   uint8_t whiteRows = 11 - filledRows;
 
   if (whiteRows > 0)
   {
     DrawBitmap16(22, 40, HUB75_Shape7, whiteRows, HUB75_WHITE);           // 위쪽 나머지 줄은 흰색
   }
-  DrawBitmap16(22, 40 + whiteRows, HUB75_Shape7, filledRows, gasColors[index]); // 아래쪽 채워진 줄
+  DrawBitmap16(22, 40 + whiteRows, HUB75_Shape7, filledRows, gasColors[colorIndex]); // 아래쪽 채워진 줄
 
   // 지우는 영역과 겹치는 요소들 다시 그림
   DrawBitmap16(11, 41, HUB75_Korean4, 9, HUB75_CYAN);   // 스
@@ -216,7 +236,6 @@ static void DrawGasGraph(uint8_t index)
   DrawBitmap8(34, 41, HUB75_Number6, 8, HUB75_CYAN);    // 가스 농도 백의 자리
 }
 
-static void DrawStaticScene(void);   /* 전방 선언: 전환 화면 5초 경과 후 평상시 화면 복귀용 */
 static uint8_t g_inAlertScreen = 0;  /* 전환 화면 표시 중이면 평상시 갱신 패킷 무시 */
 
 // 위험 대피 전환 화면 (CMD 0x90 수신 시 표시)
@@ -255,25 +274,27 @@ static void DrawAlertScreen(uint8_t disasterType)
   DrawBitmap16(57, 33, HUB75_Shape14, 12, color);
 }
 
-// 테두리 점멸: 0.1초 간격으로 계속 깜빡임. 전환 화면 표시 시작 후 5초 지나면 자동으로 평상시 화면 복귀
-#define ALERT_BLINK_INTERVAL_MS  100
-#define ALERT_DISPLAY_DURATION_MS 5000
+// 대피도 화면 (임시) - 지금은 "대피도" 글자만, 추후 구역별 경로/화살표 등 추가 예정
+static void DrawEvacuationScreen(void)
+{
+  HUB75_Clear(HUB75_BLACK);
+  DrawBitmap16(9, 29, HUB75_Korean15, 12, HUB75_RED);    // 대
+  DrawBitmap16(22, 29, HUB75_Korean16, 12, HUB75_RED);   // 피
+  DrawBitmap16(35, 29, HUB75_Korean17, 12, HUB75_RED);   // 도
+}
 
-static uint32_t alertBlinkCycleStart = 0;   /* 전환 화면 진입 시각(ms) - 점멸 기준 + 5초 타이머 겸용 */
+// 테두리 점멸: 0.1초 간격으로 계속 깜빡임. CMD 0xA0(비상 해제)을 받기 전까지는
+// 계속 전환 화면 유지 - 시간이 지났다고 자동으로 평상시 복귀하지 않음
+// (위험이 5초 넘게 이어져도 화면이 멋대로 "괜찮음"으로 안 바뀌게 하려는 것)
+#define ALERT_BLINK_INTERVAL_MS  100
+
+static uint32_t alertBlinkCycleStart = 0;   /* 전환 화면 진입 시각(ms) - 점멸 기준 */
 static uint8_t alertBorderVisible = 1;
 static uint8_t alertDisasterType = 0;
 
 static void UpdateAlertBorderBlink(void)
 {
   uint32_t elapsed = HAL_GetTick() - alertBlinkCycleStart;
-
-  if (elapsed >= ALERT_DISPLAY_DURATION_MS)   // 5초 경과 -> 평상시 화면으로 자동 복귀
-  {
-    DrawStaticScene();
-    g_inAlertScreen = 0;
-    return;
-  }
-
   uint8_t shouldBeVisible = ((elapsed / ALERT_BLINK_INTERVAL_MS) % 2) == 0;
 
   if (shouldBeVisible != alertBorderVisible)
@@ -294,11 +315,11 @@ static void DrawStaticScene(void)
   DrawBitmap16(1, 24, HUB75_Shape, 13, HUB75_YELLOW);         // 온도(태양)
   DrawBitmap8(55, 27, HUB75_Shape2, 8, HUB75_BLUE);           // %
   DrawBitmap8(26, 27, HUB75_Shape3, 8, HUB75_YELLOW);         // 온도(섭씨)
-  DrawBitmap8(50, 43, HUB75_Shape4, 8, HUB75_CYAN);           // 가스 농도(pp)
-  DrawBitmap8(58, 43, HUB75_Shape5, 8, HUB75_CYAN);           // 가스 농도(m)
+  DrawBitmap8(50, 42, HUB75_Shape4, 8, HUB75_CYAN);           // 가스 농도(pp)
+  DrawBitmap8(58, 42, HUB75_Shape5, 8, HUB75_CYAN);           // 가스 농도(m)
   DrawBitmap16(35, 25, HUB75_Shape6, 10, HUB75_BLUE);         // 습도(물방울)
   DrawFace(0);                                                // 표정 (첫 프레임: 웃음)
-  DrawGasGraph(0);                                            // 가스 그래프 (첫 프레임: 웃음 상태)
+  DrawGasGraph(0, 0);                                         // 가스 그래프 (첫 프레임: 정상, ppm=0)
   DrawBitmap8(11, 53, HUB75_Shape9, 8, HUB75_WHITE);          // .
   DrawBitmap8(23, 53, HUB75_Shape9, 8, HUB75_WHITE);          // .
   DrawBitmap8(51, 54, HUB75_Shape10, 8, HUB75_WHITE);         // :
@@ -332,6 +353,7 @@ static void DrawStaticScene(void)
 #define CMD_UPDATE     0x80   /* 평상시 화면 갱신 (Pi -> STM32) */
 #define CMD_ALERT      0x90   /* 위험 대피 전환 (Pi -> STM32) */
 #define CMD_ACK        0xB0   /* 전광판 상태 응답 (STM32 -> Pi) */
+#define CMD_CLEAR      0xA0   /* 비상 해제, 평상시 화면 복귀 (Pi -> STM32) */
 #define UPDATE_DATA_LEN 11    /* 표정,가스색,가스H,가스L,온도,습도,시,분,년,월,일 */
 #define ALERT_DATA_LEN  2     /* 재난종류,구역ID */
 
@@ -427,6 +449,11 @@ static void HandlePacket(uint8_t cmd, const uint8_t *data, uint8_t len)
     alertBlinkCycleStart = HAL_GetTick();
     alertBorderVisible = 1;
   }
+  else if (cmd == CMD_CLEAR)
+  {
+    DrawStaticScene();     /* 평상시 화면으로 즉시 복귀 */
+    g_inAlertScreen = 0;
+  }
 }
 
 /* 링버퍼에서 바이트 하나씩 꺼내 상태기계로 패킷 조립 */
@@ -510,15 +537,16 @@ static void UpdateDigit(int16_t x, int16_t y, uint8_t digit, HUB75_Color color, 
 static void UpdateDynamicDisplay(void)
 {
   DrawFace(g_face);
-  DrawGasGraph(g_gasColor);
+  DrawGasGraph(g_gasColor, g_gas);
 
-  /* 가스 농도 4자리 (천/백/십/일) */
-  UpdateDigit(29, 41, (uint8_t)((g_gas / 1000) % 10), HUB75_CYAN, 0);
-  UpdateDigit(34, 41, (uint8_t)((g_gas / 100) % 10), HUB75_CYAN, 0);
-  UpdateDigit(39, 41, (uint8_t)((g_gas / 10) % 10), HUB75_CYAN, 0);
-  UpdateDigit(44, 41, (uint8_t)(g_gas % 10), HUB75_CYAN, 0);
-  DrawBitmap8(50, 43, HUB75_Shape4, 8, HUB75_CYAN);           // 가스 농도(pp) - 마지막 자리와 겹치는 부분 다시 그림
-  DrawBitmap8(58, 43, HUB75_Shape5, 8, HUB75_CYAN);           // 가스 농도(m)
+  /* 가스 농도 4자리 (천/백/십/일) - 4자리까지만 표시 가능해서 9999 초과분은 9999로 캡 */
+  uint16_t gasDisplay = (g_gas > 9999) ? 9999 : g_gas;
+  UpdateDigit(29, 41, (uint8_t)((gasDisplay / 1000) % 10), HUB75_CYAN, 0);
+  UpdateDigit(34, 41, (uint8_t)((gasDisplay / 100) % 10), HUB75_CYAN, 0);
+  UpdateDigit(39, 41, (uint8_t)((gasDisplay / 10) % 10), HUB75_CYAN, 0);
+  UpdateDigit(44, 41, (uint8_t)(gasDisplay % 10), HUB75_CYAN, 0);
+  DrawBitmap8(50, 42, HUB75_Shape4, 8, HUB75_CYAN);           // 가스 농도(pp) - 마지막 자리와 겹치는 부분 다시 그림
+  DrawBitmap8(58, 42, HUB75_Shape5, 8, HUB75_CYAN);           // 가스 농도(m)
 
   /* 온도 */
   UpdateDigit(16, 27, (uint8_t)(g_temp / 10), HUB75_YELLOW, 0);

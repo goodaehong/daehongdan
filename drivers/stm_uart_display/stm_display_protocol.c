@@ -33,7 +33,7 @@ static bool SendPacket(int fd, uint8_t cmd, const uint8_t *data, uint8_t dataLen
     return written == idx;
 }
 
-int StmDisplay_Open(const char *devPath)
+int StmDisplayProtocol_Open(const char *devPath)
 {
     int fd = open(devPath, O_RDWR | O_NOCTTY);
     if (fd < 0)
@@ -62,11 +62,11 @@ int StmDisplay_Open(const char *devPath)
     return fd;
 }
 
-bool StmDisplay_SendUpdate(int fd,
-                            uint8_t face, uint8_t gasColor, uint16_t gas,
-                            uint8_t temp, uint8_t humidity,
-                            uint8_t hour, uint8_t minute,
-                            uint8_t year, uint8_t month, uint8_t day)
+bool StmDisplayProtocol_SendUpdate(int fd,
+                                    uint8_t face, uint8_t gasColor, uint16_t gas,
+                                    uint8_t temp, uint8_t humidity,
+                                    uint8_t hour, uint8_t minute,
+                                    uint8_t year, uint8_t month, uint8_t day)
 {
     if (fd < 0)
     {
@@ -85,7 +85,7 @@ bool StmDisplay_SendUpdate(int fd,
     return SendPacket(fd, STM_DISPLAY_CMD_UPDATE, data, sizeof(data));
 }
 
-bool StmDisplay_SendAlert(int fd, uint8_t disasterType, uint8_t zoneId)
+bool StmDisplayProtocol_SendAlert(int fd, uint8_t disasterType, uint8_t zoneId)
 {
     if (fd < 0)
     {
@@ -96,7 +96,17 @@ bool StmDisplay_SendAlert(int fd, uint8_t disasterType, uint8_t zoneId)
     return SendPacket(fd, STM_DISPLAY_CMD_ALERT, data, sizeof(data));
 }
 
-void StmDisplay_Close(int fd)
+bool StmDisplayProtocol_SendClear(int fd)
+{
+    if (fd < 0)
+    {
+        return false;
+    }
+
+    return SendPacket(fd, STM_DISPLAY_CMD_CLEAR, NULL, 0);
+}
+
+void StmDisplayProtocol_Close(int fd)
 {
     if (fd >= 0)
     {

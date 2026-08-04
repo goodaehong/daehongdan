@@ -17,8 +17,8 @@
 #define ETX 0x55
 #define CMD_UPDATE 0x80
 
-#define GAS_CAUTION_THRESHOLD 300
-#define GAS_DANGER_THRESHOLD  700
+#define GAS_CAUTION_THRESHOLD 201
+#define GAS_DANGER_THRESHOLD  2001
 
 static int open_uart(const char *devPath)
 {
