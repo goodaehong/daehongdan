@@ -154,4 +154,54 @@ void Database::resolveIncident(long incidentId, long durationMs) {   //  duratio
     sqlite3_bind_int64(st, 2, incidentId);       // 2번=incidentId  
     sqlite3_step(st);
     sqlite3_finalize(st);
-}                                                     
+}          
+
+// ── event_log 조회 ──
+std::vector<EventRow> Database::queryEvents(long from, long to, int limit) {
+    std::lock_guard<std::mutex> lock(mtx_);
+    std::vector<EventRow> rows;
+    if (!db_) return rows;
+
+    const char* sql =
+        "SELECT id,ts,zone,category,severity,cause,sensor_combo,source,response,admin,"
+        " gas_ppm,smoke_ppm,status,duration_ms,snapshot_path,incident_id"
+        " FROM event_log WHERE ts BETWEEN ? AND ? ORDER BY ts DESC LIMIT ?;";
+
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &st, nullptr) != SQLITE_OK) {
+        std::cerr << "[DB] queryEvents prepare 실패: " << sqlite3_errmsg(db_) << "\n";
+        return rows;
+    }
+    sqlite3_bind_int64(st, 1, from);
+    sqlite3_bind_int64(st, 2, to);
+    sqlite3_bind_int  (st, 3, limit);
+
+    // NULL이면 빈 문자열로 (Qt가 파싱하다 깨지지 않게)
+    auto col = [&](int i) -> std::string {
+        const unsigned char* p = sqlite3_column_text(st, i);
+        return p ? reinterpret_cast<const char*>(p) : "";
+    };
+
+    while (sqlite3_step(st) == SQLITE_ROW) {
+        EventRow r;
+        r.id           = sqlite3_column_int64(st, 0);
+        r.ts           = sqlite3_column_int64(st, 1);
+        r.zone         = col(2);
+        r.category     = col(3);
+        r.severity     = col(4);
+        r.cause        = col(5);
+        r.sensorCombo  = col(6);
+        r.source       = col(7);
+        r.response     = col(8);
+        r.admin        = col(9);
+        r.gasPpm       = sqlite3_column_double(st, 10);
+        r.smokePpm     = sqlite3_column_double(st, 11);
+        r.status       = col(12);
+        r.durationMs   = sqlite3_column_int64(st, 13);
+        r.snapshotPath = col(14);
+        r.incidentId   = sqlite3_column_int64(st, 15);
+        rows.push_back(std::move(r));
+    }
+    sqlite3_finalize(st);
+    return rows;
+}

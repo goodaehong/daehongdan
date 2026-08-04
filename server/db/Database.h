@@ -1,8 +1,20 @@
 #pragma once
 
 #include <string>
+#include <vector>
 #include <mutex>
 #include <sqlite3.h>
+
+// event_log 한 행. 조회 결과를 담아 Qt로 넘김 (컬럼과 1:1, detail 제외)  
+struct EventRow {
+    long id = 0, ts = 0;
+    std::string zone, category, severity, cause, sensorCombo, source, response, admin;
+    double gasPpm = 0.0, smokePpm = 0.0;
+    std::string status;
+    long durationMs = 0;
+    std::string snapshotPath;
+    long incidentId = 0;
+};         
 
 // SQLite DB 공용 클래스. sensor_log(대홍) + event_log(재환) 둘 다 이 클래스로 접근.
 // 서버 시작 시 open() 1번 → 도는 내내 insert 재사용 → 종료 시 close().
@@ -37,6 +49,10 @@ public:
                      const std::string& detail = "");
 
     void resolveIncident(long incidentId, long durationMs);  
+
+    // ── 조회 ──                                                         
+    // 기간 내 이벤트를 최신순으로. 필터(구역·심각도 등)는 Qt가 처리한다
+    std::vector<EventRow> queryEvents(long from, long to, int limit);     
 
     ~Database() { close(); }
 
