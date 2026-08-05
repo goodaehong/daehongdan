@@ -33,7 +33,8 @@ set(FIRE_CORE_SRC
 
 # DB 코어 (server/db)
 set(DB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/db)
-set(DB_SRC ${DB_DIR}/Database.cpp)
+set(DB_SRC ${DB_DIR}/Database.cpp
+           ${DB_DIR}/query_handler.cpp)   
 
 # 서버 모듈 (대홍)
 set(SERVER_SRC

@@ -1,24 +1,9 @@
 #include "qt_link.h"
+#include "db/query_handler.h"
 #include <sstream>
 #include <iomanip>
 #include <ctime>
 #include <cstdlib>
-
-std::string jsonStr(const std::string& j, const std::string& key) {
-    std::string pat = "\"" + key + "\":\"";
-    size_t s = j.find(pat);
-    if (s == std::string::npos) return "";
-    s += pat.size();
-    size_t e = j.find('"', s);
-    return (e == std::string::npos) ? "" : j.substr(s, e - s);
-}
-
-int jsonInt(const std::string& j, const std::string& key, int def) {
-    std::string pat = "\"" + key + "\":";
-    size_t s = j.find(pat);
-    if (s == std::string::npos) return def;
-    return std::atoi(j.c_str() + s + pat.size());
-}
 
 // ── 센서 정보 ──
 void QtLink_SendSensor(Link& link, const SensorReading& s, const AlarmOutcome& o) {
@@ -127,6 +112,7 @@ void QtLink_RecvWorker(Link& link, AlarmState& alarm, Database& db) {
             alarm.onWarningAck();          // 관리자 인지 → 센서 스레드가 타이머 취소
         else if (line.find("\"type\":\"control\"") != std::string::npos)
             handleControl(link, db, line);
-        // TODO: "query" → DB 조회 프로토콜
+        else if (line.find("\"type\":\"query\"") != std::string::npos)   
+            link.send(handleQuery(db, line));
     }
 }

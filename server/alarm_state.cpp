@@ -14,6 +14,10 @@ AlarmOutcome AlarmState::update(const Judgement& in, long nowTs) {
             ackLogged_    = false;
             forcedDanger_ = false;
             o.warnEntered = true;
+            if (incidentId_ == 0) {              // 사태 시작 (경고부터 한 사태로) 
+                incidentId_      = ++incidentSeq_;
+                incidentStartTs_ = nowTs;
+            }  
             std::cout << "[경고] " << o.j.cause << " 발생 → 관리자 알림 ("
                       << WARN_TIMEOUT << "초 대기)\n";
         }
@@ -33,7 +37,7 @@ AlarmOutcome AlarmState::update(const Judgement& in, long nowTs) {
             }
         }
     } else {
-        if (warnStartTs_ >= 0 && !forcedDanger_)   // warning이었다가 안전 복귀
+        if (warnStartTs_ >= 0 && o.j.state == "safe" && !forcedDanger_)   // 위험까지 안 간 경우, 안전 복귀일 때만
             std::cout << "[경고] 해제됨 (감지 사라짐)\n";
         warnStartTs_ = -1;               // warning 벗어남 → 타이머 리셋
         if (o.j.state == "safe") forcedDanger_ = false;   // 안전 복귀 시 강제상태 해제
@@ -55,19 +59,21 @@ AlarmOutcome AlarmState::update(const Judgement& in, long nowTs) {
     // 엣지 트리거: 위험 "진입" 또는 위험 중 "원인 변경" 순간에만 발사
     // (가스로 팬 최대 배출 중 → 불 붙음 → 팬 차단으로 뒤집어야 함)
     if (o.j.state == "danger" && (prevState_ != "danger" || o.j.cause != prevCause_)) {
-        if (prevState_ != "danger") {
-            incidentId_      = ++incidentSeq_;   // 새 위험 진입 = 새 사태 번호
-            incidentStartTs_ = nowTs;            // 진입 시각 기록
+        if (incidentId_ == 0) {                  // 경고 없이 바로 위험이면 여기서 발급 
+            incidentId_      = ++incidentSeq_;
+            incidentStartTs_ = nowTs;
         }
+        wasDanger_ = true;
         o.dangerEntered = true;
     }
-    else if (prevState_ == "danger" && o.j.state == "safe") {
+    else if (incidentId_ != 0 && o.j.state == "safe") {   // 사태 열려있는데 안전 복귀 = 종료 
         o.released   = true;
+        o.wasDanger  = wasDanger_;
         o.durationMs = (nowTs - incidentStartTs_) * 1000;   // 초→ms
-    }
+    }                                                                   
 
     o.incidentId = incidentId_;
-    if (o.released) incidentId_ = 0;   // 사태 종료 (리턴값엔 번호가 남아야 resolveIncident 가능)
+    if (o.released) { incidentId_ = 0; wasDanger_ = false; }   // 사태 종료
 
     prevState_ = o.j.state;
     prevCause_ = o.j.cause;
