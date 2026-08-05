@@ -43,9 +43,9 @@ set(SERVER_SRC
 )
 
 # ── 하드웨어 계층: mock / 실물 교체 ──
-option(USE_MOCK_SENSOR   "센서 mock 사용"       ON)
+option(USE_MOCK_SENSOR   "센서 mock 사용"       OFF)
 option(USE_MOCK_ACTUATOR "액추에이터 mock 사용"  OFF)
-option(USE_MOCK_DISPLAY  "전광판 mock 사용"     ON)
+option(USE_MOCK_DISPLAY  "전광판 mock 사용"     OFF)
 option(ENABLE_TLS        "Qt 연결에 TLS 사용"   OFF)
 
 if(USE_MOCK_SENSOR)

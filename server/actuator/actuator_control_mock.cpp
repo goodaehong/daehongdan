@@ -23,7 +23,7 @@ bool Actuator_Init(const char* devPath) {
 }
 
 // 명령 실행부. 수동·자동 모두 여기로 수렴. 나중에 STM UART도 이 안에만 추가
-void Actuator_Execute(const std::string& target, const std::string& action,
+bool Actuator_Execute(const std::string& target, const std::string& action,
                       const std::string& src, std::string* reason) {
     std::lock_guard<std::mutex> lock(g_mtx);
 

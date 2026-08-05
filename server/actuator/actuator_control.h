@@ -40,11 +40,11 @@ bool Actuator_Init(const char* devPath);
 
 // 자동 대응 실행. decideResponse() 결과 그대로 받음 (왜 이 값인지는 몰라도 됨)
 // src = 로그 출처 표시용 ("자동:gas" 등), 동작엔 영향 없음
-void Actuator_Apply(const Response& r, const std::string& src);
+bool Actuator_Apply(const Response& r, const std::string& src);
 
 // 수동 제어 (Qt 버튼). target="fan"/"valve"/"siren"
 // action: fan="off"/"low"/"mid"/"high", valve="open"/"close", siren="on"/"off"
-void Actuator_Execute(const std::string& target, const std::string& action,
+bool Actuator_Execute(const std::string& target, const std::string& action,
                       const std::string& src, std::string* reason = nullptr);
 
 // 지금 상태 꺼내기 (Qt actuator_status 전송용)

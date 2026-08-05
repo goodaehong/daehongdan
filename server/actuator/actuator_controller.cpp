@@ -127,7 +127,7 @@ bool Actuator_Init(const char* devPath) {
     return true;
 }
 
-void Actuator_Execute(const std::string& target, const std::string& action, const std::string& src, std::string* reason) {
+bool Actuator_Execute(const std::string& target, const std::string& action, const std::string& src, std::string* reason) {
     std::lock_guard<std::mutex> lock(g_mtx);
     if (g_serial_fd < 0) {
         if (reason) *reason = "UART 열려있지 않음";
