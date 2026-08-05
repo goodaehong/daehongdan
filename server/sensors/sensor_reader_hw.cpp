@@ -10,6 +10,10 @@ namespace {
         if (!tempFile.is_open() || !humFile.is_open()) return false;
         tempFile >> outTemp;
         humFile >> outHum;
+        // sysfs read가 커널 드라이버 쪽에서 에러(체크섬 불일치 등)를 리턴하면
+        // 스트림 추출이 조용히 실패하면서 outTemp/outHum이 초기화 안 된 채로 남는다.
+        // 이 상태를 성공으로 착각하면 0도/쓰레기값이 정상값처럼 Qt까지 흘러간다 -> 반드시 확인.
+        if (tempFile.fail() || humFile.fail()) return false;
         return true;
     }
 
@@ -21,6 +25,7 @@ namespace {
         mq9f >> rawMq9;
         mq2f >> rawMq2;
         flamef >> rawFlame;
+        if (mq9f.fail() || mq2f.fail() || flamef.fail()) return false; // 같은 이유로 동일하게 방어
         return true;
     }
 
