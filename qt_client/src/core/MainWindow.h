@@ -10,12 +10,13 @@ class QStackedWidget;
 class QPushButton;
 class QLabel;
 class DangerGlowOverlay;
+class WarningAlertDialog;
 class MonitorPage;
 class EventLogPage;
 class GraphPage;
-class ControlPage;
 class HelpPage;
 class ServerLink;
+class QTimer;
 
 // 상단 메뉴(구역 토글 + 페이지 탭)와 페이지 전환만 담당하는 셸.
 // 실제 화면 내용은 pages/*Page 클래스가 각자 소유한다.
@@ -41,7 +42,7 @@ private:
     void switchZone(int index);
     void refreshZoneUi();
     // zone.state가 Warning으로 새로 바뀐 순간에만 호출됨. 어느 탭을 보고 있든 팝업이 뜬다.
-    void showWarningAlert(const QString &zoneName, const QString &zoneId, const QString &cause);
+    void showWarningAlert(const QString &zoneName, const QString &zoneId, const QString &cause, int warnRemain);
     // 위험 배너 + 화면 가장자리 글로우 + 모니터링 탭 강조. zones 상태가 바뀌거나 탭 전환할 때마다 호출.
     void updateDangerIndicators();
 
@@ -53,6 +54,8 @@ private:
 
     // 어느 탭에 있든 항상 보이는 상단 종합상태 배지("● A구역 안전" 등).
     QLabel *topStatusLabel;
+    // 서버 소켓 실제 연결 상태를 그대로 반영하는 배지 (ServerLink::connectionStateChanged로 갱신).
+    QLabel *connBadge;
 
     QWidget *centralArea = nullptr;       // 루트 레이아웃을 담는 위젯 (setCentralWidget 대상)
     QPushButton *dangerBanner = nullptr;  // 위험 구역 있으면 상단에 표시, 클릭 시 해당 구역 모니터링으로 이동
@@ -62,7 +65,6 @@ private:
     MonitorPage *monitorPage;
     EventLogPage *eventLogPage;
     GraphPage *graphPage;
-    ControlPage *controlPage;
     HelpPage *helpPage;
 
     ServerLink *serverLink;
@@ -74,5 +76,18 @@ private:
     int currentFan = -1;
     int currentValve = -1;
     int currentSiren = -1;
+
+    // zoneId -> 현재 열려있는 경고 팝업. sensor 메시지의 warnRemain을 실시간으로 반영하거나,
+    // 경고 상태를 벗어나면(안전 복귀/위험 전환) 자동으로 닫기 위해 추적한다.
+    QMap<QString, WarningAlertDialog *> activeWarningDialogs;
+
+    // DEMO 버튼으로 띄운 경고는 서버가 없어 warnRemain을 받을 수 없으므로,
+    // 여기서만 로컬로 1초마다 카운트다운하고 0이 되면 위험으로 자동 전환해 실제 흐름을 재현한다.
+    void startDemoWarningCountdown(int zoneIndex, const QString &zoneId, int seconds);
+    void stopDemoWarningCountdown();
+    QTimer *demoWarningTimer = nullptr;
+    QString demoWarningZoneId;
+    int demoWarningZoneIndex = -1;
+    int demoWarningRemain = 0;
 };
 #endif // MAINWINDOW_H

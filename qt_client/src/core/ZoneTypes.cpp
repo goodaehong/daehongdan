@@ -1,4 +1,5 @@
 #include "ZoneTypes.h"
+#include <QStringList>
 
 QString colorForState(ZoneState state)
 {
@@ -31,10 +32,24 @@ ZoneState zoneStateFromString(const QString &state)
 
 QString causeText(const QString &causeCode)
 {
-    if (causeCode == "gas") return "가스 누출 발생";
-    if (causeCode == "flame") return "화염 감지";
-    if (causeCode == "smoke_fire") return "화재+연기 발생";
-    if (causeCode == "fire_gas") return "가스+화재 발생";
-    if (causeCode == "smoke_watch") return "연기 감지 주의";
+    // server/judgement.h Cause 네임스페이스 값과 1:1 (판단 매트릭스 1~8행 순서로 나열)
+    if (causeCode == "smoke_visual") return "연기 감지 주의";        // 1행 (warning)
+    if (causeCode == "fire_visual") return "화재 감지 주의";         // 2행 (warning)
+    if (causeCode == "flame_sensor") return "화염 감지";             // 3행 (warning)
+    if (causeCode == "smoke_sensor") return "연기 농도 위험";        // 4행 (danger)
+    if (causeCode == "smoke_confirmed") return "화재+연기 발생";     // 5행 (danger)
+    if (causeCode == "fire_confirmed") return "화재 감지 확정";      // 6행 (danger)
+    if (causeCode == "gas") return "가스 누출 발생";                 // 7행 (danger)
+    if (causeCode == "gas_fire_flame") return "가스+화재 발생";      // 8행 (danger)
+    if (causeCode == "gas_fire_smoke") return "가스+화재 발생";      // 8행 (danger)
+    if (causeCode == "gas_fire_smokesensor") return "가스+화재 발생"; // 8행 (danger)
     return QString();
+}
+
+QString channelTargetName(int channel1Based)
+{
+    static const QStringList kTargets = { "화재감지", "가스배관", "환기팬", "사이렌" };
+    if (channel1Based >= 1 && channel1Based <= kTargets.size())
+        return kTargets[channel1Based - 1];
+    return QString("Ch.%1").arg(channel1Based);
 }

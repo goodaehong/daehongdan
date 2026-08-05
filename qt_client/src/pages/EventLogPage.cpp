@@ -12,6 +12,8 @@
 #include <QPushButton>
 #include <QFrame>
 #include <QDateTime>
+#include <QJsonArray>
+#include <QJsonObject>
 
 namespace {
 const QString kCardBg = "#14141f";
@@ -130,6 +132,8 @@ EventLogPage::EventLogPage(QWidget *parent)
     leftCol->addWidget(graphLabel);
     gasGraph = new GasGraphWidget(this);
     gasGraph->setLineColor(QColor(kAccent));
+    gasGraph->setUnit("ppm");
+    gasGraph->setThresholds(200, 2000); // MQ-9 LPG 곡선 기준: 경고(전광판 주황) 200ppm / 위험 2000ppm (judgement.cpp)
     leftCol->addWidget(gasGraph, 2);
 
     mainLayout->addLayout(leftCol, 2);
@@ -216,10 +220,11 @@ void EventLogPage::updateZone(const Zone &zone)
         gasGraph->setData(zone.gasHistory, { zone.gasHistoryLabels.first(), zone.gasHistoryLabels.last() });
     } else {
         // 실측 데이터가 아직 없는 구역(DEMO)은 기존처럼 상태 기반 가짜 패턴을 보여준다.
+        // 값 범위는 judgement.cpp 실측 임계값(경고 200ppm / 위험 2000ppm)에 맞춰 조정.
         const QVector<double> gasSeries =
-            zone.state == ZoneState::Safe ? QVector<double>{ 2, 2.5, 3, 2.8, 3.2, 3 }
-            : zone.state == ZoneState::Warning ? QVector<double>{ 3, 4, 6, 8, 7, 6 }
-                                                : QVector<double>{ 3, 6, 10, 15, 13, 12 };
+            zone.state == ZoneState::Safe ? QVector<double>{ 30, 35, 32, 38, 34, 36 }
+            : zone.state == ZoneState::Warning ? QVector<double>{ 60, 120, 180, 220, 190, 150 }
+                                                : QVector<double>{ 300, 900, 1800, 2500, 2200, 1900 };
         gasGraph->setData(gasSeries, { "12:00", "23:00" });
     }
     zoneFilterCombo->setCurrentText(zone.name);
@@ -240,6 +245,66 @@ void EventLogPage::addEntry(const QString &zone, const QString &detection, const
     entry.sensorCombo = sensorCombo;
     entry.status = "해결됨";
     entry.duration = duration;
+    appendRow(entry);
+    applyFilter(); // 새 항목도 현재 필터 조건에 맞춰 바로 숨김/표시 반영
+}
+
+void EventLogPage::loadEntriesFromServer(const QJsonArray &rows)
+{
+    eventEntries.clear();
+    eventTable->setRowCount(0);
+
+    for (const QJsonValue &v : rows) {
+        const QJsonObject row = v.toObject();
+
+        EventEntry entry;
+        entry.timestamp = QDateTime::fromSecsSinceEpoch(qint64(row.value("ts").toDouble()));
+        entry.time = entry.timestamp.toString("HH:mm:ss");
+        // 서버는 zone을 "A" 한 글자로 주는데, 필터 콤보/화면 표기는 "A구역" 형태라 맞춰준다.
+        const QString zoneCode = row.value("zone").toString();
+        entry.zone = zoneCode.isEmpty() ? zoneCode : zoneCode + "구역";
+
+        const QString causePhrase = causeText(row.value("cause").toString());
+        if (!causePhrase.isEmpty()) {
+            entry.detection = causePhrase;
+        } else {
+            // cause가 없는 이벤트(수동제어/해제 등)는 category 코드를 한글 문구로 변환.
+            const QString category = row.value("category").toString();
+            entry.detection = category == "resolve" ? "위험 해제"
+                             : category == "manual_control" ? "관리자 수동 제어"
+                             : category == "warning" ? "경고 상태 감지"
+                             : category == "danger" ? "위험 상태 감지"
+                             : category.isEmpty() ? "-" : category;
+        }
+        entry.response = row.value("response").toString();
+        const QString admin = row.value("admin").toString();
+        entry.admin = admin.isEmpty() ? "시스템(자동)" : admin;
+
+        // 서버 severity는 "safe"/"warning"/"danger" 코드값 — Qt 표시 문구로 변환.
+        const QString severityCode = row.value("severity").toString();
+        entry.severity = severityCode == "danger" ? "위험"
+                        : severityCode == "warning" ? "경고"
+                        : severityCode == "safe" ? "안전"
+                        : severityCode.isEmpty() ? "정보" : severityCode;
+
+        entry.sensorCombo = row.value("sensorCombo").toString();
+        if (entry.sensorCombo.isEmpty())
+            entry.sensorCombo = "-";
+        entry.status = row.value("status").toString();
+        if (entry.status.isEmpty())
+            entry.status = "해결됨";
+
+        const double durationMs = row.value("durationMs").toDouble();
+        entry.duration = durationMs > 0 ? QString::number(durationMs / 1000.0, 'f', 0) + "초" : "-";
+
+        appendRow(entry);
+    }
+
+    applyFilter();
+}
+
+void EventLogPage::appendRow(const EventEntry &entry)
+{
     eventEntries.append(entry);
 
     const int row = eventTable->rowCount();
@@ -265,8 +330,6 @@ void EventLogPage::addEntry(const QString &zone, const QString &detection, const
     eventTable->setItem(row, 3, responseItem);
     eventTable->setItem(row, 4, statusItem);
     eventTable->scrollToBottom();
-
-    applyFilter(); // 새 항목도 현재 필터 조건에 맞춰 바로 숨김/표시 반영
 }
 
 void EventLogPage::showDetail(int row, int)

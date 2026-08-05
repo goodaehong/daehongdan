@@ -17,12 +17,14 @@ MonitorPage::MonitorPage(QWidget *parent)
 
     statusPanel = new StatusPanel(this);
     connect(statusPanel, &StatusPanel::demoStateRequested, this, &MonitorPage::demoStateRequested);
+    connect(statusPanel, &StatusPanel::controlActionRequested, this, &MonitorPage::controlActionRequested);
     layout->addWidget(statusPanel);
 
     auto *grid = new QGridLayout;
     grid->setSpacing(12);
     for (int i = 0; i < 4; ++i) {
         videoWidgets[i] = new VideoWidget(i + 1, this);
+        videoWidgets[i]->setChannelTarget(channelTargetName(i + 1));
         connect(videoWidgets[i], &VideoWidget::doubleClicked, this, &MonitorPage::showEnlargedView);
         grid->addWidget(videoWidgets[i], i / 2, i % 2);
     }
@@ -36,8 +38,6 @@ MonitorPage::MonitorPage(QWidget *parent)
 void MonitorPage::updateZone(const Zone &zone)
 {
     statusPanel->updateZone(zone);
-    for (auto *v : videoWidgets)
-        v->setZoneName(zone.name);
 }
 
 void MonitorPage::connectCameras(const QString &mediaMtxHost)
@@ -51,21 +51,13 @@ void MonitorPage::connectCameras(const QString &mediaMtxHost)
             if (ok)
                 videoWidgets[i]->showConnected();
             else
-                videoWidgets[i]->showPlaceholder("연결 오류");
+                videoWidgets[i]->showPlaceholder("신호 없음");
+            statusPanel->setCameraChannelStatus(i + 1, ok);
         });
         connect(streamReceivers[i], &StreamReceiver::errorOccurred, this, [this, i](const QString &) {
-            videoWidgets[i]->showPlaceholder("연결 오류");
+            videoWidgets[i]->showPlaceholder("신호 없음");
+            statusPanel->setCameraChannelStatus(i + 1, false);
         });
-
-        if (i == 0) {
-            // Ch.1(A구역)만 좌측 StatusPanel의 "카메라 상태"에 반영.
-            connect(streamReceivers[i], &StreamReceiver::statusChanged, this, [this](bool ok) {
-                statusPanel->setCameraStatus(ok ? "정상" : "오류", ok ? "#34d399" : "#f87171");
-            });
-            connect(streamReceivers[i], &StreamReceiver::errorOccurred, this, [this](const QString &) {
-                statusPanel->setCameraStatus("오류", "#f87171");
-            });
-        }
 
         streamReceivers[i]->connectToChannel(mediaMtxHost, i);
     }
@@ -79,9 +71,28 @@ void MonitorPage::updateDetection(int channel, int srcW, int srcH, const QVector
     videoWidgets[index]->setDetectionBoxes(boxes, srcW, srcH);
 }
 
-void MonitorPage::setActuatorStatus(int fan, int valve, int siren)
+void MonitorPage::setChannelAlarm(int channel, bool active)
 {
-    statusPanel->setActuatorStatus(fan, valve, siren);
+    const int index = channel - 1;
+    if (index < 0 || index >= 4)
+        return;
+    videoWidgets[index]->setAlarmActive(active);
+}
+
+void MonitorPage::setActuatorStatus(int fan, int valve, int siren, const QString &link,
+                                     const QString &fanSrc, const QString &valveSrc, const QString &sirenSrc)
+{
+    statusPanel->setActuatorStatus(fan, valve, siren, link, fanSrc, valveSrc, sirenSrc);
+}
+
+void MonitorPage::showControlStatus(const QString &text, const QString &color)
+{
+    statusPanel->showCommandStatus(text, color);
+}
+
+void MonitorPage::setActuatorRowStatus(const QString &target, const QString &text, const QString &color)
+{
+    statusPanel->setActuatorRowStatus(target, text, color);
 }
 
 void MonitorPage::showEnlargedView(int channel)
@@ -100,6 +111,7 @@ void MonitorPage::showEnlargedView(int channel)
 
     // 같은 채널을 새로 하나 더 연결(MediaMTX는 다중 접속을 지원). 기존 작은 화면과는 독립적.
     auto *bigVideo = new VideoWidget(channel, dialog);
+    bigVideo->setChannelTarget(channelTargetName(channel));
     layout->addWidget(bigVideo);
 
     auto *receiver = new StreamReceiver(dialog);
@@ -108,10 +120,10 @@ void MonitorPage::showEnlargedView(int channel)
         if (ok)
             bigVideo->showConnected();
         else
-            bigVideo->showPlaceholder("연결 오류");
+            bigVideo->showPlaceholder("신호 없음");
     });
     connect(receiver, &StreamReceiver::errorOccurred, bigVideo, [bigVideo](const QString &) {
-        bigVideo->showPlaceholder("연결 오류");
+        bigVideo->showPlaceholder("신호 없음");
     });
     receiver->connectToChannel(mediaMtxHost, channel - 1);
 

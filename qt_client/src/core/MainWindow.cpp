@@ -2,7 +2,6 @@
 #include "../pages/MonitorPage.h"
 #include "../pages/EventLogPage.h"
 #include "../pages/GraphPage.h"
-#include "../pages/ControlPage.h"
 #include "../pages/HelpPage.h"
 #include "../network/ServerLink.h"
 #include "../widgets/WarningAlertDialog.h"
@@ -15,13 +14,16 @@
 #include <QFrame>
 #include <QStackedWidget>
 #include <QDateTime>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QTimer>
 
 namespace {
-const QString kMediaMtxHost = "172.20.35.53"; // MediaMTX가 도는 라즈베리파이 주소 (카메라 IP 아님)
-const QString kServerHost = "172.20.35.53";   // 감지/센서/제어 JSON 소켓도 같은 라즈베리파이
+const QString kMediaMtxHost = "172.20.35.230"; // MediaMTX가 도는 라즈베리파이 주소 (카메라 IP 아님)
+const QString kServerHost = "172.20.35.230";   // 감지/센서/제어 JSON 소켓도 같은 라즈베리파이
 const quint16 kServerPort = 9999;             // TODO: 실제 서버 리슨 포트로 맞추기
 
-const QStringList kTabNames = { "모니터링", "이벤트로그", "그래프", "수동제어", "도움말" };
+const QStringList kTabNames = { "모니터링", "이벤트로그", "그래프", "도움말" };
 
 const QString kBg = "#0a0a12";
 const QString kCardBorder = "#232333";
@@ -55,7 +57,6 @@ MainWindow::MainWindow(QWidget *parent)
     monitorPage = new MonitorPage(centralArea);
     eventLogPage = new EventLogPage(centralArea);
     graphPage = new GraphPage(centralArea);
-    controlPage = new ControlPage(centralArea);
     helpPage = new HelpPage(centralArea);
 
     connect(monitorPage, &MonitorPage::demoStateRequested, this, [this](ZoneState state) {
@@ -64,71 +65,61 @@ MainWindow::MainWindow(QWidget *parent)
 
     serverLink = new ServerLink(this);
 
-    connect(controlPage, &ControlPage::controlRequested, this,
+    connect(monitorPage, &MonitorPage::controlActionRequested, this,
             [this](const QString &target, const QString &action, const QString &title) {
                 const QString zoneName = zones[currentZone].name;
                 const QString zoneId = zoneName.left(1); // "A구역" -> "A"
 
-                // ★ 여기가 진짜 실행되는지 디버그 로그로 확인해야 합니다!
-                qDebug() << "[MainWindow] 버튼 클릭 감지! 제어 송신 시도:" << target << action;
-
                 const QString cmdId = serverLink->sendControl(zoneId, target, action, "admin");
                 pendingControlTitles.insert(cmdId, title);
-
-                // 서버(actuator_status) 응답을 기다리지 않고 낙관적으로 모니터링 종합상태에도 반영.
-                // 실제 서버가 없거나 아직 actuator_status를 안 보내는 동안에도 확인 가능하도록.
-                if (target == "fan") {
-                    if (action == "off") currentFan = 0;
-                    else if (action == "low") currentFan = 1;
-                    else if (action == "mid") currentFan = 2;
-                    else if (action == "high") currentFan = 3;
-                } else if (target == "valve") {
-                    if (action == "close") currentValve = 0;
-                    else if (action == "open") currentValve = 1;
-                } else if (target == "siren") {
-                    if (action == "off") currentSiren = 0;
-                    else if (action == "on") currentSiren = 1;
-                }
-                monitorPage->setActuatorStatus(currentFan, currentValve, currentSiren);
+                monitorPage->showControlStatus(QString("처리 중... (%1)").arg(title), "#8d87a0");
+                // 값을 낙관적으로 미리 반영하지 않는다 — 그러면 방금 띄운 "처리 중..."이 바로 덮여
+                // 안 보인다. 실제 값은 서버의 actuator_status(명령 직후 자동 전송)가 확정해준다.
+                monitorPage->setActuatorRowStatus(target, "처리 중...", "#8d87a0");
             });
 
+    // 이벤트로그 자체는 서버가 control 처리 시 db.insertEvent()로 이미 남기므로 Qt가 중복으로
+    // 만들지 않는다. 다만 명세서(3-3)대로 성공/실패/타임아웃 각각 화면에 즉시 알림은 띄워야 한다.
     connect(serverLink, &ServerLink::controlResult, this,
-            [this](const QString &cmdId, const QString &zone, const QString &, const QString &result, const QString &reason) {
+            [this](const QString &cmdId, const QString &, const QString &target,
+                   const QString &result, const QString &reason) {
                 const QString title = pendingControlTitles.take(cmdId);
-                if (title.isEmpty())
-                    return;
-                if (result == "ok")
-                    eventLogPage->addEntry(zone + "구역", "관리자 수동 제어", title + " 완료", "admin", "정보", "-", "-");
-                else
-                    eventLogPage->addEntry(zone + "구역", "관리자 수동 제어", title + " 실패: " + reason, "admin", "경고", "-", "-");
+                if (result == "ok") {
+                    monitorPage->showControlStatus(QString("완료: %1").arg(title.isEmpty() ? "명령" : title), "#34d399");
+                    // 성공 시엔 서버가 명령 직후 actuator_status를 다시 보내주므로 곧 실제 값으로 덮인다.
+                } else {
+                    const QString reasonText = reason.isEmpty() ? "알 수 없는 오류" : reason;
+                    monitorPage->showControlStatus(
+                        QString("실패: %1 (%2)").arg(title.isEmpty() ? "명령" : title, reasonText), "#f87171");
+                    monitorPage->setActuatorRowStatus(target, "실패", "#f87171");
+                }
             });
     connect(serverLink, &ServerLink::controlTimedOut, this,
-            [this](const QString &cmdId, const QString &zone, const QString &) {
-                const QString title = pendingControlTitles.take(cmdId);
-                if (title.isEmpty())
-                    return;
-                eventLogPage->addEntry(zone + "구역", "관리자 수동 제어", title + " 응답 없음 (서버 연결 확인 필요)", "admin", "경고", "-", "-");
+            [this](const QString &cmdId, const QString &, const QString &target) {
+                pendingControlTitles.remove(cmdId);
+                monitorPage->showControlStatus("응답 없음 — 서버 연결 확인 필요", "#f87171");
+                monitorPage->setActuatorRowStatus(target, "응답 없음", "#f87171");
             });
 
     connect(serverLink, &ServerLink::actuatorStatusReceived, this,
-            [this](int fan, int valve, int siren) {
+            [this](int fan, int valve, int siren, const QString &link,
+                   const QString &fanSrc, const QString &valveSrc, const QString &sirenSrc) {
                 currentFan = fan;
                 currentValve = valve;
                 currentSiren = siren;
-                controlPage->setFanLevel(fan);
-                controlPage->setValveState(valve);
-                controlPage->setSirenState(siren);
-                monitorPage->setActuatorStatus(fan, valve, siren);
+                monitorPage->setActuatorStatus(fan, valve, siren, link, fanSrc, valveSrc, sirenSrc);
             });
 
     connect(serverLink, &ServerLink::detectionReceived, this,
-            [this](int channel, int, int srcW, int srcH, bool, const QVector<DetectionBox> &boxes) {
+            [this](int channel, int, int srcW, int srcH, bool alarm, const QVector<DetectionBox> &boxes) {
                 monitorPage->updateDetection(channel, srcW, srcH, boxes);
+                monitorPage->setChannelAlarm(channel, alarm);
             });
 
     connect(serverLink, &ServerLink::sensorReceived, this,
             [this](const QString &zoneId, qint64, double temp, double humidity,
-                   double gasPpm, double smokePpm, const QString &state, const QString &cause) {
+                   double gasPpm, double smokePpm, double flameVal, const QString &state,
+                   const QString &cause, int warnRemain) {
                 for (Zone &zone : zones) {
                     if (!zone.name.startsWith(zoneId))
                         continue;
@@ -137,9 +128,12 @@ MainWindow::MainWindow(QWidget *parent)
                     zone.humidity = humidity;
                     zone.gasPpm = gasPpm;
                     zone.smokePpm = smokePpm;
+                    zone.flameVal = flameVal;
                     zone.state = zoneStateFromString(state);
                     zone.cause = cause;
                     zone.hasLiveSensorData = true;
+                    if (oldState != zone.state)
+                        zone.stateEnteredAt = QDateTime::currentDateTime();
 
                     zone.gasHistory.append(gasPpm);
                     zone.gasHistoryLabels.append(QDateTime::currentDateTime().toString("HH:mm:ss"));
@@ -148,15 +142,30 @@ MainWindow::MainWindow(QWidget *parent)
                         zone.gasHistory.removeFirst();
                         zone.gasHistoryLabels.removeFirst();
                     }
+
+                    zone.flameHistory.append(flameVal);
+                    if (zone.flameHistory.size() > kMaxGasHistory)
+                        zone.flameHistory.removeFirst();
+
+                    zone.smokeDetectHistory.append(smokePpm > 150);
+                    constexpr int kMaxSmokeHistory = 8;
+                    if (zone.smokeDetectHistory.size() > kMaxSmokeHistory)
+                        zone.smokeDetectHistory.removeFirst();
                     // Warning으로 "새로" 바뀐 순간에만 팝업 (계속 warning이면 매번 안 뜸)
-                    if (oldState != ZoneState::Warning && zone.state == ZoneState::Warning)
-                        showWarningAlert(zone.name, zoneId, cause);
-                    if (oldState != ZoneState::Danger && zone.state == ZoneState::Danger) {
-                        const QString detection = causeText(cause).isEmpty() ? "위험 상태 감지" : causeText(cause);
-                        eventLogPage->addEntry(zone.name, detection, "위험 배너/가장자리 경고 표시", "시스템(자동)", "위험", "-", "-");
-                    } else if (oldState == ZoneState::Danger && zone.state != ZoneState::Danger) {
-                        eventLogPage->addEntry(zone.name, "위험 해제", "정상/경고 상태로 복귀", "시스템(자동)", "안전", "-", "-");
+                    if (oldState != ZoneState::Warning && zone.state == ZoneState::Warning) {
+                        showWarningAlert(zone.name, zoneId, cause, warnRemain);
+                    } else if (zone.state == ZoneState::Warning) {
+                        // 이미 팝업이 떠 있으면 카운트다운만 서버 값으로 갱신 (Qt는 직접 시간을 재지 않는다)
+                        if (WarningAlertDialog *dlg = activeWarningDialogs.value(zoneId))
+                            dlg->setRemainingSeconds(warnRemain);
                     }
+                    if (oldState == ZoneState::Warning && zone.state != ZoneState::Warning) {
+                        // 경고를 벗어남(확인 없이도 안전 복귀 또는 서버가 위험으로 자동 전환) -> 팝업 자동 닫기
+                        if (WarningAlertDialog *dlg = activeWarningDialogs.value(zoneId))
+                            dlg->close();
+                    }
+                    // 경고/위험/해제 로그는 서버(server_main.cpp)가 db.insertEvent()로 이미 남기므로
+                    // Qt는 여기서 더 이상 로컬로 addEntry()를 만들지 않는다 (안 그러면 한 사건이 두 줄로 뜸).
                     break;
                 }
                 if (!zones.isEmpty() && zones[currentZone].name.startsWith(zoneId))
@@ -168,7 +177,6 @@ MainWindow::MainWindow(QWidget *parent)
     stack->addWidget(monitorPage);
     stack->addWidget(eventLogPage);
     stack->addWidget(graphPage);
-    stack->addWidget(controlPage);
     stack->addWidget(helpPage);
     rootLayout->addWidget(stack);
 
@@ -178,11 +186,52 @@ MainWindow::MainWindow(QWidget *parent)
     switchZone(0);
 
     monitorPage->connectCameras(kMediaMtxHost);
-    serverLink->connectToServer(kServerHost, kServerPort);
 
-    eventLogPage->addEntry("A구역", "가스 농도 상승", "경고 알림 전송", "시스템(자동)", "경고", "MQ-9 단독", "2분 10초");
-    eventLogPage->addEntry("A구역", "연기 감지 (경고)", "경고 표시 (사이렌 X)", "시스템(자동)", "경고", "영상+MQ-2", "1분 40초");
-    eventLogPage->addEntry("A구역", "정상 복귀", "모니터링 유지", "시스템(자동)", "안전", "-", "-");
+    connect(serverLink, &ServerLink::queryResult, this,
+            [this](const QString &, const QString &target, const QJsonArray &rows) {
+                if (target == "event_log") {
+                    eventLogPage->loadEntriesFromServer(rows);
+                } else if (target == "sensor_log") {
+                    // 초기 프리필은 A구역 하나만 요청하므로 그대로 매칭한다.
+                    for (Zone &zone : zones) {
+                        if (!zone.name.startsWith("A"))
+                            continue;
+                        for (const QJsonValue &v : rows) {
+                            const QJsonObject row = v.toObject();
+                            zone.gasHistory.append(row.value("gasAvg").toDouble());
+                            zone.gasHistoryLabels.append(
+                                QDateTime::fromSecsSinceEpoch(qint64(row.value("t").toDouble())).toString("HH:mm:ss"));
+                        }
+                        break;
+                    }
+                    if (!zones.isEmpty() && zones[currentZone].name.startsWith("A"))
+                        refreshZoneUi();
+                }
+            });
+
+    connect(serverLink, &ServerLink::connectionStateChanged, this, [this](bool connected) {
+        connBadge->setText(connected
+            ? "<span style='color:#34d399;'>●</span> 실시간 연결 중"
+            : "<span style='color:#f87171;'>●</span> 서버 연결 끊김");
+        if (!connected)
+            return;
+        // 프로그램 시작 시 1회: 이벤트로그 최근 24시간 + 그래프용 센서 이력 직전 10분치.
+        const qint64 now = QDateTime::currentSecsSinceEpoch();
+
+        QJsonObject eventParams;
+        eventParams["from"] = now - 24 * 3600;
+        eventParams["to"] = now;
+        eventParams["limit"] = 100;
+        serverLink->sendQuery("event_log", eventParams);
+
+        QJsonObject sensorParams;
+        sensorParams["from"] = now - 600;
+        sensorParams["to"] = now;
+        sensorParams["zone"] = "A";
+        serverLink->sendQuery("sensor_log", sensorParams);
+    });
+
+    serverLink->connectToServer(kServerHost, kServerPort);
 }
 
 QWidget *MainWindow::createDangerBanner()
@@ -208,15 +257,15 @@ QWidget *MainWindow::createTopBar()
     auto *bar = new QFrame(this);
     bar->setStyleSheet(QString("background-color:%1; border-bottom:1px solid %2;").arg(kBg, kCardBorder));
     auto *layout = new QHBoxLayout(bar);
-    layout->setContentsMargins(16, 10, 16, 10);
-    layout->setSpacing(12);
+    layout->setContentsMargins(24, 16, 24, 16);
+    layout->setSpacing(16);
 
     auto *title = new QLabel("통합 관제 플랫폼", bar);
-    title->setStyleSheet(QString("color:%1; font-size:16px; font-weight:bold;").arg(kTextPrimary));
+    title->setStyleSheet(QString("color:%1; font-size:20px; font-weight:bold;").arg(kTextPrimary));
     layout->addWidget(title);
 
     const QString zoneBtnStyle = QString(
-        "QPushButton { color:%1; background:transparent; border:1px solid %2; border-radius:12px; padding:4px 14px; }"
+        "QPushButton { color:%1; background:transparent; border:1px solid %2; border-radius:14px; padding:8px 20px; font-size:14px; }"
         "QPushButton:checked { background-color:%3; color:white; border:1px solid %3; }")
         .arg(kTextSecondary, kCardBorder, kAccent);
 
@@ -232,16 +281,16 @@ QWidget *MainWindow::createTopBar()
     layout->addStretch();
 
     topStatusLabel = new QLabel(bar);
-    topStatusLabel->setStyleSheet(QString("border:1px solid %1; border-radius:10px; padding:3px 10px; font-weight:bold;").arg(kCardBorder));
+    topStatusLabel->setStyleSheet(QString("border:1px solid %1; border-radius:12px; padding:6px 14px; font-size:14px; font-weight:bold;").arg(kCardBorder));
     layout->addWidget(topStatusLabel);
 
-    auto *connBadge = new QLabel("<span style='color:#34d399;'>●</span> 실시간 연결 중", bar);
-    connBadge->setStyleSheet(QString("color:%1;").arg(kTextSecondary));
+    connBadge = new QLabel("<span style='color:#6b7280;'>●</span> 서버 연결 확인 중...", bar);
+    connBadge->setStyleSheet(QString("color:%1; font-size:14px;").arg(kTextSecondary));
     layout->addWidget(connBadge);
 
     auto *logoutBtn = new QPushButton("관리자모드 로그아웃", bar);
     logoutBtn->setFlat(true);
-    logoutBtn->setStyleSheet(QString("color:%1; background:transparent; border:none;").arg(kTextSecondary));
+    logoutBtn->setStyleSheet(QString("color:%1; background:transparent; border:none; font-size:14px;").arg(kTextSecondary));
     connect(logoutBtn, &QPushButton::clicked, this, [this]() {
         emit loggedOut();
         close();
@@ -256,11 +305,11 @@ QWidget *MainWindow::createSubTabBar()
     auto *bar = new QFrame(this);
     bar->setStyleSheet(QString("background-color:%1; border-bottom:1px solid %2;").arg(kBg, kCardBorder));
     auto *layout = new QHBoxLayout(bar);
-    layout->setContentsMargins(16, 6, 16, 6);
+    layout->setContentsMargins(16, 5, 16, 5);
     layout->setSpacing(4);
 
     const QString tabStyle = QString(
-        "QPushButton { color:%1; background:transparent; border:none; border-radius:8px; padding:6px 14px; }"
+        "QPushButton { color:%1; background:transparent; border:none; border-radius:6px; padding:6px 12px; font-size:13px; }"
         "QPushButton:checked { background-color:%2; color:white; }")
         .arg(kTextSecondary, kAccentDark);
 
@@ -296,19 +345,24 @@ void MainWindow::setZoneState(int zoneIndex, ZoneState state)
 {
     const ZoneState oldState = zones[zoneIndex].state;
     zones[zoneIndex].state = state;
+    if (oldState != state)
+        zones[zoneIndex].stateEnteredAt = QDateTime::currentDateTime();
+    const QString zoneId = zones[zoneIndex].name.left(1);
     // DEMO 버튼으로도 sensorReceived와 동일하게 "새로 Warning 진입" 시 팝업 (테스트용).
-    // 경고 단계의 원인은 표에서 smoke_watch(연기 감지 주의) 하나뿐이라 데모에서도 그걸로 고정.
+    // 경고 단계 원인은 3가지(smoke_visual/fire_visual/flame_sensor) 중 데모에서는 smoke_visual로 고정.
+    // 실제 warnRemain은 서버만 아니까, 데모에서는 로컬 타이머로 10초를 직접 세어 실제 흐름을 재현한다.
     if (oldState != ZoneState::Warning && state == ZoneState::Warning) {
         const QString &zoneName = zones[zoneIndex].name;
-        showWarningAlert(zoneName, zoneName.left(1), "smoke_watch");
+        showWarningAlert(zoneName, zoneId, "smoke_visual", 10);
+        startDemoWarningCountdown(zoneIndex, zoneId, 10);
     }
-    if (oldState != ZoneState::Danger && state == ZoneState::Danger) {
-        const QString &zoneName = zones[zoneIndex].name;
-        const QString detection = causeText(zones[zoneIndex].cause).isEmpty() ? "위험 상태 감지" : causeText(zones[zoneIndex].cause);
-        eventLogPage->addEntry(zoneName, detection, "위험 배너/가장자리 경고 표시", "시스템(자동)", "위험", "-", "-");
-    } else if (oldState == ZoneState::Danger && state != ZoneState::Danger) {
-        eventLogPage->addEntry(zones[zoneIndex].name, "위험 해제", "정상/경고 상태로 복귀", "시스템(자동)", "안전", "-", "-");
+    if (oldState == ZoneState::Warning && state != ZoneState::Warning) {
+        stopDemoWarningCountdown();
+        if (WarningAlertDialog *dlg = activeWarningDialogs.value(zoneId))
+            dlg->close();
     }
+    // DEMO 버튼은 로컬 시뮬레이션이라 서버 DB에 안 남음 — 이벤트로그는 이제 서버 조회로만 채워지므로
+    // 여기서 로컬 addEntry()를 만들지 않는다. (DEMO로 위험을 눌러도 로그 목록엔 안 뜨는 게 정상)
     if (zoneIndex == currentZone)
         refreshZoneUi();
     updateDangerIndicators();
@@ -320,32 +374,62 @@ void MainWindow::refreshZoneUi()
     monitorPage->updateZone(zone);
     eventLogPage->updateZone(zone);
     graphPage->updateZone(zone);
-    controlPage->setZoneName(zone.name);
 
     const QString color = colorForState(zone.state);
     topStatusLabel->setText(QString("● %1 %2").arg(zone.name, textForState(zone.state)));
-    topStatusLabel->setStyleSheet(QString("color:%1; border:1px solid %1; border-radius:10px; padding:3px 10px; font-weight:bold;").arg(color));
+    topStatusLabel->setStyleSheet(QString("color:%1; border:1px solid %1; border-radius:12px; padding:6px 14px; font-size:14px; font-weight:bold;").arg(color));
 }
 
-void MainWindow::showWarningAlert(const QString &zoneName, const QString &zoneId, const QString &cause)
+void MainWindow::showWarningAlert(const QString &zoneName, const QString &zoneId, const QString &cause, int warnRemain)
 {
-    // TODO: 서버가 sensor 메시지에 warnRemain(카운트다운 초)을 추가하면 아래 고정값(10초) 대신 그 값을 쓴다.
-    constexpr int kFallbackCountdownSec = 10;
+    // 경고 진입 로그는 서버(server_main.cpp)가 이미 db.insertEvent()로 남기므로 Qt는 팝업만 띄운다.
+    // 단, "관리자가 확인 버튼을 눌렀다"는 이벤트는 서버가 아직 DB에 기록하지 않음(alarm_state.h의
+    // onWarningAck()는 타이머 취소 플래그만 세움) — 서버에 로깅 추가되기 전까진 이 정보가 로그에 안 남는다.
     const QString causePhrase = causeText(cause);
-    const QString detection = causePhrase.isEmpty() ? "경고 상태 감지" : causePhrase;
-    eventLogPage->addEntry(zoneName, detection, "관리자 확인 팝업 표시", "시스템(자동)", "경고", "-", "-");
-
-    auto *dialog = new WarningAlertDialog(zoneName, causePhrase, kFallbackCountdownSec, this);
-    connect(dialog, &WarningAlertDialog::acknowledged, this, [this, zoneId, zoneName]() {
-        serverLink->sendWarningAck(zoneId, "ack", "admin");
-        eventLogPage->addEntry(zoneName, "경고 알림 확인", "관리자가 확인 버튼 클릭", "admin", "정보", "-", "-");
+    auto *dialog = new WarningAlertDialog(zoneName, causePhrase, warnRemain, this);
+    activeWarningDialogs.insert(zoneId, dialog);
+    connect(dialog, &WarningAlertDialog::acknowledged, this, [this, zoneId]() {
+        serverLink->sendWarningAck(zoneId, "admin");
     });
-    connect(dialog, &WarningAlertDialog::timedOut, this, [this, zoneId, zoneName]() {
-        serverLink->sendWarningAck(zoneId, "timeout", "admin");
-        eventLogPage->addEntry(zoneName, "경고 알림 무응답", "카운트다운 만료, 서버에 무응답 통보", "시스템(자동)", "경고", "-", "-");
+    connect(dialog, &QDialog::finished, this, [this, zoneId, dialog]() {
+        if (activeWarningDialogs.value(zoneId) == dialog)
+            activeWarningDialogs.remove(zoneId);
+        // 확인 버튼으로 닫혔든, 상태 전환으로 자동으로 닫혔든 DEMO 카운트다운은 더 이상 필요 없다.
+        stopDemoWarningCountdown();
+        dialog->deleteLater();
     });
-    connect(dialog, &QDialog::finished, dialog, &QObject::deleteLater);
     dialog->show();
+}
+
+void MainWindow::startDemoWarningCountdown(int zoneIndex, const QString &zoneId, int seconds)
+{
+    stopDemoWarningCountdown();
+    demoWarningZoneIndex = zoneIndex;
+    demoWarningZoneId = zoneId;
+    demoWarningRemain = seconds;
+    if (!demoWarningTimer) {
+        demoWarningTimer = new QTimer(this);
+        connect(demoWarningTimer, &QTimer::timeout, this, [this]() {
+            --demoWarningRemain;
+            if (WarningAlertDialog *dlg = activeWarningDialogs.value(demoWarningZoneId))
+                dlg->setRemainingSeconds(demoWarningRemain);
+            if (demoWarningRemain <= 0) {
+                demoWarningTimer->stop();
+                // 서버 없는 DEMO에서도 "10초 무응답 -> 자동 위험 전환" 흐름을 그대로 재현.
+                if (demoWarningZoneIndex >= 0 && demoWarningZoneIndex < zones.size()
+                        && zones[demoWarningZoneIndex].state == ZoneState::Warning) {
+                    setZoneState(demoWarningZoneIndex, ZoneState::Danger);
+                }
+            }
+        });
+    }
+    demoWarningTimer->start(1000);
+}
+
+void MainWindow::stopDemoWarningCountdown()
+{
+    if (demoWarningTimer)
+        demoWarningTimer->stop();
 }
 
 void MainWindow::updateDangerIndicators()

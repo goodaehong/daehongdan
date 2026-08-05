@@ -69,15 +69,27 @@ QString ServerLink::sendControl(const QString &zone, const QString &target, cons
     return cmdId;
 }
 
-void ServerLink::sendWarningAck(const QString &zone, const QString &response, const QString &admin)
+void ServerLink::sendWarningAck(const QString &zone, const QString &admin)
 {
     QJsonObject obj;
     obj["type"] = "warning_ack";
     obj["zone"] = zone;
-    obj["response"] = response;
     obj["admin"] = admin;
     obj["ts"] = QDateTime::currentSecsSinceEpoch();
     sendLine(obj);
+}
+
+QString ServerLink::sendQuery(const QString &target, const QJsonObject &extraParams)
+{
+    const QString reqId = generateCmdId(); // cmdId와 동일한 채번기 재사용 (고유하기만 하면 됨)
+
+    QJsonObject obj = extraParams;
+    obj["type"] = "query";
+    obj["reqId"] = reqId;
+    obj["target"] = target;
+    sendLine(obj);
+
+    return reqId;
 }
 
 void ServerLink::sendFalseAlarmReport(int channel, int frameId, const QString &admin)
@@ -134,18 +146,26 @@ void ServerLink::handleLine(const QByteArray &line)
                                 obj.value("srcW").toInt(), obj.value("srcH").toInt(),
                                 obj.value("alarm").toBool(), boxes);
     } else if (type == "sensor") {
+        // warnRemain은 warning 상태일 때만 서버가 채워 보냄. 없으면 -1로 "해당없음" 표시.
+        const int warnRemain = obj.contains("warnRemain") ? obj.value("warnRemain").toInt() : -1;
         emit sensorReceived(obj.value("zone").toString(),
                              qint64(obj.value("ts").toDouble()),
                              obj.value("temp").toDouble(),
                              obj.value("humidity").toDouble(),
                              obj.value("gasPpm").toDouble(),
                              obj.value("smokePpm").toDouble(),
+                             obj.value("flameVal").toDouble(),
                              obj.value("state").toString(),
-                             obj.value("cause").toString());
+                             obj.value("cause").toString(),
+                             warnRemain);
     } else if (type == "led_matrix_status") {
         emit ledMatrixStatusReceived(obj.value("status").toInt());
     } else if (type == "actuator_status") {
-        emit actuatorStatusReceived(obj.value("fan").toInt(), obj.value("valve").toInt(), obj.value("siren").toInt());
+        // link/fanSrc/valveSrc/sirenSrc는 서버가 추가하기로 한 필드라 구버전 서버에선 없을 수 있음
+        // -> 없으면 빈 문자열(=미상).
+        emit actuatorStatusReceived(obj.value("fan").toInt(), obj.value("valve").toInt(), obj.value("siren").toInt(),
+                                     obj.value("link").toString(), obj.value("fanSrc").toString(),
+                                     obj.value("valveSrc").toString(), obj.value("sirenSrc").toString());
     } else if (type == "control_ack") {
         const QString cmdId = obj.value("cmdId").toString();
         QTimer *timer = pendingCommands.take(cmdId);
@@ -155,5 +175,12 @@ void ServerLink::handleLine(const QByteArray &line)
         timer->deleteLater();
         emit controlResult(cmdId, obj.value("zone").toString(), obj.value("target").toString(),
                             obj.value("result").toString(), obj.value("reason").toString());
+    } else if (type == "query_result") {
+        const QString reqId = obj.value("reqId").toString();
+        const QString target = obj.value("target").toString();
+        if (obj.value("result").toString() == "failed")
+            emit queryFailed(reqId, obj.value("reason").toString());
+        else
+            emit queryResult(reqId, target, obj.value("rows").toArray());
     }
 }

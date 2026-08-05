@@ -12,6 +12,7 @@ class QLineEdit;
 class QLabel;
 class QPushButton;
 class GasGraphWidget;
+class QJsonArray;
 
 struct EventEntry {
     QString time;       // 표시용 "HH:mm:ss"
@@ -39,12 +40,19 @@ public:
                   const QString &admin = "시스템(자동)", const QString &severity = "정보",
                   const QString &sensorCombo = "-", const QString &duration = "-");
 
+    // 서버 query_result(target="event_log") 응답으로 목록을 통째로 교체한다.
+    // rows 필드: id,ts,zone,category,severity,cause,sensorCombo,source,response,admin,
+    //            gasPpm,smokePpm,status,durationMs,snapshotPath,incidentId (server/db/query_handler.cpp 참고)
+    void loadEntriesFromServer(const QJsonArray &rows);
+
 private slots:
     void applyFilter();
     void showDetail(int row, int column);
     void markFalseAlarm();
 
 private:
+    void appendRow(const EventEntry &entry);
+
     QTableWidget *eventTable;
     QComboBox *zoneFilterCombo;
     QComboBox *severityFilterCombo;

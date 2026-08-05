@@ -54,8 +54,6 @@ qt_add_executable(qt_dashboard
     src/pages/EventLogPage.h
     src/pages/GraphPage.cpp
     src/pages/GraphPage.h
-    src/pages/ControlPage.cpp
-    src/pages/ControlPage.h
     src/pages/HelpPage.cpp
     src/pages/HelpPage.h
     src/widgets/VideoWidget.cpp

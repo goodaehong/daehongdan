@@ -20,7 +20,9 @@ DetectionOverlay::DetectionOverlay(QWidget *followTarget)
 
 void DetectionOverlay::syncGeometry()
 {
-    if (!target || !target->isVisible()) {
+    // 그릴 박스가 없을 땐 아예 화면에 안 띄운다 — 계속 떠있는 빈 always-on-top 창이
+    // Windows 레이어드 창 컴포지팅 이슈로 다른 앱 위에 테두리 잔상을 남기는 걸 방지.
+    if (!target || !target->isVisible() || boxes.isEmpty()) {
         hide();
         return;
     }
@@ -36,6 +38,7 @@ void DetectionOverlay::setBoxes(const QVector<DetectionBox> &newBoxes, int srcW,
     srcWidth = srcW;
     srcHeight = srcH;
     update();
+    syncGeometry(); // 박스가 비었으면 즉시 숨기고, 생겼으면 바로 보여준다 (다음 200ms 폴링까지 안 기다림)
 }
 
 void DetectionOverlay::paintEvent(QPaintEvent *)
@@ -50,7 +53,10 @@ void DetectionOverlay::paintEvent(QPaintEvent *)
     const double scaleY = double(height()) / srcHeight;
 
     for (const DetectionBox &box : std::as_const(boxes)) {
-        const QColor color = box.cls == "FIRE" ? QColor("#f87171") : QColor("#fb923c");
+        QColor color;
+        if (box.cls == "FIRE") color = QColor("#f87171");
+        else if (box.cls == "PERSON") color = QColor("#38bdf8"); // 화재/연기(빨강/주황)와 구분되는 하늘색
+        else color = QColor("#fb923c"); // SMOKE 등
         const QRectF rect(box.x * scaleX, box.y * scaleY, box.w * scaleX, box.h * scaleY);
 
         painter.setPen(QPen(color, 2));
