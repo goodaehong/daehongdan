@@ -4,8 +4,10 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <deque>
 #include <mutex>
 #include <thread>
+#include <unordered_map>
 #include <utility>
 
 #include "AppConfig.h"
@@ -17,6 +19,15 @@ using std::unique_lock;
 
 namespace
 {
+    constexpr std::size_t FIRE_POSITION_HISTORY_LIMIT = 32;
+    constexpr std::int64_t FIRE_POSITION_HISTORY_RETENTION_MS = 5000;
+
+    struct FireTrackHistory
+    {
+        std::deque<TrackPositionSample> samples;
+        std::int64_t lastSeenTimestampMs = 0;
+    };
+
     std::atomic<int> gRuntimeInstanceCounter{ 0 };
     std::mutex gFireDetectorExecutionMutex;
 
@@ -207,9 +218,56 @@ private:
         if (appliedIgnoreConfigVersion_ != pendingIgnoreConfigVersion_)
         {
             detector_.setIgnoreRegionConfig(pendingIgnoreConfig_);
+            fireTrackHistories_.clear();
             appliedIgnoreConfigVersion_ = pendingIgnoreConfigVersion_;
         }
         return appliedIgnoreConfigVersion_;
+    }
+
+    void attachFirePositionHistory(
+        DetectionResult& detection,
+        std::uint64_t frameId,
+        TimePoint sourceTime)
+    {
+        const std::int64_t timestampMs =
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                sourceTime.time_since_epoch()).count();
+
+        for (DetectionBox& box : detection.boxes)
+        {
+            if (box.type != DetectionType::FIRE || box.trackId < 0 ||
+                !box.representativePositionValid)
+                continue;
+
+            FireTrackHistory& history = fireTrackHistories_[box.trackId];
+            history.lastSeenTimestampMs = timestampMs;
+
+            // 검출기가 한 프레임을 놓쳐 유지 중인 박스는 새 위치 측정값이 아니므로
+            // 같은 좌표를 이력에 중복 추가하지 않는다.
+            if (!box.trackedPersistenceEvidence &&
+                (history.samples.empty() || history.samples.back().frameId != frameId))
+            {
+                TrackPositionSample sample;
+                sample.frameId = frameId;
+                sample.timestampMs = timestampMs;
+                sample.normalizedX = box.representativeNormalizedX;
+                sample.normalizedY = box.representativeNormalizedY;
+                history.samples.push_back(sample);
+                while (history.samples.size() > FIRE_POSITION_HISTORY_LIMIT)
+                    history.samples.pop_front();
+            }
+
+            box.positionHistory.assign(history.samples.begin(), history.samples.end());
+        }
+
+        for (auto it = fireTrackHistories_.begin(); it != fireTrackHistories_.end();)
+        {
+            if (timestampMs - it->second.lastSeenTimestampMs >
+                FIRE_POSITION_HISTORY_RETENTION_MS)
+                it = fireTrackHistories_.erase(it);
+            else
+                ++it;
+        }
     }
 
     void workerLoop()
@@ -233,7 +291,11 @@ private:
             }
 
             if (frame.empty()) continue;
-            if (detectorResetRequested_.exchange(false)) detector_.reset();
+            if (detectorResetRequested_.exchange(false))
+            {
+                detector_.reset();
+                fireTrackHistories_.clear();
+            }
 
             const std::uint64_t ignoreConfigVersion = applyPendingIgnoreConfig();
 
@@ -250,6 +312,8 @@ private:
                 ignoreConfigVersion != ignoreConfigVersion_.load())
                 continue;
 
+            attachFirePositionHistory(detection, frameId, sourceTime);
+
             lock_guard<mutex> lock(resultMutex_);
             latestResult_ = std::move(detection);
             latestResultFrameId_ = frameId;
@@ -262,6 +326,7 @@ private:
     }
 
     FlameDetector detector_;
+    std::unordered_map<int, FireTrackHistory> fireTrackHistories_;
     FireAlarmController alarmController_;
     int submitPhaseOffsetMs_ = 0;
     TimePoint nextAcceptedSubmitTime_{};

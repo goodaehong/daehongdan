@@ -597,6 +597,7 @@ vector<DetectionBox> FlameDetector::updateTracks(const vector<Features>& detecti
 
         DetectionBox box;
         box.box = track.box;
+        box.trackId = track.id;
         box.type = DetectionType::FIRE;
         box.score = track.score;
         box.strongFireEvidence = track.score >= 0.58;
@@ -714,6 +715,26 @@ DetectionResult FlameDetector::detect(const Mat& inputFrame)
             max(1, cvRound(box.box.width * scaleX)),
             max(1, cvRound(box.box.height * scaleY))) &
             Rect(0, 0, inputFrame.cols, inputFrame.rows);
+
+        box.normalizedX = std::clamp(
+            static_cast<double>(box.box.x) / std::max(1, inputFrame.cols), 0.0, 1.0);
+        box.normalizedY = std::clamp(
+            static_cast<double>(box.box.y) / std::max(1, inputFrame.rows), 0.0, 1.0);
+        box.normalizedWidth = std::clamp(
+            static_cast<double>(box.box.width) / std::max(1, inputFrame.cols), 0.0, 1.0);
+        box.normalizedHeight = std::clamp(
+            static_cast<double>(box.box.height) / std::max(1, inputFrame.rows), 0.0, 1.0);
+
+        const double representativePixelX =
+            static_cast<double>(box.box.x) +
+            static_cast<double>(std::max(0, box.box.width - 1)) * 0.5;
+        const double representativePixelY =
+            static_cast<double>(box.box.y + std::max(0, box.box.height - 1));
+        box.representativePositionValid = true;
+        box.representativeNormalizedX = std::clamp(
+            representativePixelX / std::max(1, inputFrame.cols - 1), 0.0, 1.0);
+        box.representativeNormalizedY = std::clamp(
+            representativePixelY / std::max(1, inputFrame.rows - 1), 0.0, 1.0);
         totalArea += box.box.area();
     }
 

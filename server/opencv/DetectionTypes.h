@@ -35,6 +35,16 @@ struct FireDebugImages
     cv::Mat candidateMask;
 };
 
+// 동일 검출 트랙의 대표 위치를 시간순으로 전달한다. timestampMs는
+// steady_clock 기반 단조 증가 시간이므로 절대 시각이 아니라 이동량/방향 계산에 사용한다.
+struct TrackPositionSample
+{
+    std::uint64_t frameId = 0;
+    std::int64_t timestampMs = 0;
+    double normalizedX = 0.0;
+    double normalizedY = 0.0;
+};
+
 // 화염과 연기 검출기가 화면 표시 및 후속 판정에 공통으로 전달하는 박스다.
 struct DetectionBox
 {
@@ -42,6 +52,21 @@ struct DetectionBox
     std::string label;
     DetectionType type = DetectionType::FIRE;
     double score = 0.0;
+
+    // 픽셀 box는 기존 화면 표시와의 호환을 위해 유지하고, 외부 연동용 좌표를
+    // 원본 프레임 기준 0~1 범위로 함께 제공한다.
+    int trackId = -1;
+    double normalizedX = 0.0;
+    double normalizedY = 0.0;
+    double normalizedWidth = 0.0;
+    double normalizedHeight = 0.0;
+
+    // 현재 요구사항에서는 화재 위치만 평면도/64x64 디스플레이에 사용한다.
+    // 화재는 박스 아래쪽 중앙점을 대표 위치로 사용하고 연기는 false로 둔다.
+    bool representativePositionValid = false;
+    double representativeNormalizedX = 0.0;
+    double representativeNormalizedY = 0.0;
+    std::vector<TrackPositionSample> positionHistory;
 
     bool strongFireEvidence = false;
     bool tinyCandidate = false;

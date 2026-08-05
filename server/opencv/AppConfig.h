@@ -191,8 +191,14 @@ namespace smoke_config
     // 연속 양성 박스가 같은 영역일 때만 hits를 누적해 서로 다른 오검출의 합산을 막는다.
     constexpr float TRACK_MIN_IOU = 0.08F;
     constexpr float TRACK_MAX_CENTER_DISTANCE_RATIO = 0.45F;
+    constexpr float MERGE_EXPANSION_RATIO = 0.12F;
+    constexpr std::size_t MAX_TRACKS_PER_CHANNEL = 16;
     constexpr int CONFIRM_HITS = 2;
+    // 확정 전 후보는 빠르게 정리하고, 확정된 연기는 마지막 실제 검출부터 5초간 유지한다.
     constexpr int RELEASE_MISSES = 2;
+    constexpr int RELEASE_HOLD_MS = 5000;
+    constexpr int RELEASE_HOLD_RESULTS =
+        (RELEASE_HOLD_MS + INFERENCE_INTERVAL_MS - 1) / INFERENCE_INTERVAL_MS;
     constexpr int RESULT_FRESH_MS = 2500;
     constexpr int BOX_FRESH_MS = 1500;
 
