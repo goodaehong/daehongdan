@@ -319,6 +319,19 @@ static void UpdateAlertBorderBlink(void)
 }
 
 // 좌표는 (1,1)~(64,64) 기준표를 0-index로 변환(-1)해서 배치.
+// 시:분 콜론(HUB75_Shape10) 1초 주기 깜빡임 (0.5초 켜짐 + 0.5초 꺼짐)
+static uint8_t colonVisible = 1;
+
+static void UpdateColonBlink(void)
+{
+  uint8_t shouldBeVisible = ((HAL_GetTick() / 500) % 2) == 0;
+  if (shouldBeVisible != colonVisible)
+  {
+    colonVisible = shouldBeVisible;
+    DrawBitmap8(51, 54, HUB75_Shape10, 8, colonVisible ? HUB75_WHITE : HUB75_BLACK);
+  }
+}
+
 static void DrawStaticScene(void)
 {
   HUB75_Clear(HUB75_BLACK);   // 이전 화면(전환/대피도 등) 잔상 없이 항상 깨끗하게 시작
@@ -327,8 +340,9 @@ static void DrawStaticScene(void)
   DrawBitmap16(26, 8, HUB75_Korean2, 10, HUB75_WHITE);         // 역
   DrawFace(0, HUB75_WHITE);                                    // 표정 (첫 프레임: 웃음)
 
-  DrawBitmap8(12, 53, HUB75_Shape9, 8, HUB75_WHITE);           // .
-  DrawBitmap8(26, 53, HUB75_Shape9, 8, HUB75_WHITE);           // .
+  colonVisible = 1;                                            // 화면 새로 그릴 땐 항상 켜진 상태로 시작
+  DrawBitmap8(11, 53, HUB75_Shape9, 8, HUB75_WHITE);           // .
+  DrawBitmap8(23, 53, HUB75_Shape9, 8, HUB75_WHITE);           // .
   DrawBitmap8(51, 54, HUB75_Shape10, 8, HUB75_WHITE);          // :
 
   DrawBitmap16(1, 38, HUB75_Shape, 13, HUB75_YELLOW);          // 온도(태양)
@@ -582,7 +596,7 @@ static void UpdateDynamicDisplay(void)
   UpdateDigit(46, 53, (uint8_t)(g_hour % 10), HUB75_WHITE, 1);
   UpdateDigit(53, 53, (uint8_t)(g_minute / 10), HUB75_WHITE, 1);
   UpdateDigit(58, 53, (uint8_t)(g_minute % 10), HUB75_WHITE, 1);
-  DrawBitmap8(51, 54, HUB75_Shape10, 8, HUB75_WHITE);         // : - 분 십의 자리와 겹치는 부분 다시 그림
+  DrawBitmap8(51, 54, HUB75_Shape10, 8, colonVisible ? HUB75_WHITE : HUB75_BLACK);   // : - 분 십의 자리와 겹치는 부분 다시 그림 (깜빡임 상태 유지)
 
   /* 년/월/일 */
   UpdateDigit(2, 53, (uint8_t)(g_year / 10), HUB75_WHITE, 1);
@@ -591,8 +605,8 @@ static void UpdateDynamicDisplay(void)
   UpdateDigit(19, 53, (uint8_t)(g_month % 10), HUB75_WHITE, 1);
   UpdateDigit(26, 53, (uint8_t)(g_day / 10), HUB75_WHITE, 1);
   UpdateDigit(31, 53, (uint8_t)(g_day % 10), HUB75_WHITE, 1);
-  DrawBitmap8(12, 53, HUB75_Shape9, 8, HUB75_WHITE);          // . - 월 십의 자리와 겹치는 부분 다시 그림
-  DrawBitmap8(26, 53, HUB75_Shape9, 8, HUB75_WHITE);          // . - 일 십의 자리와 겹치는 부분 다시 그림
+  DrawBitmap8(11, 53, HUB75_Shape9, 8, HUB75_WHITE);          // . - 월 십의 자리와 겹치는 부분 다시 그림
+  DrawBitmap8(23, 53, HUB75_Shape9, 8, HUB75_WHITE);          // . - 일 십의 자리와 겹치는 부분 다시 그림
 }
 
 /* USER CODE END 0 */
@@ -645,6 +659,10 @@ int main(void)
     if (g_inAlertScreen)
     {
       UpdateAlertBorderBlink();
+    }
+    else
+    {
+      UpdateColonBlink();   // 시:분 콜론 1초 주기 깜빡임
     }
 
     PollUartRx();   // 링버퍼에 쌓인 바이트 파싱
