@@ -261,7 +261,7 @@ int main() {
     }
     if (!g_db.open(DB_PATH))
         std::cerr << "[DB] 초기화 실패 — DB 없이 계속 진행\n";
-    if (!Actuator_Init("/dev/serial0"))
+    if (!Actuator_Init("/dev/ttyACM0"))
         std::cerr << "[액추에이터] 초기화 실패 — 계속 진행\n";
     if (!StmDisplay_Open("/dev/serial1"))
         std::cerr << "[전광판] 초기화 실패 — 계속 진행\n";
