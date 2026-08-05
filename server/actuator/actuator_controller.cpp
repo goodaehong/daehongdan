@@ -6,6 +6,7 @@
 #include <poll.h>
 #include <atomic>
 #include <mutex>
+#include <cstring>
 
 // ── 전역 상태 변수 ──
 static int g_serial_fd = -1;
@@ -14,6 +15,12 @@ static std::string g_devPath = "";
 static std::atomic<int> g_fan{0};
 static std::atomic<int> g_valve{1};
 static std::atomic<int> g_siren{0};
+
+static std::string g_fanSrc = "auto";
+static std::string g_valveSrc = "auto";
+static std::string g_sirenSrc = "auto";
+static std::atomic<bool> g_linkOk{false};
+
 static std::mutex g_mtx;
 
 // ── 내부 유틸리티 함수 (static 선언으로 외부 노출 방지) ──
@@ -29,11 +36,7 @@ static bool sendPacket(uint8_t cmd, const std::vector<uint8_t>& data) {
     if (g_serial_fd < 0) return false;
 
     uint8_t len = static_cast<uint8_t>(data.size());
-    std::vector<uint8_t> packet;
-    
-    packet.push_back(STX);
-    packet.push_back(len);
-    packet.push_back(cmd);
+    std::vector<uint8_t> packet ={STX, len, cmd};
     for (uint8_t b : data) {
         packet.push_back(b);
     }
@@ -83,7 +86,7 @@ static bool readResponse(int timeoutMs, uint8_t& outCmd, StmActuatorStatus& outS
     return true;
 }
 
-static bool waitForAck(const std::string& label) {
+static bool waitForAck(const std::string& label, std::string* reason = nullptr) {
     uint8_t cmd;
     StmActuatorStatus status;
     if (readResponse(1000, cmd, status)) {
@@ -124,76 +127,73 @@ bool Actuator_Init(const char* devPath) {
     return true;
 }
 
-void Actuator_Execute(const std::string& target, const std::string& action, const std::string& src) {
+void Actuator_Execute(const std::string& target, const std::string& action, const std::string& src, std::string* reason) {
     std::lock_guard<std::mutex> lock(g_mtx);
+    if (g_serial_fd < 0) {
+        if (reason) *reason = "UART 열려있지 않음";
+        return false;
+    }
 
-    // 주의: sendPacket의 두 번째 인자는 std::vector<uint8_t>이므로 {}로 감싸서 전달합니다.
+    std::string srcType = (src.find("수동") == 0) ? "manual" : "auto";
+    bool success = false;
+
     if (target == "fan") {
-        if (action == "off") {
-            g_fan = 0;
-            sendPacket(CMD_FAN_CTRL, {FAN_OFF});
-        }
-        else if (action == "low") {
-            g_fan = 1;
-            sendPacket(CMD_FAN_CTRL, {FAN_LOW});
-        }
-        else if (action == "mid") {
-            g_fan = 2;
-            sendPacket(CMD_FAN_CTRL, {FAN_MID});
-        }
-        else if (action == "high") {
-            g_fan = 3;
-            sendPacket(CMD_FAN_CTRL, {FAN_HIGH});
-        }
-        waitForAck("FanControl");
+        uint8_t val = (action == "off") ? FAN_OFF : (action == "low") ? FAN_LOW : 
+                      (action == "mid") ? FAN_MID : FAN_HIGH;
+        if (!sendPacket(CMD_FAN_CTRL, {val})) { if (reason) *reason = "UART 쓰기 실패"; } 
+        else { success = waitForAck("FanControl", reason); if (success) { g_fan = val; g_fanSrc = srcType; } }
     }
     else if (target == "valve") {
-        if(action == "open") {
-            g_valve = 1;
-            sendPacket(CMD_VALVE_CTRL, {VALVE_OPEN});
-        }
-        else if (action == "close") {
-            g_valve = 0;
-            sendPacket(CMD_VALVE_CTRL, {VALVE_CLOSED});
-        }
-        waitForAck("ValveControl");
+        uint8_t val = (action == "open") ? VALVE_OPEN : VALVE_CLOSED;
+        if (!sendPacket(CMD_VALVE_CTRL, {val})) { if (reason) *reason = "UART 쓰기 실패"; } 
+        else { success = waitForAck("ValveControl", reason); if (success) { g_valve = val; g_valveSrc = srcType; } }
     }
     else if (target == "siren") {
-        if(action == "on") {
-            g_siren = 1;
-            sendPacket(CMD_SIREN_CTRL, {SIREN_ON});
-        }
-        else if (action == "off") {
-            g_siren = 0;
-            sendPacket(CMD_SIREN_CTRL, {SIREN_OFF});
-        }
-        waitForAck("SirenControl");
+        uint8_t val = (action == "on") ? SIREN_ON : SIREN_OFF;
+        if (!sendPacket(CMD_SIREN_CTRL, {val})) { if (reason) *reason = "UART 쓰기 실패"; } 
+        else { success = waitForAck("SirenControl", reason); if (success) { g_siren = val; g_sirenSrc = srcType; } }
     }
-    else if (target == "gas_emergency") {
-        sendPacket(CMD_GAS_EMERG, {});
-        waitForAck("GasEmergency");
+    else if (target == "gas_emergency" || target == "max_emergency" || target == "system_reset") {
+        uint8_t cmd = (target == "gas_emergency") ? CMD_GAS_EMERG : (target == "max_emergency") ? CMD_MAX_EMERG : CMD_SYS_RESET;
+        if (!sendPacket(cmd, {})) { if (reason) *reason = "UART 쓰기 실패"; } 
+        else { success = waitForAck(target, reason); }
     }
-    else if (target == "max_emergency") {
-        sendPacket(CMD_MAX_EMERG, {});
-        waitForAck("MaxEmergency");
+    else {
+        if (reason) *reason = "알 수 없는 제어 대상";
+        return false;
     }
-    else if (target == "system_reset") {
-        sendPacket(CMD_SYS_RESET, {});
-        waitForAck("SystemReset");
-    }
-    else return;
 
-    std::cout << "[제어][" << src << "] " << target << " action=" << action << "\n";
+    if (success) std::cout << "[제어][" << src << "] " << target << " action=" << action << "\n";
+    return success;
 }
 
-void Actuator_Apply(const Response& r, const std::string& src) {
-    Actuator_Execute("siren", r.siren ? "on" : "off", src);
-    Actuator_Execute("valve", r.valve ? "open" : "close", src);
-    const char* fanAct = (r.fan == 0) ? "off" : (r.fan == 1) ? "low"
-                       : (r.fan == 2) ? "mid" : "high";
-    Actuator_Execute("fan", fanAct, src);
+bool Actuator_Apply(const Response& r, const std::string& src) {
+    bool ok = true;
+    ok &= Actuator_Execute("siren", r.siren ? "on" : "off", src, nullptr);
+    ok &= Actuator_Execute("valve", r.valve ? "open" : "close", src, nullptr);
+    const char* fanAct = (r.fan == 0) ? "off" : (r.fan == 1) ? "low" : (r.fan == 2) ? "mid" : "high";
+    ok &= Actuator_Execute("fan", fanAct, src, nullptr);
+    return ok;
+}
+
+bool Actuator_Poll() {
+    std::lock_guard<std::mutex> lock(g_mtx);
+    if (g_serial_fd < 0) { g_linkOk = false; return false; }
+    
+    if (!sendPacket(CMD_REQ_STATUS, {})) { g_linkOk = false; return false; }
+
+    uint8_t cmd;
+    StmActuatorStatus status;
+    if (readResponse(1000, cmd, status) && cmd == CMD_REQ_STATUS) {
+        g_linkOk = true;
+        return true;
+    }
+    g_linkOk = false;
+    return false;
 }
 
 ActuatorSnapshot Actuator_GetState() {
-    return { g_fan.load(), g_valve.load(), g_siren.load() };
+    std::lock_guard<std::mutex> lock(g_mtx);
+    return { g_fan.load(), g_valve.load(), g_siren.load(),
+             g_fanSrc, g_valveSrc, g_sirenSrc, g_linkOk.load() };
 }
