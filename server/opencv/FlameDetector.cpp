@@ -510,7 +510,11 @@ bool FlameDetector::sameTarget(const Rect& a, const Rect& b)
     return distance <= reference * 0.75;
 }
 
-vector<DetectionBox> FlameDetector::updateTracks(const vector<Features>& detections)
+vector<DetectionBox> FlameDetector::updateTracks(
+    const vector<Features>& detections,
+    const cv::Size& frameSize,
+    std::uint64_t frameId,
+    std::int64_t timestampMs)
 {
     // 각 기존 트랙에 위치와 점수를 함께 고려한 최적 후보 하나를 연결한다.
     vector<bool> detectionUsed(detections.size(), false);
@@ -569,6 +573,9 @@ vector<DetectionBox> FlameDetector::updateTracks(const vector<Features>& detecti
         Track track;
         track.id = nextTrackId_++;
         track.box = detections[i].box;
+        track.firstBox = detections[i].box;
+        track.firstSeenFrameId = frameId;
+        track.firstSeenTimestampMs = timestampMs;
         track.hits = 1;
         track.strongHits = detections[i].score >= flame_config::CONFIRM_MIN_SCORE ? 1 : 0;
         track.score = detections[i].score;
@@ -600,6 +607,41 @@ vector<DetectionBox> FlameDetector::updateTracks(const vector<Features>& detecti
         box.trackId = track.id;
         box.type = DetectionType::FIRE;
         box.score = track.score;
+
+        const double firstPixelX =
+            static_cast<double>(track.firstBox.x) +
+            static_cast<double>(std::max(0, track.firstBox.width - 1)) * 0.5;
+        const double firstPixelY =
+            static_cast<double>(track.firstBox.y + std::max(0, track.firstBox.height - 1));
+        box.firstSeenPositionValid = !track.firstBox.empty();
+        box.firstSeenFrameId = track.firstSeenFrameId;
+        box.firstSeenTimestampMs = track.firstSeenTimestampMs;
+        box.firstSeenNormalizedX = std::clamp(
+            firstPixelX / std::max(1, frameSize.width - 1), 0.0, 1.0);
+        box.firstSeenNormalizedY = std::clamp(
+            firstPixelY / std::max(1, frameSize.height - 1), 0.0, 1.0);
+
+        if (track.areaHistory.size() >= 6)
+        {
+            const std::size_t sampleCount = std::min<std::size_t>(3, track.areaHistory.size() / 2);
+            double firstArea = 0.0;
+            double latestArea = 0.0;
+            for (std::size_t i = 0; i < sampleCount; ++i)
+            {
+                firstArea += track.areaHistory[i];
+                latestArea += track.areaHistory[track.areaHistory.size() - sampleCount + i];
+            }
+            firstArea /= sampleCount;
+            latestArea /= sampleCount;
+            box.areaChangeRatio = firstArea > 0.0 ?
+                (latestArea - firstArea) / firstArea : 0.0;
+            if (box.areaChangeRatio >= 0.20)
+                box.areaTrend = DetectionAreaTrend::GROWING;
+            else if (box.areaChangeRatio <= -0.20)
+                box.areaTrend = DetectionAreaTrend::SHRINKING;
+            else
+                box.areaTrend = DetectionAreaTrend::STABLE;
+        }
         box.strongFireEvidence = track.score >= 0.58;
         box.tinyCandidate = track.box.area() < flame_config::TINY_CANDIDATE_AREA;
         box.skinLikeCandidate = track.skinCoverage >= 0.35;
@@ -621,7 +663,10 @@ vector<DetectionBox> FlameDetector::updateTracks(const vector<Features>& detecti
     return result;
 }
 
-DetectionResult FlameDetector::detect(const Mat& inputFrame)
+DetectionResult FlameDetector::detect(
+    const Mat& inputFrame,
+    std::uint64_t frameId,
+    std::int64_t timestampMs)
 {
     DetectionResult result;
     if (inputFrame.empty()) return result;
@@ -691,7 +736,8 @@ DetectionResult FlameDetector::detect(const Mat& inputFrame)
 
     // MOG2 초기 배경 학습 전에는 후보를 계산하되 추적 결과를 외부로 내보내지 않는다.
     if (frameIndex_ >= flame_config::BACKGROUND_WARMUP_FRAMES)
-        result.boxes = updateTracks(accepted);
+        result.boxes = updateTracks(
+            accepted, frame.size(), frameId, timestampMs);
 
     result.candidate = !accepted.empty();
     result.detected = !result.boxes.empty();

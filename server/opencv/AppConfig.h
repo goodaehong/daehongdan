@@ -149,6 +149,22 @@ namespace flame_config
     constexpr const char* OPTIONAL_SVM_PATH = "flame_svm.xml";
 }
 
+// Persistent, warning-only camera blur/cover diagnosis used by the detection runtime.
+namespace camera_health_config
+{
+    // Run this low-priority diagnosis at 1 FPS on a small image. Fire/smoke inference
+    // keeps its own frequency and is not delayed by repeated blur calculations.
+    constexpr int ANALYSIS_WIDTH = 160;
+    constexpr int ANALYSIS_INTERVAL_MS = 1000;
+    constexpr double BLUR_LAPLACIAN_VARIANCE_THRESHOLD = 20.0;
+    constexpr int DARK_PIXEL_THRESHOLD = 12;
+    constexpr int BRIGHT_PIXEL_THRESHOLD = 248;
+    constexpr double DARK_PIXEL_RATIO_THRESHOLD = 0.70;
+    constexpr double BRIGHT_PIXEL_RATIO_THRESHOLD = 0.85;
+    constexpr int WARNING_PERSISTENCE_MS = 3000;
+    constexpr int HEALTHY_CLEAR_MS = 1000;
+}
+
 // 공개 D-Fire YOLOv8n 연기 NCNN 설정
 namespace smoke_config
 {

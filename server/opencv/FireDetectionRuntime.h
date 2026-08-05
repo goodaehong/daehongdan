@@ -14,6 +14,7 @@ struct FireRuntimeSnapshot
 {
     DetectionResult detection;
     FireAlarmStatus alarm;
+    CameraHealthStatus cameraHealth;
 
     bool hasResult = false;
     bool resultIsFresh = false;

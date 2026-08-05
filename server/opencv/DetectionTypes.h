@@ -7,6 +7,8 @@
 #include <vector>
 
 enum class DetectionType { FIRE, SMOKE };
+enum class DetectionAreaTrend { UNKNOWN, SHRINKING, STABLE, GROWING };
+enum class CameraHealthIssue { NONE, BLUR, OBSTRUCTION };
 
 // 카메라 WiseAI 메타데이터를 원본 영상 픽셀 좌표로 변환한 사람 객체다.
 struct PersonDetection
@@ -45,6 +47,18 @@ struct TrackPositionSample
     double normalizedY = 0.0;
 };
 
+// Warning-only camera image diagnosis. It never suppresses detections or creates ROI settings.
+struct CameraHealthStatus
+{
+    bool valid = false;
+    bool contaminationSuspected = false;
+    CameraHealthIssue issue = CameraHealthIssue::NONE;
+    double laplacianVariance = 0.0;
+    double darkPixelRatio = 0.0;
+    double brightPixelRatio = 0.0;
+    int consecutiveSuspectFrames = 0;
+};
+
 // 화염과 연기 검출기가 화면 표시 및 후속 판정에 공통으로 전달하는 박스다.
 struct DetectionBox
 {
@@ -67,6 +81,25 @@ struct DetectionBox
     double representativeNormalizedX = 0.0;
     double representativeNormalizedY = 0.0;
     std::vector<TrackPositionSample> positionHistory;
+
+    // Image-space motion estimate. Speed is normalized image distance per second, not m/s.
+    // Valid becomes true only after smoothed displacement and direction-consistency checks.
+    bool imageMotionValid = false;
+    double imageDirectionX = 0.0;
+    double imageDirectionY = 0.0;
+    double imageSpeedNormalizedPerSecond = 0.0;
+    std::int64_t imageMotionWindowMs = 0;
+
+    // 화재 트랙이 확정되기 전 최초 후보로 생성됐던 위치와 시각이다.
+    bool firstSeenPositionValid = false;
+    std::uint64_t firstSeenFrameId = 0;
+    std::int64_t firstSeenTimestampMs = 0;
+    double firstSeenNormalizedX = 0.0;
+    double firstSeenNormalizedY = 0.0;
+
+    // 최근 박스 면적 변화로 계산한 영상 기반 증가/감소 추세다.
+    DetectionAreaTrend areaTrend = DetectionAreaTrend::UNKNOWN;
+    double areaChangeRatio = 0.0;
 
     bool strongFireEvidence = false;
     bool tinyCandidate = false;
