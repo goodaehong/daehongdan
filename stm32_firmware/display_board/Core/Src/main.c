@@ -456,8 +456,10 @@ static void HandlePacket(uint8_t cmd, const uint8_t *data, uint8_t len)
 {
   if (cmd == CMD_UPDATE && len >= UPDATE_DATA_LEN)
   {
-    g_face      = data[0];
-    g_gasColor  = data[1];
+    /* faceShapes/faceColors/gasColors는 전부 3칸짜리 배열 - 패킷이 손상돼서 범위 밖 값이
+       들어오면 그대로 인덱스로 써서 HardFault 나던 것 방지 (체크섬은 단순 합산이라 약함) */
+    g_face      = (data[0] <= 2) ? data[0] : 2;
+    g_gasColor  = (data[1] <= 2) ? data[1] : 2;
     g_gas       = ((uint16_t)data[2] << 8) | data[3];
     g_temp      = data[4];
     g_humidity  = data[5];
