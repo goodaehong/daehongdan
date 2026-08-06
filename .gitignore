@@ -82,3 +82,4 @@ auto.*
 *.db
 # 스냅샷 이미지 (실행 중 생성되는 데이터)
 **/snapshots/
+**/snapshots/
