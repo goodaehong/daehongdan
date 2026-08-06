@@ -1,0 +1,232 @@
+#include "ServerLink.h"
+
+#include <QTcpSocket>
+//#include <QSslSocket>
+//#include <QSslError> // 사설 인증서 에러 처리를 위해 추가
+#include <QTimer>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QDateTime>
+
+namespace {
+constexpr int kControlTimeoutMs = 3000;
+}
+
+ServerLink::ServerLink(QObject *parent)
+    : QObject(parent)
+{
+    socket = new QTcpSocket(this);
+    connect(socket, &QTcpSocket::readyRead, this, &ServerLink::onReadyRead);
+    connect(socket, &QTcpSocket::connected, this, [this]() { emit connectionStateChanged(true); });
+    connect(socket, &QTcpSocket::disconnected, this, [this]() { emit connectionStateChanged(false); });
+    // socket = new QSslSocket(this);
+    // connect(socket, &QSslSocket::readyRead, this, &ServerLink::onReadyRead);
+    // // connected 대신 encrypted 사용: 암호화가 완료된 시점을 정확히 잡을 수 있음
+    // connect(socket, &QSslSocket::encrypted, this, [this]() { emit connectionStateChanged(true); });
+    // connect(socket, &QSslSocket::disconnected, this, [this]() { emit connectionStateChanged(false); });
+    // // 사설 인증서(Self-signed) 에러 무시 로직 추가
+    // connect(socket, &QSslSocket::sslErrors, this, [this](const QList<QSslError> &errors) {
+    //     socket->ignoreSslErrors();
+    // });
+}
+
+void ServerLink::connectToServer(const QString &host, quint16 port)
+{
+    socket->connectToHost(host, port);
+    // // 일반 연결이 아닌 암호화 연결 함수 사용
+    // socket->connectToHostEncrypted(host, port);
+}
+
+QString ServerLink::generateCmdId()
+{
+    return QString::number(QDateTime::currentMSecsSinceEpoch(), 36) + QString::number(++cmdCounter, 36);
+}
+
+QString ServerLink::sendControl(const QString &zone, const QString &target, const QString &action, const QString &admin)
+{
+    const QString cmdId = generateCmdId();
+
+    QJsonObject obj;
+    obj["type"] = "control";
+    obj["cmdId"] = cmdId;
+    obj["zone"] = zone;
+    obj["target"] = target;
+    obj["action"] = action;
+    obj["admin"] = admin;
+    obj["ts"] = QDateTime::currentSecsSinceEpoch();
+    sendLine(obj);
+
+    auto *timer = new QTimer(this);
+    timer->setSingleShot(true);
+    connect(timer, &QTimer::timeout, this, [this, cmdId, zone, target]() {
+        if (pendingCommands.remove(cmdId) > 0)
+            emit controlTimedOut(cmdId, zone, target);
+    });
+    pendingCommands.insert(cmdId, timer);
+    timer->start(kControlTimeoutMs);
+
+    return cmdId;
+}
+
+QString ServerLink::sendEvacuationTrigger(const QString &zone, const QString &admin)
+{
+    return sendEvacuationRequest("evacuation_trigger", "trigger", zone, admin);
+}
+
+QString ServerLink::sendEvacuationClear(const QString &zone, const QString &admin)
+{
+    return sendEvacuationRequest("evacuation_clear", "clear", zone, admin);
+}
+
+QString ServerLink::sendEvacuationRequest(const QString &type, const QString &mode,
+                                           const QString &zone, const QString &admin)
+{
+    const QString cmdId = generateCmdId();
+
+    QJsonObject obj;
+    obj["type"] = type;
+    obj["cmdId"] = cmdId;
+    obj["zone"] = zone;
+    obj["admin"] = admin;
+    obj["ts"] = QDateTime::currentSecsSinceEpoch();
+    sendLine(obj);
+
+    auto *timer = new QTimer(this);
+    timer->setSingleShot(true);
+    connect(timer, &QTimer::timeout, this, [this, cmdId, zone, mode]() {
+        if (pendingEvacuationCommands.remove(cmdId) > 0)
+            emit evacuationTimedOut(cmdId, zone, mode);
+    });
+    pendingEvacuationCommands.insert(cmdId, timer);
+    timer->start(kControlTimeoutMs);
+
+    return cmdId;
+}
+
+void ServerLink::sendWarningAck(const QString &zone, const QString &admin)
+{
+    QJsonObject obj;
+    obj["type"] = "warning_ack";
+    obj["zone"] = zone;
+    obj["admin"] = admin;
+    obj["ts"] = QDateTime::currentSecsSinceEpoch();
+    sendLine(obj);
+}
+
+QString ServerLink::sendQuery(const QString &target, const QJsonObject &extraParams)
+{
+    const QString reqId = generateCmdId(); // cmdId와 동일한 채번기 재사용 (고유하기만 하면 됨)
+
+    QJsonObject obj = extraParams;
+    obj["type"] = "query";
+    obj["reqId"] = reqId;
+    obj["target"] = target;
+    sendLine(obj);
+
+    return reqId;
+}
+
+void ServerLink::sendFalseAlarmReport(int channel, int frameId, const QString &admin)
+{
+    QJsonObject obj;
+    obj["type"] = "false_alarm_report";
+    obj["channel"] = channel;
+    obj["frameId"] = frameId;
+    obj["admin"] = admin;
+    sendLine(obj);
+}
+
+void ServerLink::sendLine(const QJsonObject &obj)
+{
+    const QByteArray line = QJsonDocument(obj).toJson(QJsonDocument::Compact) + "\n";
+    socket->write(line);
+}
+
+void ServerLink::onReadyRead()
+{
+    buffer.append(socket->readAll());
+
+    int newlineIndex;
+    while ((newlineIndex = buffer.indexOf('\n')) != -1) {
+        const QByteArray line = buffer.left(newlineIndex);
+        buffer.remove(0, newlineIndex + 1);
+        if (!line.trimmed().isEmpty())
+            handleLine(line);
+    }
+}
+
+void ServerLink::handleLine(const QByteArray &line)
+{
+    const QJsonDocument doc = QJsonDocument::fromJson(line);
+    if (!doc.isObject())
+        return;
+    const QJsonObject obj = doc.object();
+    const QString type = obj.value("type").toString();
+
+    if (type == "detection") {
+        QVector<DetectionBox> boxes;
+        for (const QJsonValue &v : obj.value("boxes").toArray()) {
+            const QJsonObject b = v.toObject();
+            DetectionBox box;
+            box.x = b.value("x").toInt();
+            box.y = b.value("y").toInt();
+            box.w = b.value("w").toInt();
+            box.h = b.value("h").toInt();
+            box.cls = b.value("cls").toString();
+            box.score = b.value("score").toDouble();
+            boxes.append(box);
+        }
+        emit detectionReceived(obj.value("channel").toInt(), obj.value("frameId").toInt(),
+                                obj.value("srcW").toInt(), obj.value("srcH").toInt(),
+                                obj.value("alarm").toBool(), boxes);
+    } else if (type == "sensor") {
+        // warnRemain은 warning 상태일 때만 서버가 채워 보냄. 없으면 -1로 "해당없음" 표시.
+        const int warnRemain = obj.contains("warnRemain") ? obj.value("warnRemain").toInt() : -1;
+        // evacuation: 0(평상)/1(대피 모드 발동 중). 필드 자체가 없는 구버전 서버는 0(평상)으로 취급.
+        const bool evacuationActive = obj.value("evacuation").toInt() != 0;
+        emit sensorReceived(obj.value("zone").toString(),
+                             qint64(obj.value("ts").toDouble()),
+                             obj.value("temp").toDouble(),
+                             obj.value("humidity").toDouble(),
+                             obj.value("gasPpm").toDouble(),
+                             obj.value("smokePpm").toDouble(),
+                             obj.value("flameVal").toDouble(),
+                             obj.value("state").toString(),
+                             obj.value("cause").toString(),
+                             warnRemain, evacuationActive);
+    } else if (type == "led_matrix_status") {
+        emit ledMatrixStatusReceived(obj.value("status").toInt());
+    } else if (type == "actuator_status") {
+        // link/fanSrc/valveSrc/sirenSrc는 서버가 추가하기로 한 필드라 구버전 서버에선 없을 수 있음
+        // -> 없으면 빈 문자열(=미상).
+        emit actuatorStatusReceived(obj.value("fan").toInt(), obj.value("valve").toInt(), obj.value("siren").toInt(),
+                                     obj.value("link").toString(), obj.value("fanSrc").toString(),
+                                     obj.value("valveSrc").toString(), obj.value("sirenSrc").toString());
+    } else if (type == "control_ack") {
+        const QString cmdId = obj.value("cmdId").toString();
+        QTimer *timer = pendingCommands.take(cmdId);
+        if (!timer)
+            return; // 이미 처리됐거나(중복 응답) 타임아웃된 명령 -> 무시
+        timer->stop();
+        timer->deleteLater();
+        emit controlResult(cmdId, obj.value("zone").toString(), obj.value("target").toString(),
+                            obj.value("result").toString(), obj.value("reason").toString());
+    } else if (type == "evacuation_ack") {
+        const QString cmdId = obj.value("cmdId").toString();
+        QTimer *timer = pendingEvacuationCommands.take(cmdId);
+        if (!timer)
+            return; // 이미 처리됐거나(중복 응답) 타임아웃된 명령 -> 무시
+        timer->stop();
+        timer->deleteLater();
+        emit evacuationResult(cmdId, obj.value("zone").toString(), obj.value("mode").toString(),
+                               obj.value("result").toString(), obj.value("reason").toString());
+    } else if (type == "query_result") {
+        const QString reqId = obj.value("reqId").toString();
+        const QString target = obj.value("target").toString();
+        if (obj.value("result").toString() == "failed")
+            emit queryFailed(reqId, obj.value("reason").toString());
+        else
+            emit queryResult(reqId, target, obj.value("rows").toArray());
+    }
+}

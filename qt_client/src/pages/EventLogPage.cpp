@@ -12,6 +12,8 @@
 #include <QPushButton>
 #include <QFrame>
 #include <QDateTime>
+#include <QJsonArray>
+#include <QJsonObject>
 
 namespace {
 const QString kCardBg = "#14141f";
@@ -20,6 +22,39 @@ const QString kTextPrimary = "#f5f5fa";
 const QString kTextSecondary = "#8d87a0";
 const QString kAccent = "#8b7cf6";
 const QStringList kZoneFilterNames = { "전체", "A구역", "B구역" };
+const QStringList kSeverityFilterNames = { "전체", "안전", "경고", "위험" };
+const QStringList kPeriodFilterNames = { "전체 기간", "최근 1시간", "최근 24시간", "오늘" };
+const QStringList kStatusFilterNames = { "전체", "해결됨", "오탐 처리됨" };
+
+const QString kComboStyle = QString(
+    "QComboBox { background-color:%1; color:%2; border:1px solid %3; border-radius:6px; padding:4px 8px; }"
+    "QComboBox:hover { border:1px solid %4; }"
+    "QComboBox::drop-down { border:none; width:20px; }"
+    "QComboBox QAbstractItemView { background-color:%1; color:%2; border:1px solid %3; selection-background-color:%4; }")
+    .arg(kCardBg, kTextPrimary, kCardBorder, kAccent);
+
+const QString kLineEditStyle = QString(
+    "QLineEdit { background-color:%1; color:%2; border:1px solid %3; border-radius:6px; padding:4px 8px; }"
+    "QLineEdit:focus { border:1px solid %4; }")
+    .arg(kCardBg, kTextPrimary, kCardBorder, kAccent);
+
+// 위험도별 행 배경 강조. 안전/정보는 강조 없음(투명), 경고/위험만 은은하게.
+QColor rowTintForSeverity(const QString &severity)
+{
+    if (severity == "위험") return QColor(248, 113, 113, 40);
+    if (severity == "경고") return QColor(251, 191, 36, 34);
+    return QColor(0, 0, 0, 0);
+}
+
+// 대응 결과 문구로 관리자의 실제 대응 여부를 색으로 구분(휴리스틱: 문구 내 키워드 기준).
+QColor responseTextColor(const QString &response)
+{
+    if (response.contains("무응답") || response.contains("실패"))
+        return QColor("#f87171");
+    if (response.contains("확인") || response.contains("완료") || response.contains("클릭"))
+        return QColor("#34d399");
+    return QColor(kTextPrimary);
+}
 }
 
 EventLogPage::EventLogPage(QWidget *parent)
@@ -32,26 +67,55 @@ EventLogPage::EventLogPage(QWidget *parent)
     // left column: filter + log list (top), gas graph (bottom)
     auto *leftCol = new QVBoxLayout;
 
-    auto *filterBar = new QHBoxLayout;
-    zoneFilterCombo = new QComboBox(this);
-    zoneFilterCombo->addItems(kZoneFilterNames);
+    auto *filterRow1 = new QHBoxLayout;
     auto *zoneLabel = new QLabel("구역:", this);
     zoneLabel->setStyleSheet(QString("color:%1;").arg(kTextSecondary));
-    filterBar->addWidget(zoneLabel);
-    filterBar->addWidget(zoneFilterCombo);
+    zoneFilterCombo = new QComboBox(this);
+    zoneFilterCombo->addItems(kZoneFilterNames);
+    zoneFilterCombo->setStyleSheet(kComboStyle);
+    filterRow1->addWidget(zoneLabel);
+    filterRow1->addWidget(zoneFilterCombo);
 
     searchEdit = new QLineEdit(this);
-    searchEdit->setPlaceholderText("감지 내용 검색...");
-    filterBar->addWidget(searchEdit, 1);
+    searchEdit->setPlaceholderText("감지 내용/대응 결과 검색...");
+    searchEdit->setStyleSheet(kLineEditStyle);
+    filterRow1->addWidget(searchEdit, 1);
 
     auto *searchBtn = new QPushButton("조회", this);
     searchBtn->setStyleSheet(QString("background-color:%1; color:white; border-radius:6px; padding:6px 14px;").arg(kAccent));
-    filterBar->addWidget(searchBtn);
-    leftCol->addLayout(filterBar);
+    filterRow1->addWidget(searchBtn);
+    leftCol->addLayout(filterRow1);
+
+    auto *filterRow2 = new QHBoxLayout;
+    auto *severityLabel = new QLabel("위험도:", this);
+    severityLabel->setStyleSheet(QString("color:%1;").arg(kTextSecondary));
+    severityFilterCombo = new QComboBox(this);
+    severityFilterCombo->addItems(kSeverityFilterNames);
+    severityFilterCombo->setStyleSheet(kComboStyle);
+    filterRow2->addWidget(severityLabel);
+    filterRow2->addWidget(severityFilterCombo);
+
+    auto *periodLabel = new QLabel("기간:", this);
+    periodLabel->setStyleSheet(QString("color:%1;").arg(kTextSecondary));
+    periodFilterCombo = new QComboBox(this);
+    periodFilterCombo->addItems(kPeriodFilterNames);
+    periodFilterCombo->setStyleSheet(kComboStyle);
+    filterRow2->addWidget(periodLabel);
+    filterRow2->addWidget(periodFilterCombo);
+
+    auto *statusLabel = new QLabel("처리 상태:", this);
+    statusLabel->setStyleSheet(QString("color:%1;").arg(kTextSecondary));
+    statusFilterCombo = new QComboBox(this);
+    statusFilterCombo->addItems(kStatusFilterNames);
+    statusFilterCombo->setStyleSheet(kComboStyle);
+    filterRow2->addWidget(statusLabel);
+    filterRow2->addWidget(statusFilterCombo);
+    filterRow2->addStretch();
+    leftCol->addLayout(filterRow2);
     leftCol->addSpacing(8);
 
-    eventTable = new QTableWidget(0, 4, this);
-    eventTable->setHorizontalHeaderLabels({ "시간", "구역", "감지 내용", "대응 결과" });
+    eventTable = new QTableWidget(0, 5, this);
+    eventTable->setHorizontalHeaderLabels({ "시간", "구역", "감지 내용", "대응 결과", "처리상태" });
     eventTable->horizontalHeader()->setStretchLastSection(true);
     eventTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     eventTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -68,6 +132,8 @@ EventLogPage::EventLogPage(QWidget *parent)
     leftCol->addWidget(graphLabel);
     gasGraph = new GasGraphWidget(this);
     gasGraph->setLineColor(QColor(kAccent));
+    gasGraph->setUnit("ppm");
+    gasGraph->setThresholds(200, 2000); // MQ-9 LPG 곡선 기준: 경고(전광판 주황) 200ppm / 위험 2000ppm (judgement.cpp)
     leftCol->addWidget(gasGraph, 2);
 
     mainLayout->addLayout(leftCol, 2);
@@ -140,17 +206,27 @@ EventLogPage::EventLogPage(QWidget *parent)
 
     connect(searchBtn, &QPushButton::clicked, this, &EventLogPage::applyFilter);
     connect(zoneFilterCombo, &QComboBox::currentIndexChanged, this, &EventLogPage::applyFilter);
+    connect(severityFilterCombo, &QComboBox::currentIndexChanged, this, &EventLogPage::applyFilter);
+    connect(periodFilterCombo, &QComboBox::currentIndexChanged, this, &EventLogPage::applyFilter);
+    connect(statusFilterCombo, &QComboBox::currentIndexChanged, this, &EventLogPage::applyFilter);
     connect(searchEdit, &QLineEdit::returnPressed, this, &EventLogPage::applyFilter);
     connect(eventTable, &QTableWidget::cellClicked, this, &EventLogPage::showDetail);
 }
 
 void EventLogPage::updateZone(const Zone &zone)
 {
-    const QVector<double> gasSeries =
-        zone.state == ZoneState::Safe ? QVector<double>{ 2, 2.5, 3, 2.8, 3.2, 3 }
-        : zone.state == ZoneState::Warning ? QVector<double>{ 3, 4, 6, 8, 7, 6 }
-                                            : QVector<double>{ 3, 6, 10, 15, 13, 12 };
-    gasGraph->setData(gasSeries, { "12:00", "23:00" });
+    if (zone.hasLiveSensorData && zone.gasHistory.size() >= 2) {
+        // 실측 이력이 쌓여있으면 그걸로 실시간 추이를 그린다.
+        gasGraph->setData(zone.gasHistory, { zone.gasHistoryLabels.first(), zone.gasHistoryLabels.last() });
+    } else {
+        // 실측 데이터가 아직 없는 구역(DEMO)은 기존처럼 상태 기반 가짜 패턴을 보여준다.
+        // 값 범위는 judgement.cpp 실측 임계값(경고 200ppm / 위험 2000ppm)에 맞춰 조정.
+        const QVector<double> gasSeries =
+            zone.state == ZoneState::Safe ? QVector<double>{ 30, 35, 32, 38, 34, 36 }
+            : zone.state == ZoneState::Warning ? QVector<double>{ 60, 120, 180, 220, 190, 150 }
+                                                : QVector<double>{ 300, 900, 1800, 2500, 2200, 1900 };
+        gasGraph->setData(gasSeries, { "12:00", "23:00" });
+    }
     zoneFilterCombo->setCurrentText(zone.name);
 }
 
@@ -159,7 +235,8 @@ void EventLogPage::addEntry(const QString &zone, const QString &detection, const
                              const QString &sensorCombo, const QString &duration)
 {
     EventEntry entry;
-    entry.time = QDateTime::currentDateTime().toString("HH:mm:ss");
+    entry.timestamp = QDateTime::currentDateTime();
+    entry.time = entry.timestamp.toString("HH:mm:ss");
     entry.zone = zone;
     entry.detection = detection;
     entry.response = response;
@@ -168,14 +245,90 @@ void EventLogPage::addEntry(const QString &zone, const QString &detection, const
     entry.sensorCombo = sensorCombo;
     entry.status = "해결됨";
     entry.duration = duration;
+    appendRow(entry);
+    applyFilter(); // 새 항목도 현재 필터 조건에 맞춰 바로 숨김/표시 반영
+}
+
+void EventLogPage::loadEntriesFromServer(const QJsonArray &rows)
+{
+    eventEntries.clear();
+    eventTable->setRowCount(0);
+
+    for (const QJsonValue &v : rows) {
+        const QJsonObject row = v.toObject();
+
+        EventEntry entry;
+        entry.timestamp = QDateTime::fromSecsSinceEpoch(qint64(row.value("ts").toDouble()));
+        entry.time = entry.timestamp.toString("HH:mm:ss");
+        // 서버는 zone을 "A" 한 글자로 주는데, 필터 콤보/화면 표기는 "A구역" 형태라 맞춰준다.
+        const QString zoneCode = row.value("zone").toString();
+        entry.zone = zoneCode.isEmpty() ? zoneCode : zoneCode + "구역";
+
+        const QString causePhrase = causeText(row.value("cause").toString());
+        if (!causePhrase.isEmpty()) {
+            entry.detection = causePhrase;
+        } else {
+            // cause가 없는 이벤트(수동제어/해제 등)는 category 코드를 한글 문구로 변환.
+            const QString category = row.value("category").toString();
+            entry.detection = category == "resolve" ? "위험 해제"
+                             : category == "manual_control" ? "관리자 수동 제어"
+                             : category == "warning" ? "경고 상태 감지"
+                             : category == "danger" ? "위험 상태 감지"
+                             : category.isEmpty() ? "-" : category;
+        }
+        entry.response = row.value("response").toString();
+        const QString admin = row.value("admin").toString();
+        entry.admin = admin.isEmpty() ? "시스템(자동)" : admin;
+
+        // 서버 severity는 "safe"/"warning"/"danger" 코드값 — Qt 표시 문구로 변환.
+        const QString severityCode = row.value("severity").toString();
+        entry.severity = severityCode == "danger" ? "위험"
+                        : severityCode == "warning" ? "경고"
+                        : severityCode == "safe" ? "안전"
+                        : severityCode.isEmpty() ? "정보" : severityCode;
+
+        entry.sensorCombo = row.value("sensorCombo").toString();
+        if (entry.sensorCombo.isEmpty())
+            entry.sensorCombo = "-";
+        entry.status = row.value("status").toString();
+        if (entry.status.isEmpty())
+            entry.status = "해결됨";
+
+        const double durationMs = row.value("durationMs").toDouble();
+        entry.duration = durationMs > 0 ? QString::number(durationMs / 1000.0, 'f', 0) + "초" : "-";
+
+        appendRow(entry);
+    }
+
+    applyFilter();
+}
+
+void EventLogPage::appendRow(const EventEntry &entry)
+{
     eventEntries.append(entry);
 
     const int row = eventTable->rowCount();
     eventTable->insertRow(row);
-    eventTable->setItem(row, 0, new QTableWidgetItem(entry.time));
-    eventTable->setItem(row, 1, new QTableWidgetItem(entry.zone));
-    eventTable->setItem(row, 2, new QTableWidgetItem(entry.detection));
-    eventTable->setItem(row, 3, new QTableWidgetItem(entry.response));
+
+    auto *timeItem = new QTableWidgetItem(entry.time);
+    auto *zoneItem = new QTableWidgetItem(entry.zone);
+    auto *detectionItem = new QTableWidgetItem(entry.detection);
+    auto *responseItem = new QTableWidgetItem(entry.response);
+    auto *statusItem = new QTableWidgetItem(entry.status);
+
+    const QColor rowTint = rowTintForSeverity(entry.severity);
+    QTableWidgetItem *items[] = { timeItem, zoneItem, detectionItem, responseItem, statusItem };
+    for (QTableWidgetItem *item : items) {
+        if (rowTint.alpha() > 0)
+            item->setBackground(rowTint);
+    }
+    responseItem->setForeground(responseTextColor(entry.response));
+
+    eventTable->setItem(row, 0, timeItem);
+    eventTable->setItem(row, 1, zoneItem);
+    eventTable->setItem(row, 2, detectionItem);
+    eventTable->setItem(row, 3, responseItem);
+    eventTable->setItem(row, 4, statusItem);
     eventTable->scrollToBottom();
 }
 
@@ -206,18 +359,46 @@ void EventLogPage::markFalseAlarm()
         return;
     eventEntries[selectedEventRow].status = "오탐 처리됨";
     detailStatusValue->setText("오탐 처리됨");
+    if (auto *item = eventTable->item(selectedEventRow, 4))
+        item->setText("오탐 처리됨");
 }
 
 void EventLogPage::applyFilter()
 {
     const QString zone = zoneFilterCombo->currentText();
+    const QString severityFilter = severityFilterCombo->currentText();
+    const QString periodFilter = periodFilterCombo->currentText();
+    const QString statusFilter = statusFilterCombo->currentText();
     const QString keyword = searchEdit->text().trimmed();
+    const QDateTime now = QDateTime::currentDateTime();
 
-    for (int row = 0; row < eventTable->rowCount(); ++row) {
-        const bool zoneMatch = (zone == "전체") || (eventTable->item(row, 1)->text() == zone);
+    for (int row = 0; row < eventTable->rowCount() && row < eventEntries.size(); ++row) {
+        const EventEntry &entry = eventEntries[row];
+
+        const bool zoneMatch = (zone == "전체") || (entry.zone == zone);
+
+        bool severityMatch = true;
+        if (severityFilter != "전체") {
+            // "정보"는 위험도 표기가 없는 성공/확인성 로그라 "안전"과 같은 취급으로 묶는다.
+            severityMatch = severityFilter == "안전"
+                ? (entry.severity == "안전" || entry.severity == "정보")
+                : (entry.severity == severityFilter);
+        }
+
+        bool periodMatch = true;
+        if (periodFilter == "최근 1시간")
+            periodMatch = entry.timestamp.secsTo(now) <= 3600;
+        else if (periodFilter == "최근 24시간")
+            periodMatch = entry.timestamp.secsTo(now) <= 24 * 3600;
+        else if (periodFilter == "오늘")
+            periodMatch = entry.timestamp.date() == now.date();
+
+        const bool statusMatch = (statusFilter == "전체") || (entry.status == statusFilter);
+
         const bool keywordMatch = keyword.isEmpty()
-            || eventTable->item(row, 2)->text().contains(keyword, Qt::CaseInsensitive)
-            || eventTable->item(row, 3)->text().contains(keyword, Qt::CaseInsensitive);
-        eventTable->setRowHidden(row, !(zoneMatch && keywordMatch));
+            || entry.detection.contains(keyword, Qt::CaseInsensitive)
+            || entry.response.contains(keyword, Qt::CaseInsensitive);
+
+        eventTable->setRowHidden(row, !(zoneMatch && severityMatch && periodMatch && statusMatch && keywordMatch));
     }
 }

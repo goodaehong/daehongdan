@@ -72,6 +72,8 @@ drivers/gas_sensor/.tmp_versions/
 drivers/gas_sensor/*.dtbo
 drivers/gas_sensor/Module.symvers
 
+# Windows shell folder settings
+desktop.ini
 # TLS 인증서·키 (개인키는 커밋 금지)
 *.key
 *.crt
