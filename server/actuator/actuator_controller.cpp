@@ -20,6 +20,7 @@ static std::string g_fanSrc = "auto";
 static std::string g_valveSrc = "auto";
 static std::string g_sirenSrc = "auto";
 static std::atomic<bool> g_linkOk{false};
+static std::string g_linkReason = "UART 열려있지 않음";
 
 static std::mutex g_mtx;
 
@@ -103,6 +104,8 @@ bool Actuator_Init(const char* devPath) {
     g_serial_fd = open(devPath, O_RDWR | O_NOCTTY);
     if (g_serial_fd < 0) {
         std::cerr << "[오류] UART 열기 실패: " << g_devPath << std::endl;
+        g_linkOk = false;
+        g_linkReason = "UART 열려있지 않음";
         return false;
     }
 
@@ -123,6 +126,9 @@ bool Actuator_Init(const char* devPath) {
     options.c_oflag &= ~OPOST;
 
     tcsetattr(g_serial_fd, TCSANOW, &options);
+
+    g_linkOk = true;
+    g_linkReason = "";
     std::cout << "[Actuator] UART 연결 성공 (" << g_devPath << ")" << std::endl;
     return true;
 }
@@ -178,22 +184,32 @@ bool Actuator_Apply(const Response& r, const std::string& src) {
 
 bool Actuator_Poll() {
     std::lock_guard<std::mutex> lock(g_mtx);
-    if (g_serial_fd < 0) { g_linkOk = false; return false; }
+    if (g_serial_fd < 0) { 
+        g_linkOk = false; 
+        g_linkReason = "UART 열려있지 않음";
+        return false; 
+    }
     
-    if (!sendPacket(CMD_REQ_STATUS, {})) { g_linkOk = false; return false; }
+    if (!sendPacket(CMD_REQ_STATUS, {})) { 
+        g_linkOk = false; 
+        g_linkReason = "STM 응답 없음"; 
+        return false; 
+    }
 
     uint8_t cmd;
     StmActuatorStatus status;
     if (readResponse(1000, cmd, status) && cmd == CMD_REQ_STATUS) {
         g_linkOk = true;
+        g_linkReason = "";
         return true;
     }
     g_linkOk = false;
+    g_linkReason = "STM 응답 없음";
     return false;
 }
 
 ActuatorSnapshot Actuator_GetState() {
     std::lock_guard<std::mutex> lock(g_mtx);
     return { g_fan.load(), g_valve.load(), g_siren.load(),
-             g_fanSrc, g_valveSrc, g_sirenSrc, g_linkOk.load() };
+             g_fanSrc, g_valveSrc, g_sirenSrc, g_linkOk.load(), g_linkReason };
 }

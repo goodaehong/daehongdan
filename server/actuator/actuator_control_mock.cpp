@@ -73,5 +73,5 @@ bool Actuator_Poll() {
 ActuatorSnapshot Actuator_GetState() {
     std::lock_guard<std::mutex> lock(g_mtx);
     return { g_fan.load(), g_valve.load(), g_siren.load(),
-            g_fanSrc, g_valveSrc, g_sirenSrc, g_linkOk.load() };
+            g_fanSrc, g_valveSrc, g_sirenSrc, g_linkOk.load(), "" };
 }

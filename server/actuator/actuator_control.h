@@ -33,6 +33,7 @@ struct ActuatorSnapshot {
     int fan, valve, siren;
     std::string fanSrc, valveSrc, sirenSrc;
     bool linkOk; 
+    std::string linkReason;
 };
 
 // 시작 시 1회. UART 포트 열기. 실패해도 서버는 계속 감
