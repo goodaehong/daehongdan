@@ -69,6 +69,41 @@ QString ServerLink::sendControl(const QString &zone, const QString &target, cons
     return cmdId;
 }
 
+QString ServerLink::sendEvacuationTrigger(const QString &zone, const QString &admin)
+{
+    return sendEvacuationRequest("evacuation_trigger", "trigger", zone, admin);
+}
+
+QString ServerLink::sendEvacuationClear(const QString &zone, const QString &admin)
+{
+    return sendEvacuationRequest("evacuation_clear", "clear", zone, admin);
+}
+
+QString ServerLink::sendEvacuationRequest(const QString &type, const QString &mode,
+                                           const QString &zone, const QString &admin)
+{
+    const QString cmdId = generateCmdId();
+
+    QJsonObject obj;
+    obj["type"] = type;
+    obj["cmdId"] = cmdId;
+    obj["zone"] = zone;
+    obj["admin"] = admin;
+    obj["ts"] = QDateTime::currentSecsSinceEpoch();
+    sendLine(obj);
+
+    auto *timer = new QTimer(this);
+    timer->setSingleShot(true);
+    connect(timer, &QTimer::timeout, this, [this, cmdId, zone, mode]() {
+        if (pendingEvacuationCommands.remove(cmdId) > 0)
+            emit evacuationTimedOut(cmdId, zone, mode);
+    });
+    pendingEvacuationCommands.insert(cmdId, timer);
+    timer->start(kControlTimeoutMs);
+
+    return cmdId;
+}
+
 void ServerLink::sendWarningAck(const QString &zone, const QString &admin)
 {
     QJsonObject obj;
@@ -148,6 +183,8 @@ void ServerLink::handleLine(const QByteArray &line)
     } else if (type == "sensor") {
         // warnRemain은 warning 상태일 때만 서버가 채워 보냄. 없으면 -1로 "해당없음" 표시.
         const int warnRemain = obj.contains("warnRemain") ? obj.value("warnRemain").toInt() : -1;
+        // evacuation: 0(평상)/1(대피 모드 발동 중). 필드 자체가 없는 구버전 서버는 0(평상)으로 취급.
+        const bool evacuationActive = obj.value("evacuation").toInt() != 0;
         emit sensorReceived(obj.value("zone").toString(),
                              qint64(obj.value("ts").toDouble()),
                              obj.value("temp").toDouble(),
@@ -157,7 +194,7 @@ void ServerLink::handleLine(const QByteArray &line)
                              obj.value("flameVal").toDouble(),
                              obj.value("state").toString(),
                              obj.value("cause").toString(),
-                             warnRemain);
+                             warnRemain, evacuationActive);
     } else if (type == "led_matrix_status") {
         emit ledMatrixStatusReceived(obj.value("status").toInt());
     } else if (type == "actuator_status") {
@@ -175,6 +212,15 @@ void ServerLink::handleLine(const QByteArray &line)
         timer->deleteLater();
         emit controlResult(cmdId, obj.value("zone").toString(), obj.value("target").toString(),
                             obj.value("result").toString(), obj.value("reason").toString());
+    } else if (type == "evacuation_ack") {
+        const QString cmdId = obj.value("cmdId").toString();
+        QTimer *timer = pendingEvacuationCommands.take(cmdId);
+        if (!timer)
+            return; // 이미 처리됐거나(중복 응답) 타임아웃된 명령 -> 무시
+        timer->stop();
+        timer->deleteLater();
+        emit evacuationResult(cmdId, obj.value("zone").toString(), obj.value("mode").toString(),
+                               obj.value("result").toString(), obj.value("reason").toString());
     } else if (type == "query_result") {
         const QString reqId = obj.value("reqId").toString();
         const QString target = obj.value("target").toString();

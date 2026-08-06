@@ -38,12 +38,16 @@ public:
     // 특정 액추에이터(fan/valve/siren) 한 줄만 "처리 중.../응답 없음" 등으로 잠깐 덮어쓴다.
     // 다음 실제 actuator_status가 오면(성공 시 명령 직후 자동으로 옴) 정상 값으로 되돌아간다.
     void setActuatorRowStatus(const QString &target, const QString &text, const QString &color);
+    // 서버 sensor 메시지의 evacuation 필드 반영. 전 구역 공통 상태라 zone 전환과 무관하게 항상 최신값.
+    // 버튼 문구를 "대피 모드 발동"/"대피 모드 해제"로 전환한다.
+    void setEvacuationActive(bool active);
 
 signals:
     void demoStateRequested(ZoneState state);
-    // target: "fan"/"valve"/"siren"/"evacuation". action: ControlPage와 동일한 값 체계
-    // (off/low/mid/high, close/open, on/off, trigger). title은 로그/상태 표시용 문구.
+    // target: "fan"/"valve"/"siren". action: off/low/mid/high, close/open, on/off. title은 로그/상태 표시용 문구.
     void controlActionRequested(const QString &target, const QString &action, const QString &title);
+    // true=발동 요청, false=해제 요청. 대피 모드는 별도 메시지 타입(evacuation_trigger/clear)이라 분리.
+    void evacuationActionRequested(bool activate);
 
 private:
     void updateElapsedLabel();
@@ -82,6 +86,7 @@ private:
     bool channelConnected[4] = { false, false, false, false };
 
     QLabel *actuatorLinkLabel; // "● 연결됨"/"● 연결 끊김"/"확인 중" (STM보드(1) 공통)
+    QLabel *actuatorLinkInfoIcon; // 위 상태에 마우스 올리면 이유를 툴팁으로 보여주는 "ⓘ" 아이콘
     // "자동(평상시)" vs "자동(위험 대응)" 구분에 쓰는 구역 상태 캐시.
     ZoneState lastKnownZoneState = ZoneState::Safe;
     QString lastFanSrc, lastValveSrc, lastSirenSrc; // 마지막 actuator_status의 소스 캐시("auto"/"manual"/"")
@@ -99,6 +104,9 @@ private:
     QVector<QPushButton *> sirenCtrlButtons; // [0]=OFF [1]=ON
     QLabel *commandStatusLabel = nullptr;
     QTimer *statusClearTimer = nullptr;
+
+    QPushButton *evacuationButton = nullptr;
+    bool evacuationActive = false;
 
     QList<QPushButton *> demoStateButtons;
 };

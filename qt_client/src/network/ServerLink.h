@@ -27,6 +27,9 @@ public:
 
     // 반환값: cmdId (응답 매칭용, controlResult/controlTimedOut 시그널에서 다시 옴)
     QString sendControl(const QString &zone, const QString &target, const QString &action, const QString &admin);
+    // 대피 모드 발동/해제. zone은 "발생 구역 표시용"일 뿐 실제 적용은 전 구역. 응답은 evacuationResult/evacuationTimedOut.
+    QString sendEvacuationTrigger(const QString &zone, const QString &admin);
+    QString sendEvacuationClear(const QString &zone, const QString &admin);
     void sendFalseAlarmReport(int channel, int frameId, const QString &admin);
     // 관리자가 경고 팝업의 "확인"을 눌렀을 때만 호출. 무응답 자동 전환은 서버가 자체 타이머로 판단한다.
     void sendWarningAck(const QString &zone, const QString &admin);
@@ -43,9 +46,11 @@ signals:
     // cause: server/judgement.h Cause 네임스페이스 값(gas/smoke_visual/fire_confirmed 등). safe면 빈 문자열.
     // warnRemain: warning 상태일 때만 서버가 채워 보냄(무응답 자동 전환까지 남은 초). 그 외엔 -1.
     // flameVal: 불꽃센서(DFR0076) 전압(V). 클수록 강함.
+    // evacuationActive: 대피 모드 발동 중 여부(전 구역 공통 상태). 1초마다 오는 sensor 메시지에 실려서
+    // Qt가 재접속해도 자동으로 동기화된다.
     void sensorReceived(const QString &zone, qint64 ts, double temp, double humidity,
                          double gasPpm, double smokePpm, double flameVal, const QString &state,
-                         const QString &cause, int warnRemain);
+                         const QString &cause, int warnRemain, bool evacuationActive);
     void ledMatrixStatusReceived(int status);
     // link: "ok"/"down" (STM보드(1) 연결 상태, fan/valve/siren 공통 — 한 보드에서 오는 값이라 개별 구분 불가).
     // fanSrc/valveSrc/sirenSrc: 각각 "auto"/"manual" (액추에이터별 자동/수동, 위험 시 셋 다 자동으로
@@ -56,6 +61,11 @@ signals:
     void controlResult(const QString &cmdId, const QString &zone, const QString &target,
                         const QString &result, const QString &reason);
     void controlTimedOut(const QString &cmdId, const QString &zone, const QString &target);
+
+    // mode: "trigger"/"clear". evacuation_ack 하나로 발동·해제 둘 다 응답이 옴.
+    void evacuationResult(const QString &cmdId, const QString &zone, const QString &mode,
+                           const QString &result, const QString &reason);
+    void evacuationTimedOut(const QString &cmdId, const QString &zone, const QString &mode);
 
     // rows 구조는 target별로 다름 (명세서 3-1/3-2 참고). reqId로 어느 sendQuery() 응답인지 매칭.
     void queryResult(const QString &reqId, const QString &target, const QJsonArray &rows);
@@ -68,11 +78,15 @@ private:
     void handleLine(const QByteArray &line);
     void sendLine(const QJsonObject &obj);
     QString generateCmdId();
+    QString sendEvacuationRequest(const QString &type, const QString &mode,
+                                   const QString &zone, const QString &admin);
 
     QTcpSocket *socket;
     //QSslSocket *socket;
     QByteArray buffer;
     QMap<QString, QTimer *> pendingCommands;
+    // control과 별개 맵을 써서 evacuation_ack/타임아웃을 다른 시그널로 명확히 구분해 내보낸다.
+    QMap<QString, QTimer *> pendingEvacuationCommands;
     int cmdCounter = 0;
 };
 

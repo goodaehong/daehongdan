@@ -37,6 +37,7 @@ private:
     QWidget *createTopBar();
     QWidget *createSubTabBar();
     QWidget *createDangerBanner();
+    QWidget *createEvacuationBanner();
 
     void switchTab(int index);
     void switchZone(int index);
@@ -45,6 +46,8 @@ private:
     void showWarningAlert(const QString &zoneName, const QString &zoneId, const QString &cause, int warnRemain);
     // 위험 배너 + 화면 가장자리 글로우 + 모니터링 탭 강조. zones 상태가 바뀌거나 탭 전환할 때마다 호출.
     void updateDangerIndicators();
+    // 대피 모드는 zone과 무관한 전 구역 공통 상태라 어느 탭/구역을 보고 있든 항상 보이는 배너로 표시.
+    void updateEvacuationBanner();
 
     QStackedWidget *stack;
     QList<QPushButton *> tabButtons;
@@ -61,6 +64,10 @@ private:
     QPushButton *dangerBanner = nullptr;  // 위험 구역 있으면 상단에 표시, 클릭 시 해당 구역 모니터링으로 이동
     int dangerBannerZoneIndex = -1;
     DangerGlowOverlay *dangerGlow = nullptr; // 가장자리 은은한 빨간 글로우(숨쉬듯 펄스)
+
+    // 서버 sensor 메시지의 evacuation 필드로 갱신되는 전 구역 공통 상태(zone별 아님).
+    QPushButton *evacuationBanner = nullptr;
+    bool evacuationActive = false;
 
     MonitorPage *monitorPage;
     EventLogPage *eventLogPage;

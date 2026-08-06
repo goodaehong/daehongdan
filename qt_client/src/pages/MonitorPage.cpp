@@ -18,6 +18,7 @@ MonitorPage::MonitorPage(QWidget *parent)
     statusPanel = new StatusPanel(this);
     connect(statusPanel, &StatusPanel::demoStateRequested, this, &MonitorPage::demoStateRequested);
     connect(statusPanel, &StatusPanel::controlActionRequested, this, &MonitorPage::controlActionRequested);
+    connect(statusPanel, &StatusPanel::evacuationActionRequested, this, &MonitorPage::evacuationActionRequested);
     layout->addWidget(statusPanel);
 
     auto *grid = new QGridLayout;
@@ -93,6 +94,11 @@ void MonitorPage::showControlStatus(const QString &text, const QString &color)
 void MonitorPage::setActuatorRowStatus(const QString &target, const QString &text, const QString &color)
 {
     statusPanel->setActuatorRowStatus(target, text, color);
+}
+
+void MonitorPage::setEvacuationActive(bool active)
+{
+    statusPanel->setEvacuationActive(active);
 }
 
 void MonitorPage::showEnlargedView(int channel)

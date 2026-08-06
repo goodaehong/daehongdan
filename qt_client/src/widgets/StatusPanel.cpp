@@ -266,9 +266,16 @@ StatusPanel::StatusPanel(QWidget *parent)
     actuatorLinkLabel = new QLabel(actuatorCardWidget);
     actuatorLinkLabel->setStyleSheet(QString("color:%1; font-size:11px; border:none;").arg(kTextSecondary));
     actuatorLinkLabel->setText("● 확인 중");
+
+    actuatorLinkInfoIcon = new QLabel("ⓘ", actuatorCardWidget);
+    actuatorLinkInfoIcon->setStyleSheet(QString("color:%1; font-size:11px; border:none;").arg(kTextSecondary));
+    actuatorLinkInfoIcon->setToolTip("아직 서버로부터 연결 상태를 받지 못했습니다.");
+    actuatorLinkInfoIcon->setCursor(Qt::WhatsThisCursor);
+
     actuatorHeaderRow->addWidget(realtimeLabel);
     actuatorHeaderRow->addStretch();
     actuatorHeaderRow->addWidget(actuatorLinkLabel);
+    actuatorHeaderRow->addWidget(actuatorLinkInfoIcon);
     actuatorLayout->addLayout(actuatorHeaderRow);
 
     // 자동/수동 모드는 서버가 액추에이터별로 따로 보내주기로 했으나 아직 미배포 -> 지금은 각 줄에
@@ -333,19 +340,23 @@ StatusPanel::StatusPanel(QWidget *parent)
     addControlRow("밸브", { "잠금", "개방" }, { "close", "open" }, "valve", valveCtrlButtons);
     addControlRow("사이렌", { "OFF", "ON" }, { "off", "on" }, "siren", sirenCtrlButtons);
 
-    auto *evacBtn = new QPushButton("대피 모드 발동", controlCardWidget);
-    evacBtn->setCursor(Qt::PointingHandCursor);
-    evacBtn->setFixedHeight(36);
-    evacBtn->setStyleSheet(
-        "QPushButton { background-color:#ef4444; color:white; border:none; border-radius:6px; font-size:13px; font-weight:bold; }"
-        "QPushButton:hover { background-color:#dc2626; }");
-    connect(evacBtn, &QPushButton::clicked, this, [this]() {
-        // 전 구역에 영향을 주고 되돌리기 어려운 조작이라 1번이 아닌 2단계로 확인한다.
-        if (showConfirmDialog("대피 모드 발동") && showEvacuationConfirmDialog())
-            emit controlActionRequested("evacuation", "trigger", "대피 모드 발동");
+    evacuationButton = new QPushButton(controlCardWidget);
+    evacuationButton->setCursor(Qt::PointingHandCursor);
+    evacuationButton->setFixedHeight(36);
+    connect(evacuationButton, &QPushButton::clicked, this, [this]() {
+        if (!evacuationActive) {
+            // 대피 모드는 전 구역에 영향을 주고 되돌리기 어려운 조작이라 1번이 아닌 2단계로 확인한다.
+            if (showConfirmDialog("대피 모드 발동") && showEvacuationConfirmDialog())
+                emit evacuationActionRequested(true);
+        } else {
+            // 해제는 평상으로 되돌리는 조작이라 일반 확인 1단계만 거친다.
+            if (showConfirmDialog("대피 모드 해제"))
+                emit evacuationActionRequested(false);
+        }
     });
     controlLayout->addSpacing(2);
-    controlLayout->addWidget(evacBtn);
+    controlLayout->addWidget(evacuationButton);
+    setEvacuationActive(false); // 서버 응답 오기 전 초기 표시
 
     setActuatorStatus(-1, -1, -1, "", "", "", ""); // 서버 응답 오기 전 초기 표시
 
@@ -507,12 +518,22 @@ void StatusPanel::setActuatorStatus(int fan, int valve, int siren, const QString
     if (link == "ok") {
         actuatorLinkLabel->setText("● 연결됨");
         actuatorLinkLabel->setStyleSheet(QString("color:%1; font-size:11px; border:none;").arg(kSafeColor));
+        actuatorLinkInfoIcon->setToolTip("STM 보드(환기팬·밸브·사이렌)와 정상적으로 통신 중입니다.");
     } else if (link == "down") {
         actuatorLinkLabel->setText("● 연결 끊김");
         actuatorLinkLabel->setStyleSheet(QString("color:%1; font-size:11px; border:none;").arg(kDangerColor));
+        // 서버는 "끊김" 여부만 알려주고 구체적인 원인은 안 내려주므로, 실제 이유가 아니라
+        // 일반적으로 확인해볼 것들을 안내한다(허위로 원인을 지어내지 않음).
+        actuatorLinkInfoIcon->setToolTip(
+            "STM 보드(환기팬·밸브·사이렌)와 통신이 끊겼습니다.\n"
+            "서버가 끊김 여부만 알려줄 뿐 구체적인 원인은 전달하지 않아, 아래 항목을 직접 확인해야 합니다.\n"
+            "· UART 케이블이 제대로 꽂혀 있는지\n"
+            "· STM 보드에 전원이 들어와 있는지\n"
+            "· 서버(server_main)가 정상적으로 실행 중인지");
     } else {
         actuatorLinkLabel->setText("● 확인 중");
         actuatorLinkLabel->setStyleSheet(QString("color:%1; font-size:11px; border:none;").arg(kTextSecondary));
+        actuatorLinkInfoIcon->setToolTip("아직 서버로부터 연결 상태를 한 번도 받지 못했습니다.");
     }
 
     lastFanSrc = fanSrc;
@@ -583,6 +604,24 @@ void StatusPanel::setActuatorRowStatus(const QString &target, const QString &tex
         return; // evacuation 등 액추에이터 상태 줄이 없는 target은 무시
     label->setText(text);
     label->setStyleSheet(pillStyle(color, true));
+}
+
+void StatusPanel::setEvacuationActive(bool active)
+{
+    evacuationActive = active;
+    if (!evacuationButton)
+        return;
+    if (active) {
+        evacuationButton->setText("대피 모드 해제");
+        evacuationButton->setStyleSheet(
+            "QPushButton { background-color:#f59e0b; color:#241c00; border:none; border-radius:6px; font-size:13px; font-weight:bold; }"
+            "QPushButton:hover { background-color:#d97706; }");
+    } else {
+        evacuationButton->setText("대피 모드 발동");
+        evacuationButton->setStyleSheet(
+            "QPushButton { background-color:#ef4444; color:white; border:none; border-radius:6px; font-size:13px; font-weight:bold; }"
+            "QPushButton:hover { background-color:#dc2626; }");
+    }
 }
 
 void StatusPanel::updateControlButtonStyles(QVector<QPushButton *> &buttons, int activeIndex)

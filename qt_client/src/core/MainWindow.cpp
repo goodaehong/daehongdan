@@ -48,6 +48,7 @@ MainWindow::MainWindow(QWidget *parent)
     rootLayout->setContentsMargins(0, 0, 0, 0);
     rootLayout->setSpacing(0);
 
+    rootLayout->addWidget(createEvacuationBanner());
     rootLayout->addWidget(createDangerBanner());
     rootLayout->addWidget(createTopBar());
     rootLayout->addWidget(createSubTabBar());
@@ -76,6 +77,37 @@ MainWindow::MainWindow(QWidget *parent)
                 // 값을 낙관적으로 미리 반영하지 않는다 — 그러면 방금 띄운 "처리 중..."이 바로 덮여
                 // 안 보인다. 실제 값은 서버의 actuator_status(명령 직후 자동 전송)가 확정해준다.
                 monitorPage->setActuatorRowStatus(target, "처리 중...", "#8d87a0");
+            });
+
+    // 대피 모드는 별도 메시지 타입(evacuation_trigger/clear)이라 sendControl()과 분리해서 보낸다.
+    // zone은 "발생 구역 표시용"일 뿐 실제 적용은 서버가 전 구역에 한다.
+    connect(monitorPage, &MonitorPage::evacuationActionRequested, this,
+            [this](bool activate) {
+                const QString zoneId = zones[currentZone].name.left(1);
+                const QString label = activate ? "대피 모드 발동" : "대피 모드 해제";
+                if (activate)
+                    serverLink->sendEvacuationTrigger(zoneId, "admin");
+                else
+                    serverLink->sendEvacuationClear(zoneId, "admin");
+                monitorPage->showControlStatus(QString("처리 중... (%1)").arg(label), "#8d87a0");
+            });
+
+    connect(serverLink, &ServerLink::evacuationResult, this,
+            [this](const QString &, const QString &, const QString &mode,
+                   const QString &result, const QString &reason) {
+                const QString label = mode == "trigger" ? "대피 모드 발동" : "대피 모드 해제";
+                if (result == "ok") {
+                    monitorPage->showControlStatus(QString("완료: %1").arg(label), "#34d399");
+                    // evacuationActive 자체는 여기서 낙관적으로 바꾸지 않는다 -> sensor 메시지의
+                    // evacuation 필드가 1초 이내로 실제 상태를 확정해서 알려준다.
+                } else {
+                    const QString reasonText = reason.isEmpty() ? "알 수 없는 오류" : reason;
+                    monitorPage->showControlStatus(QString("실패: %1 (%2)").arg(label, reasonText), "#f87171");
+                }
+            });
+    connect(serverLink, &ServerLink::evacuationTimedOut, this,
+            [this](const QString &, const QString &, const QString &) {
+                monitorPage->showControlStatus("응답 없음 — 서버 연결 확인 필요", "#f87171");
             });
 
     // 이벤트로그 자체는 서버가 control 처리 시 db.insertEvent()로 이미 남기므로 Qt가 중복으로
@@ -119,7 +151,12 @@ MainWindow::MainWindow(QWidget *parent)
     connect(serverLink, &ServerLink::sensorReceived, this,
             [this](const QString &zoneId, qint64, double temp, double humidity,
                    double gasPpm, double smokePpm, double flameVal, const QString &state,
-                   const QString &cause, int warnRemain) {
+                   const QString &cause, int warnRemain, bool evacuationActive) {
+                if (this->evacuationActive != evacuationActive) {
+                    this->evacuationActive = evacuationActive;
+                    updateEvacuationBanner();
+                    monitorPage->setEvacuationActive(evacuationActive);
+                }
                 for (Zone &zone : zones) {
                     if (!zone.name.startsWith(zoneId))
                         continue;
@@ -232,6 +269,23 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     serverLink->connectToServer(kServerHost, kServerPort);
+}
+
+QWidget *MainWindow::createEvacuationBanner()
+{
+    // 대피 모드는 zone과 무관한 전 구역 상태라, 위험 배너보다 위쪽에 두어 어느 탭/구역을 보고 있든
+    // 항상 최우선으로 보이게 한다. 클릭하면 모니터링 탭으로 이동(해제 버튼이 거기 있으므로).
+    evacuationBanner = new QPushButton("🚨 대피 모드 발동 중 — 클릭 시 모니터링으로 이동", this);
+    evacuationBanner->setCursor(Qt::PointingHandCursor);
+    evacuationBanner->setStyleSheet(
+        "QPushButton { background-color:#ef4444; color:white; font-size:22px; font-weight:bold; "
+        "border:none; padding:20px 16px; text-align:center; }"
+        "QPushButton:hover { background-color:#dc2626; }");
+    evacuationBanner->setVisible(false);
+    connect(evacuationBanner, &QPushButton::clicked, this, [this]() {
+        switchTab(0);
+    });
+    return evacuationBanner;
 }
 
 QWidget *MainWindow::createDangerBanner()
@@ -462,4 +516,10 @@ void MainWindow::updateDangerIndicators()
         const bool showDot = anyDanger && stack->currentIndex() != 0;
         tabButtons[0]->setText(showDot ? QString("🔴 %1").arg(kTabNames[0]) : kTabNames[0]);
     }
+}
+
+void MainWindow::updateEvacuationBanner()
+{
+    if (evacuationBanner)
+        evacuationBanner->setVisible(evacuationActive);
 }
