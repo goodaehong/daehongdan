@@ -72,11 +72,15 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
 
     while (true) {
         SensorReading s;
-        if (!SensorReader_Read(s)) {   // 실패 시 판단 건너뜀 (0을 "안전"으로 오판 방지)
-            std::cerr << "[센서] 읽기 실패 — 이번 주기 건너뜀\n";
+        static bool prevSensorOk = true;   // 센서 상태 로그: 변화 시에만 (실패 시 1초마다 도배 방지) 
+        if (!SensorReader_Read(s)) {
+            if (prevSensorOk) std::cerr << "[센서] 읽기 실패 — 판단 중단\n";
+            prevSensorOk = false;
             std::this_thread::sleep_for(std::chrono::seconds(1));
             continue;
         }
+        if (!prevSensorOk) std::cout << "[센서] 복구됨\n";
+        prevSensorOk = true; 
 
         // 4채널 중 하나라도 감지면 true + 감지 채널 기록 (스냅샷용)
         bool camFire = false, camSmoke = false;
@@ -98,32 +102,38 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
             std::string snap = saveSnapshot(store, detCh, "A", now);
             g_db.insertEvent(now, "A", "warning", o.j.state, o.j.cause,
                              causeToCombo(o.j.cause), "auto", "", "",
-                             s.gasPpm, s.smokePpm, "진행중", 0, snap, 0, "");
+                             s.gasPpm, s.smokePpm, "진행중", 0, snap, o.incidentId, "");
         }
 
         // 위험 진입 또는 원인 변경 = 자동 대응 + 전광판 + 기록
         if (o.dangerEntered) {
             std::string src = "자동:" + o.j.cause;
             Response r = decideResponse(o.j.cause);
-            Actuator_Apply(r, src);
+            bool ok = Actuator_Apply(r, src);                            
+            if (!ok) std::cerr << "[액추에이터] 자동 대응 실패 — " << src << "\n";
             QtLink_SendActuator(link, Actuator_GetState());
             StmDisplay_SendAlert(o.j.cause, 1);
 
             std::string snap = saveSnapshot(store, detCh, "A", now);
             g_db.insertEvent(now, "A", "danger", o.j.state, o.j.cause,
                              causeToCombo(o.j.cause), "auto", respToText(r), "",
-                             s.gasPpm, s.smokePpm, "진행중", 0, snap, o.incidentId, "");
+                             s.gasPpm, s.smokePpm, "진행중", 0, snap, o.incidentId,
+                             ok ? "" : "액추에이터 대응 실패");         
         }
 
         // 위험 해제 = 복귀 대응 + 지속시간 확정
         if (o.released) {
-            Actuator_Apply(responseForSafe(), "자동:해제");
-            QtLink_SendActuator(link, Actuator_GetState());
-            StmDisplay_SendClear();
+            if (o.wasDanger) {                          // 위험까지 갔던 사태만 복귀 대응
+                if (!Actuator_Apply(responseForSafe(), "자동:해제"))        
+                    std::cerr << "[액추에이터] 해제 대응 실패\n"; 
+                QtLink_SendActuator(link, Actuator_GetState());
+                StmDisplay_SendClear();
+            }
+            const char* resp = o.wasDanger ? "위험 해제" : "경고 해제";     
 
             g_db.resolveIncident(o.incidentId, o.durationMs);   // 진행중→해결됨 + 지속시간 일괄
             g_db.insertEvent(now, "A", "resolve", "safe", "", "", "auto", "위험 해제", "",
-                             s.gasPpm, s.smokePpm, "해결됨", 0, "", o.incidentId, "");
+                             s.gasPpm, s.smokePpm, "해결됨", o.durationMs, "", o.incidentId, "");
         }
 
         QtLink_SendSensor(link, s, o);
@@ -131,7 +141,10 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
         g_db.insertSensor(now, "A", s.temp, s.humidity, s.gasPpm, s.smokePpm, s.flameVal, o.j.state);
 
         // 액추에이터 상태 주기 보고: Qt가 새로 접속해도 화면 동기화되게
-        if (++tick % 5 == 0) QtLink_SendActuator(link, Actuator_GetState());
+        if (++tick % 5 == 0) {                                 
+            Actuator_Poll();   // STM에 상태 요청(0x40) → linkOk 갱신. 안 하면 끊겨도 모름
+            QtLink_SendActuator(link, Actuator_GetState());
+        }                                                    
 
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
@@ -218,7 +231,7 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
                     if (b.type == DetectionType::FIRE) hasFire = true;
                     boxes.push_back({ b.box.x, b.box.y, b.box.width, b.box.height,
                                       b.type == DetectionType::FIRE ? "FIRE" : "SMOKE",
-                                      b.score });
+                                      (float)b.score });
                 }
                 // TODO: 연기(NCNN) 박스도 여기 boxes에 push_back (cls="SMOKE")
 
@@ -261,10 +274,10 @@ int main() {
     }
     if (!g_db.open(DB_PATH))
         std::cerr << "[DB] 초기화 실패 — DB 없이 계속 진행\n";
-    if (!Actuator_Init("/dev/ttyACM0"))
+    if (!Actuator_Init("/dev/ttyACM0"))          // STM 액추에이터 보드 (USB)
         std::cerr << "[액추에이터] 초기화 실패 — 계속 진행\n";
-    if (!StmDisplay_Open("/dev/serial1"))
-        std::cerr << "[전광판] 초기화 실패 — 계속 진행\n";
+    if (!StmDisplay_Open("/dev/stm_display"))        // STM 전광판 보드 (GPIO UART)
+        std::cerr << "[전광판] 초기화 실패 — 계속 진행\n";                    
 
     AlarmState alarm;
     FrameStore store;

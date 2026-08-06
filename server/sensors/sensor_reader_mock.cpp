@@ -17,11 +17,12 @@ bool SensorReader_Read(SensorReading& out) {
 
     // 데모 스파이크: 60초 주기 중 45~60초 구간은 가스 급상승 (Qt 경고 UI 테스트용)
     if (tick % 60 >= 45) {
-        out.gasPpm   = 250.0f + jitter(rng) * 30.0f;
-        out.smokePpm = 180.0f + jitter(rng) * 20.0f;
+        // 2500.0f 등으로 올려주어 Danger(2000 이상) 구간에 진입하도록 수정
+        out.gasPpm   = 2500.0f + jitter(rng) * 100.0f; 
+        out.smokePpm = 180.0f + jitter(rng) * 20.0f; // 연기는 150이 임계값이니 180이면 충분함
     }
 
-    // 데모 스파이크2: 불꽃센서 (가스와 다른 타이밍 = 20~35초 구간)
+    // 데모 스파이크2: 불꽃센서s (가스와 다른 타이밍 = 20~35초 구간)
     if (tick % 60 >= 20 && tick % 60 < 35) {
         out.flameVal = 2.5f + jitter(rng) * 1.0f;   // 임계 1.0V 초과 → 불꽃 감지
     }

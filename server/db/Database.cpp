@@ -154,4 +154,93 @@ void Database::resolveIncident(long incidentId, long durationMs) {   //  duratio
     sqlite3_bind_int64(st, 2, incidentId);       // 2번=incidentId  
     sqlite3_step(st);
     sqlite3_finalize(st);
-}                                                     
+}          
+
+// ── event_log 조회 ──
+std::vector<EventRow> Database::queryEvents(long from, long to, int limit) {
+    std::lock_guard<std::mutex> lock(mtx_);
+    std::vector<EventRow> rows;
+    if (!db_) return rows;
+
+    const char* sql =
+        "SELECT id,ts,zone,category,severity,cause,sensor_combo,source,response,admin,"
+        " gas_ppm,smoke_ppm,status,duration_ms,snapshot_path,incident_id"
+        " FROM event_log WHERE ts BETWEEN ? AND ? ORDER BY ts DESC LIMIT ?;";
+
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &st, nullptr) != SQLITE_OK) {
+        std::cerr << "[DB] queryEvents prepare 실패: " << sqlite3_errmsg(db_) << "\n";
+        return rows;
+    }
+    sqlite3_bind_int64(st, 1, from);
+    sqlite3_bind_int64(st, 2, to);
+    sqlite3_bind_int  (st, 3, limit);
+
+    // NULL이면 빈 문자열로 (Qt가 파싱하다 깨지지 않게)
+    auto col = [&](int i) -> std::string {
+        const unsigned char* p = sqlite3_column_text(st, i);
+        return p ? reinterpret_cast<const char*>(p) : "";
+    };
+
+    while (sqlite3_step(st) == SQLITE_ROW) {
+        EventRow r;
+        r.id           = sqlite3_column_int64(st, 0);
+        r.ts           = sqlite3_column_int64(st, 1);
+        r.zone         = col(2);
+        r.category     = col(3);
+        r.severity     = col(4);
+        r.cause        = col(5);
+        r.sensorCombo  = col(6);
+        r.source       = col(7);
+        r.response     = col(8);
+        r.admin        = col(9);
+        r.gasPpm       = sqlite3_column_double(st, 10);
+        r.smokePpm     = sqlite3_column_double(st, 11);
+        r.status       = col(12);
+        r.durationMs   = sqlite3_column_int64(st, 13);
+        r.snapshotPath = col(14);
+        r.incidentId   = sqlite3_column_int64(st, 15);
+        rows.push_back(std::move(r));
+    }
+    sqlite3_finalize(st);
+    return rows;
+}
+
+// ── sensor_log 조회 (구간 집계) ──
+std::vector<SensorPoint> Database::querySensors(long from, long to,
+                                                const std::string& zone, int bucketSec) {
+    std::lock_guard<std::mutex> lock(mtx_);
+    std::vector<SensorPoint> pts;
+    if (!db_ || bucketSec <= 0) return pts;
+
+    // (ts/b)*b = 구간 시작 시각. GROUP BY ts/b 로 같은 구간끼리 묶음
+    const char* sql =
+        "SELECT (ts/?)*? AS t,"
+        " AVG(gas_ppm), MAX(gas_ppm), AVG(smoke_ppm), MAX(smoke_ppm)"
+        " FROM sensor_log WHERE zone=? AND ts BETWEEN ? AND ?"
+        " GROUP BY ts/? ORDER BY t;";
+
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &st, nullptr) != SQLITE_OK) {
+        std::cerr << "[DB] querySensors prepare 실패: " << sqlite3_errmsg(db_) << "\n";
+        return pts;
+    }
+    sqlite3_bind_int  (st, 1, bucketSec);
+    sqlite3_bind_int  (st, 2, bucketSec);
+    sqlite3_bind_text (st, 3, zone.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(st, 4, from);
+    sqlite3_bind_int64(st, 5, to);
+    sqlite3_bind_int  (st, 6, bucketSec);
+
+    while (sqlite3_step(st) == SQLITE_ROW) {
+        SensorPoint p;
+        p.t        = sqlite3_column_int64 (st, 0);
+        p.gasAvg   = sqlite3_column_double(st, 1);
+        p.gasMax   = sqlite3_column_double(st, 2);
+        p.smokeAvg = sqlite3_column_double(st, 3);
+        p.smokeMax = sqlite3_column_double(st, 4);
+        pts.push_back(p);
+    }
+    sqlite3_finalize(st);
+    return pts;
+}

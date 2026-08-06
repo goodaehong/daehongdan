@@ -41,3 +41,6 @@ Response responseForSafe();
 
 // cause 코드값 → DB sensor_combo 문구 (트리거 센서 칸)
 std::string causeToCombo(const std::string& cause);
+
+// 가스 농도 → 전광판 표시 단계 (0=정상, 1=주의, 2=위험)
+int gasLevel(float gasPpm);
