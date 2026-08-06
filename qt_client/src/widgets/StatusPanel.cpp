@@ -706,12 +706,12 @@ bool StatusPanel::showEvacuationConfirmDialog()
     header->setStyleSheet("color:#ef4444; font-size:19px; font-weight:bold; border:none;");
     layout->addWidget(header);
 
-    auto *question = new QLabel("정말 전 구역 대피 모드를 발동하시겠습니까?", &dialog);
+    auto *question = new QLabel("정말 전 공장 대피 모드를 발동하시겠습니까?", &dialog);
     question->setStyleSheet(QString("color:%1; font-size:17px; font-weight:bold; border:none;").arg(kTextPrimary));
     question->setWordWrap(true);
     layout->addWidget(question);
 
-    auto *sub = new QLabel("전 구역에 즉시 영향을 미치며, 발동 후에는 되돌리기 어렵습니다.", &dialog);
+    auto *sub = new QLabel("전 공장에 즉시 영향을 미치며, 발동 후에는 되돌리기 어렵습니다.", &dialog);
     sub->setStyleSheet("color:#f87171; font-size:14px; font-weight:bold; border:none;");
     sub->setWordWrap(true);
     layout->addWidget(sub);

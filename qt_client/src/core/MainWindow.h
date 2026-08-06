@@ -77,6 +77,9 @@ private:
     ServerLink *serverLink;
     // cmdId -> 표시용 제목("환기팬 가동" 등). control_ack/타임아웃 왔을 때 로그 문구에 씀.
     QMap<QString, QString> pendingControlTitles;
+    // 그래프 탭이 마지막으로 보낸 sensor_log 조회 reqId. event_log 초기 프리필과 target이 같아서
+    // reqId로 구분해야 응답을 엉뚱한 쪽(그래프 vs 실시간 미니그래프 프리필)으로 안 보낸다.
+    QString pendingGraphReqId;
 
     // actuator_status로 받은 마지막 값(-1=아직 모름). 수동제어 클릭 시 낙관적으로도 갱신해서
     // 모니터링 탭 종합상태에도 즉시 반영한다.

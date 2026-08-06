@@ -28,7 +28,8 @@ WarningAlertDialog::WarningAlertDialog(const QString &zoneName, const QString &c
     header->setStyleSheet("color:#fbbf24; font-size:19px; font-weight:bold;");
     layout->addWidget(header);
 
-    auto *message = new QLabel(QString("%1 구역에서 경고 상태가 감지되었습니다.").arg(zoneName), this);
+    // zoneName은 "A공장"처럼 접미사가 이미 붙어서 온다 -> 뒤에 또 "구역/공장"을 붙이면 중복된다.
+    auto *message = new QLabel(QString("%1에서 경고 상태가 감지되었습니다.").arg(zoneName), this);
     message->setStyleSheet(QString("color:%1; font-size:17px; font-weight:bold;").arg(kTextPrimary));
     message->setWordWrap(true);
     layout->addWidget(message);

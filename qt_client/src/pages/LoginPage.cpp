@@ -7,6 +7,7 @@
 #include <QCheckBox>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QSettings>
 
 namespace {
 const QString kValidId = "admin";
@@ -37,11 +38,12 @@ LoginPage::LoginPage(QWidget *parent)
     boxLayout->setContentsMargins(32, 32, 32, 32);
     boxLayout->setSpacing(10);
 
-    auto *icon = new QLabel(box);
+    auto *icon = new QLabel("🏭", box);
     icon->setFixedSize(52, 52);
+    icon->setAlignment(Qt::AlignCenter);
     icon->setStyleSheet(
         "background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #6ee7d8, stop:1 #8b7cf6);"
-        "border-radius:14px;");
+        "border-radius:14px; font-size:26px;");
     boxLayout->addWidget(icon);
     boxLayout->addSpacing(6);
 
@@ -78,21 +80,23 @@ LoginPage::LoginPage(QWidget *parent)
     boxLayout->addWidget(pwEdit);
 
     auto *optionsRow = new QHBoxLayout;
-    auto *autoLogin = new QCheckBox("자동 로그인", box);
-    autoLogin->setStyleSheet(QString("color:%1;").arg(kTextSecondary));
-    optionsRow->addWidget(autoLogin);
+    autoLoginCheck = new QCheckBox("자동 로그인", box);
+    autoLoginCheck->setStyleSheet(QString("color:%1;").arg(kTextSecondary));
+    optionsRow->addWidget(autoLoginCheck);
     optionsRow->addStretch();
     auto *findPw = new QLabel("<a href='#' style='color:#8b7cf6;'>비밀번호 찾기</a>", box);
     optionsRow->addWidget(findPw);
     boxLayout->addLayout(optionsRow);
     boxLayout->addSpacing(8);
 
-    auto *zoneLabel = new QLabel("담당 구역", box);
+    auto *zoneLabel = new QLabel("담당 공장", box);
     zoneLabel->setStyleSheet(QString("color:%1;").arg(kTextSecondary));
     boxLayout->addWidget(zoneLabel);
     auto *zoneCombo = new QComboBox(box);
-    zoneCombo->addItem("A구역 — 1공장 생산동");
-    zoneCombo->addItem("B구역 — 1공장 저장동");
+    zoneCombo->addItem("A공장");
+    zoneCombo->addItem("B공장");
+    zoneCombo->addItem("C공장");
+    zoneCombo->addItem("D공장");
     zoneCombo->setStyleSheet(QString(
         "QComboBox { background-color:#1a1a26; color:%1; border:1px solid %2; border-radius:6px; padding:8px; }")
         .arg(kTextPrimary, kCardBorder));
@@ -118,12 +122,24 @@ LoginPage::LoginPage(QWidget *parent)
 
     connect(loginButton, &QPushButton::clicked, this, &LoginPage::onLoginClicked);
     connect(pwEdit, &QLineEdit::returnPressed, this, &LoginPage::onLoginClicked);
+
+    // "자동 로그인"을 체크하고 로그인했었으면 다음 실행부터 dashboard_main.cpp가 이 화면 자체를
+    // 건너뛴다. 그래도 (예: 수동 로그아웃 후) 이 화면이 다시 뜨는 경우엔 아이디/체크 상태를 그대로
+    // 복원해서 다시 입력하는 수고를 덜어준다. 비밀번호는 저장하지 않는다(평문 저장 지양).
+    QSettings settings;
+    if (settings.value("autoLogin", false).toBool()) {
+        idEdit->setText(settings.value("lastId").toString());
+        autoLoginCheck->setChecked(true);
+    }
 }
 
 void LoginPage::onLoginClicked()
 {
     if (idEdit->text() == kValidId && pwEdit->text() == kValidPw) {
         errorLabel->clear();
+        QSettings settings;
+        settings.setValue("autoLogin", autoLoginCheck->isChecked());
+        settings.setValue("lastId", autoLoginCheck->isChecked() ? idEdit->text() : QString());
         emit loginSucceeded();
         return;
     }

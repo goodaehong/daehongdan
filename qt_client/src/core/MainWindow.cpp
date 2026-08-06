@@ -39,8 +39,12 @@ MainWindow::MainWindow(QWidget *parent)
     setWindowTitle("공장 가스·화재 조기감지 및 자동대응 시스템");
     resize(1400, 860);
 
-    zones.append({ "A구역", ZoneState::Warning, 24.3, 42.0 });
-    zones.append({ "B구역", ZoneState::Safe, 23.1, 38.0 });
+    // "구역" 명칭이 "공장"으로 바뀌고 A~D 4개 공장 체제가 됨. 실제 센서/카메라 하드웨어는 A공장에만
+    // 있고(대피 모드 논의 때 확정된 내용) B/C/D공장은 기존 B구역처럼 DEMO 시뮬레이션으로 표시된다.
+    zones.append({ "A공장", ZoneState::Warning, 24.3, 42.0 });
+    zones.append({ "B공장", ZoneState::Safe, 23.1, 38.0 });
+    zones.append({ "C공장", ZoneState::Safe, 22.8, 40.0 });
+    zones.append({ "D공장", ZoneState::Safe, 25.0, 45.0 });
 
     centralArea = new QWidget(this);
     centralArea->setStyleSheet(QString("background-color:%1;").arg(kBg));
@@ -65,6 +69,15 @@ MainWindow::MainWindow(QWidget *parent)
     });
 
     serverLink = new ServerLink(this);
+
+    connect(graphPage, &GraphPage::sensorLogRequested, this,
+            [this](const QString &zone, qint64 from, qint64 to) {
+                QJsonObject params;
+                params["from"] = from;
+                params["to"] = to;
+                params["zone"] = zone;
+                pendingGraphReqId = serverLink->sendQuery("sensor_log", params);
+            });
 
     connect(monitorPage, &MonitorPage::controlActionRequested, this,
             [this](const QString &target, const QString &action, const QString &title) {
@@ -225,11 +238,17 @@ MainWindow::MainWindow(QWidget *parent)
     monitorPage->connectCameras(kMediaMtxHost);
 
     connect(serverLink, &ServerLink::queryResult, this,
-            [this](const QString &, const QString &target, const QJsonArray &rows) {
+            [this](const QString &reqId, const QString &target, const QJsonArray &rows) {
                 if (target == "event_log") {
                     eventLogPage->loadEntriesFromServer(rows);
                 } else if (target == "sensor_log") {
-                    // 초기 프리필은 A구역 하나만 요청하므로 그대로 매칭한다.
+                    // 그래프 탭이 요청한 응답이면 그쪽으로, 아니면(초기 프리필) 기존대로 A구역 실시간
+                    // 미니그래프 이력에 채운다. target이 같아서 reqId로 구분해야 한다.
+                    if (!pendingGraphReqId.isEmpty() && reqId == pendingGraphReqId) {
+                        pendingGraphReqId.clear();
+                        graphPage->loadSensorLogFromServer(rows);
+                        return;
+                    }
                     for (Zone &zone : zones) {
                         if (!zone.name.startsWith("A"))
                             continue;
@@ -243,6 +262,13 @@ MainWindow::MainWindow(QWidget *parent)
                     }
                     if (!zones.isEmpty() && zones[currentZone].name.startsWith("A"))
                         refreshZoneUi();
+                }
+            });
+    connect(serverLink, &ServerLink::queryFailed, this,
+            [this](const QString &reqId, const QString &reason) {
+                if (!pendingGraphReqId.isEmpty() && reqId == pendingGraphReqId) {
+                    pendingGraphReqId.clear();
+                    graphPage->showQueryFailed(reason);
                 }
             });
 
@@ -266,6 +292,8 @@ MainWindow::MainWindow(QWidget *parent)
         sensorParams["to"] = now;
         sensorParams["zone"] = "A";
         serverLink->sendQuery("sensor_log", sensorParams);
+
+        graphPage->requestCurrentPeriod(); // 그래프 탭도 현재 선택된 기간/날짜로 최초 조회
     });
 
     serverLink->connectToServer(kServerHost, kServerPort);

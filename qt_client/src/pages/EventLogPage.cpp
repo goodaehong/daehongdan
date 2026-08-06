@@ -21,7 +21,7 @@ const QString kCardBorder = "#232333";
 const QString kTextPrimary = "#f5f5fa";
 const QString kTextSecondary = "#8d87a0";
 const QString kAccent = "#8b7cf6";
-const QStringList kZoneFilterNames = { "전체", "A구역", "B구역" };
+const QStringList kZoneFilterNames = { "전체", "A공장", "B공장", "C공장", "D공장" };
 const QStringList kSeverityFilterNames = { "전체", "안전", "경고", "위험" };
 const QStringList kPeriodFilterNames = { "전체 기간", "최근 1시간", "최근 24시간", "오늘" };
 const QStringList kStatusFilterNames = { "전체", "해결됨", "오탐 처리됨" };
@@ -68,7 +68,7 @@ EventLogPage::EventLogPage(QWidget *parent)
     auto *leftCol = new QVBoxLayout;
 
     auto *filterRow1 = new QHBoxLayout;
-    auto *zoneLabel = new QLabel("구역:", this);
+    auto *zoneLabel = new QLabel("공장:", this);
     zoneLabel->setStyleSheet(QString("color:%1;").arg(kTextSecondary));
     zoneFilterCombo = new QComboBox(this);
     zoneFilterCombo->addItems(kZoneFilterNames);
@@ -115,7 +115,7 @@ EventLogPage::EventLogPage(QWidget *parent)
     leftCol->addSpacing(8);
 
     eventTable = new QTableWidget(0, 5, this);
-    eventTable->setHorizontalHeaderLabels({ "시간", "구역", "감지 내용", "대응 결과", "처리상태" });
+    eventTable->setHorizontalHeaderLabels({ "시간", "공장", "감지 내용", "대응 결과", "처리상태" });
     eventTable->horizontalHeader()->setStretchLastSection(true);
     eventTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     eventTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -167,7 +167,7 @@ EventLogPage::EventLogPage(QWidget *parent)
     };
 
     addDetailRow("발생 시간", &detailTimeValue);
-    addDetailRow("구역", &detailZoneValue);
+    addDetailRow("공장", &detailZoneValue);
     addDetailRow("관리자", &detailAdminValue);
     addDetailRow("이벤트 유형", &detailTypeValue);
     addDetailRow("위험도 단계", &detailSeverityValue);
@@ -216,8 +216,9 @@ EventLogPage::EventLogPage(QWidget *parent)
 void EventLogPage::updateZone(const Zone &zone)
 {
     if (zone.hasLiveSensorData && zone.gasHistory.size() >= 2) {
-        // 실측 이력이 쌓여있으면 그걸로 실시간 추이를 그린다.
-        gasGraph->setData(zone.gasHistory, { zone.gasHistoryLabels.first(), zone.gasHistoryLabels.last() });
+        // 실측 이력이 쌓여있으면 그걸로 실시간 추이를 그린다. 포인트별 라벨을 다 넘겨야
+        // 그래프 위에 마우스 올렸을 때 정확한 시각이 뜬다.
+        gasGraph->setData(zone.gasHistory, zone.gasHistoryLabels);
     } else {
         // 실측 데이터가 아직 없는 구역(DEMO)은 기존처럼 상태 기반 가짜 패턴을 보여준다.
         // 값 범위는 judgement.cpp 실측 임계값(경고 200ppm / 위험 2000ppm)에 맞춰 조정.
@@ -254,15 +255,18 @@ void EventLogPage::loadEntriesFromServer(const QJsonArray &rows)
     eventEntries.clear();
     eventTable->setRowCount(0);
 
-    for (const QJsonValue &v : rows) {
-        const QJsonObject row = v.toObject();
+    // 서버는 최신순(ts DESC)으로 보내주는데(명세서 3-1), 그대로 위에서부터 채우면 맨 아래가 가장
+    // 오래된 항목이 되어 scrollToBottom()이 오히려 옛날 항목을 보여주게 된다. 역순으로 채워서
+    // 오래된 게 위, 최신이 아래로 가게 하면 기존 scrollToBottom()이 최신 항목을 자연스럽게 보여준다.
+    for (int i = rows.size() - 1; i >= 0; --i) {
+        const QJsonObject row = rows[i].toObject();
 
         EventEntry entry;
         entry.timestamp = QDateTime::fromSecsSinceEpoch(qint64(row.value("ts").toDouble()));
         entry.time = entry.timestamp.toString("HH:mm:ss");
-        // 서버는 zone을 "A" 한 글자로 주는데, 필터 콤보/화면 표기는 "A구역" 형태라 맞춰준다.
+        // 서버는 zone을 "A" 한 글자로 주는데, 필터 콤보/화면 표기는 "A공장" 형태라 맞춰준다.
         const QString zoneCode = row.value("zone").toString();
-        entry.zone = zoneCode.isEmpty() ? zoneCode : zoneCode + "구역";
+        entry.zone = zoneCode.isEmpty() ? zoneCode : zoneCode + "공장";
 
         const QString causePhrase = causeText(row.value("cause").toString());
         if (!causePhrase.isEmpty()) {
