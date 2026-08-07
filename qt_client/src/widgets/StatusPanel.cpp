@@ -94,7 +94,14 @@ StatusPanel::StatusPanel(QWidget *parent)
     scrollArea->setWidgetResizable(true);
     scrollArea->setFrameShape(QFrame::NoFrame);
     scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    scrollArea->setStyleSheet("background:transparent; border:none;");
+    // 기본 스크롤바가 시스템 밝은 회색으로 떠서 다크 테마와 안 어울려 앱 accent 컬러로 맞춤.
+    scrollArea->setStyleSheet(
+        "QScrollArea { background:transparent; border:none; }"
+        "QScrollBar:vertical { background:#14141f; width:10px; margin:0; border-radius:5px; }"
+        "QScrollBar::handle:vertical { background:#3a3550; min-height:24px; border-radius:5px; }"
+        "QScrollBar::handle:vertical:hover { background:#8b7cf6; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0; border:none; background:none; }"
+        "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background:none; }");
     outerLayout->addWidget(scrollArea);
 
     auto *contentWidget = new QWidget(scrollArea);

@@ -13,54 +13,58 @@ const QString kTextSecondary = "#8d87a0";
 
 WarningAlertDialog::WarningAlertDialog(const QString &zoneName, const QString &cause,
                                         int initialRemainSeconds, QWidget *parent)
-    : QDialog(parent)
+    : QFrame(parent)
 {
-    setWindowTitle("경고 알림");
-    setWindowModality(Qt::ApplicationModal);
-    setStyleSheet(QString("background-color:%1;").arg(kBg));
-    setMinimumWidth(460);
+    setObjectName("warningAlertBanner");
+    setStyleSheet(QString(
+        "QFrame#warningAlertBanner { background-color:%1; border:1px solid #fbbf24; "
+        "border-left:5px solid #fbbf24; }"
+        "QLabel { border:none; background:transparent; }").arg(kBg));
 
-    auto *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(32, 28, 32, 28);
+    auto *layout = new QHBoxLayout(this);
+    layout->setContentsMargins(20, 10, 20, 10);
     layout->setSpacing(14);
 
-    auto *header = new QLabel("⚠ 경고 발생", this);
-    header->setStyleSheet("color:#fbbf24; font-size:19px; font-weight:bold;");
+    auto *header = new QLabel("⚠ 경고", this);
+    header->setStyleSheet("color:#fbbf24; font-size:17px; font-weight:bold;");
     layout->addWidget(header);
 
-    // zoneName은 "A공장"처럼 접미사가 이미 붙어서 온다 -> 뒤에 또 "구역/공장"을 붙이면 중복된다.
-    auto *message = new QLabel(QString("%1에서 경고 상태가 감지되었습니다.").arg(zoneName), this);
-    message->setStyleSheet(QString("color:%1; font-size:17px; font-weight:bold;").arg(kTextPrimary));
-    message->setWordWrap(true);
-    layout->addWidget(message);
-
-    if (!cause.isEmpty()) {
-        auto *causeLabel = new QLabel(cause + "!", this);
-        causeLabel->setStyleSheet("color:#fbbf24; font-size:26px; font-weight:bold;");
-        causeLabel->setWordWrap(true);
-        layout->addWidget(causeLabel);
-    }
+    const QString detail = cause.isEmpty()
+        ? QString("%1에서 경고 상태가 감지되었습니다.").arg(zoneName)
+        : QString("%1 · %2!").arg(zoneName, cause);
+    auto *message = new QLabel(detail, this);
+    message->setStyleSheet(QString("color:%1; font-size:15px; font-weight:bold;").arg(kTextPrimary));
+    layout->addWidget(message, 1);
 
     auto *countdownRow = new QHBoxLayout;
-    countdownRow->setSpacing(12);
+    countdownRow->setSpacing(6);
     countdownNumberLabel = new QLabel(this);
-    countdownNumberLabel->setStyleSheet("color:#f87171; font-size:42px; font-weight:bold;");
+    countdownNumberLabel->setStyleSheet("color:#f87171; font-size:22px; font-weight:bold;");
     countdownRow->addWidget(countdownNumberLabel);
     countdownLabel = new QLabel(this);
-    countdownLabel->setStyleSheet(QString("color:%1; font-size:14px;").arg(kTextSecondary));
-    countdownRow->addWidget(countdownLabel, 1);
+    countdownLabel->setStyleSheet(QString("color:%1; font-size:12px;").arg(kTextSecondary));
+    countdownRow->addWidget(countdownLabel);
     layout->addLayout(countdownRow);
     setRemainingSeconds(initialRemainSeconds);
 
-    layout->addSpacing(10);
     auto *ackBtn = new QPushButton("확인", this);
-    ackBtn->setStyleSheet("QPushButton { background-color:#fbbf24; color:#241c00; font-weight:bold; font-size:16px; border-radius:8px; padding:14px; }");
+    ackBtn->setCursor(Qt::PointingHandCursor);
+    ackBtn->setStyleSheet(
+        "QPushButton { background-color:#fbbf24; color:#241c00; font-weight:bold; "
+        "font-size:13px; border:none; border-radius:6px; padding:8px 18px; }"
+        "QPushButton:hover { background-color:#fde68a; }");
     layout->addWidget(ackBtn);
 
     connect(ackBtn, &QPushButton::clicked, this, [this]() {
         emit acknowledged();
-        accept();
+        dismiss();
     });
+}
+
+void WarningAlertDialog::dismiss()
+{
+    hide();
+    emit finished();
 }
 
 void WarningAlertDialog::setRemainingSeconds(int seconds)
@@ -69,7 +73,7 @@ void WarningAlertDialog::setRemainingSeconds(int seconds)
         countdownNumberLabel->setVisible(true);
         countdownLabel->setVisible(true);
         countdownNumberLabel->setText(QString::number(seconds));
-        countdownLabel->setText("초 후 서버가 자동으로\n위험 모드로 전환합니다.");
+        countdownLabel->setText("초 후 자동 위험 전환");
     } else {
         countdownNumberLabel->setVisible(false);
         countdownLabel->setVisible(false);

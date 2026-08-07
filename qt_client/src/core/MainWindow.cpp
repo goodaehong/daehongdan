@@ -17,6 +17,11 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QTimer>
+#include <QResizeEvent>
+#include <QPropertyAnimation>
+#include <QEasingCurve>
+#include <QGraphicsDropShadowEffect>
+#include <QColor>
 
 namespace {
 const QString kMediaMtxHost = "172.20.35.230"; // MediaMTX가 도는 라즈베리파이 주소 (카메라 IP 아님)
@@ -56,6 +61,7 @@ MainWindow::MainWindow(QWidget *parent)
     rootLayout->addWidget(createDangerBanner());
     rootLayout->addWidget(createTopBar());
     rootLayout->addWidget(createSubTabBar());
+    createWarningAlertArea();
 
     dangerGlow = new DangerGlowOverlay(this);
 
@@ -201,18 +207,18 @@ MainWindow::MainWindow(QWidget *parent)
                     constexpr int kMaxSmokeHistory = 8;
                     if (zone.smokeDetectHistory.size() > kMaxSmokeHistory)
                         zone.smokeDetectHistory.removeFirst();
-                    // Warning으로 "새로" 바뀐 순간에만 팝업 (계속 warning이면 매번 안 뜸)
+                    // Warning으로 새로 바뀐 순간에만 상단 알림 생성 (계속 warning이면 내용만 갱신)
                     if (oldState != ZoneState::Warning && zone.state == ZoneState::Warning) {
                         showWarningAlert(zone.name, zoneId, cause, warnRemain);
                     } else if (zone.state == ZoneState::Warning) {
-                        // 이미 팝업이 떠 있으면 카운트다운만 서버 값으로 갱신 (Qt는 직접 시간을 재지 않는다)
+                        // 이미 알림이 떠 있으면 카운트다운만 서버 값으로 갱신 (Qt는 직접 시간을 재지 않는다)
                         if (WarningAlertDialog *dlg = activeWarningDialogs.value(zoneId))
                             dlg->setRemainingSeconds(warnRemain);
                     }
                     if (oldState == ZoneState::Warning && zone.state != ZoneState::Warning) {
-                        // 경고를 벗어남(확인 없이도 안전 복귀 또는 서버가 위험으로 자동 전환) -> 팝업 자동 닫기
+                        // 경고를 벗어나면 상단 알림 자동 제거
                         if (WarningAlertDialog *dlg = activeWarningDialogs.value(zoneId))
-                            dlg->close();
+                            dlg->dismiss();
                     }
                     // 경고/위험/해제 로그는 서버(server_main.cpp)가 db.insertEvent()로 이미 남기므로
                     // Qt는 여기서 더 이상 로컬로 addEntry()를 만들지 않는다 (안 그러면 한 사건이 두 줄로 뜸).
@@ -334,6 +340,53 @@ QWidget *MainWindow::createDangerBanner()
     return dangerBanner;
 }
 
+QWidget *MainWindow::createWarningAlertArea()
+{
+    warningAlertArea = new QWidget(centralArea);
+    warningAlertArea->setFixedWidth(560);
+    warningAlertArea->setStyleSheet("background:transparent;");
+    warningAlertLayout = new QVBoxLayout(warningAlertArea);
+    warningAlertLayout->setContentsMargins(0, 0, 0, 0);
+    warningAlertLayout->setSpacing(6);
+    auto *shadow = new QGraphicsDropShadowEffect(warningAlertArea);
+    shadow->setBlurRadius(28);
+    shadow->setOffset(0, 7);
+    shadow->setColor(QColor(0, 0, 0, 180));
+    warningAlertArea->setGraphicsEffect(shadow);
+    warningAlertArea->setVisible(false);
+    return warningAlertArea;
+}
+
+void MainWindow::resizeEvent(QResizeEvent *event)
+{
+    QMainWindow::resizeEvent(event);
+    if (warningAlertArea && warningAlertArea->isVisible())
+        positionWarningAlert(false);
+}
+
+void MainWindow::positionWarningAlert(bool animate)
+{
+    if (!warningAlertArea || !centralArea)
+        return;
+    const int availableWidth = qMax(320, centralArea->width() - 32);
+    warningAlertArea->setFixedWidth(qMin(560, availableWidth));
+    warningAlertArea->adjustSize();
+    const QPoint endPosition((centralArea->width() - warningAlertArea->width()) / 2, 10);
+    warningAlertArea->raise();
+    if (!animate) {
+        warningAlertArea->move(endPosition);
+        return;
+    }
+    warningAlertArea->move(endPosition.x(), -warningAlertArea->height() - 12);
+    auto *animation = new QPropertyAnimation(warningAlertArea, "pos", warningAlertArea);
+    animation->setDuration(320);
+    animation->setStartValue(warningAlertArea->pos());
+    animation->setEndValue(endPosition);
+    animation->setEasingCurve(QEasingCurve::OutCubic);
+    connect(animation, &QPropertyAnimation::finished, animation, &QObject::deleteLater);
+    animation->start();
+}
+
 QWidget *MainWindow::createTopBar()
 {
     auto *bar = new QFrame(this);
@@ -441,7 +494,7 @@ void MainWindow::setZoneState(int zoneIndex, ZoneState state)
     if (oldState == ZoneState::Warning && state != ZoneState::Warning) {
         stopDemoWarningCountdown();
         if (WarningAlertDialog *dlg = activeWarningDialogs.value(zoneId))
-            dlg->close();
+            dlg->dismiss();
     }
     // DEMO 버튼은 로컬 시뮬레이션이라 서버 DB에 안 남음 — 이벤트로그는 이제 서버 조회로만 채워지므로
     // 여기서 로컬 addEntry()를 만들지 않는다. (DEMO로 위험을 눌러도 로그 목록엔 안 뜨는 게 정상)
@@ -464,21 +517,29 @@ void MainWindow::refreshZoneUi()
 
 void MainWindow::showWarningAlert(const QString &zoneName, const QString &zoneId, const QString &cause, int warnRemain)
 {
-    // 경고 진입 로그는 서버(server_main.cpp)가 이미 db.insertEvent()로 남기므로 Qt는 팝업만 띄운다.
+    // 경고 진입 로그는 서버가 남기므로 Qt는 상단 알림과 ACK 전송만 담당한다.
     // 단, "관리자가 확인 버튼을 눌렀다"는 이벤트는 서버가 아직 DB에 기록하지 않음(alarm_state.h의
     // onWarningAck()는 타이머 취소 플래그만 세움) — 서버에 로깅 추가되기 전까진 이 정보가 로그에 안 남는다.
     const QString causePhrase = causeText(cause);
-    auto *dialog = new WarningAlertDialog(zoneName, causePhrase, warnRemain, this);
+    if (WarningAlertDialog *existing = activeWarningDialogs.value(zoneId)) {
+        existing->setRemainingSeconds(warnRemain);
+        return;
+    }
+    auto *dialog = new WarningAlertDialog(zoneName, causePhrase, warnRemain, warningAlertArea);
+    warningAlertLayout->addWidget(dialog);
+    warningAlertArea->setVisible(true);
+    positionWarningAlert(true);
     activeWarningDialogs.insert(zoneId, dialog);
     connect(dialog, &WarningAlertDialog::acknowledged, this, [this, zoneId]() {
         serverLink->sendWarningAck(zoneId, "admin");
     });
-    connect(dialog, &QDialog::finished, this, [this, zoneId, dialog]() {
+    connect(dialog, &WarningAlertDialog::finished, this, [this, zoneId, dialog]() {
         if (activeWarningDialogs.value(zoneId) == dialog)
             activeWarningDialogs.remove(zoneId);
         // 확인 버튼으로 닫혔든, 상태 전환으로 자동으로 닫혔든 DEMO 카운트다운은 더 이상 필요 없다.
         stopDemoWarningCountdown();
         dialog->deleteLater();
+        warningAlertArea->setVisible(!activeWarningDialogs.isEmpty());
     });
     dialog->show();
 }

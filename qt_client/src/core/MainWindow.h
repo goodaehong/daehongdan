@@ -17,6 +17,8 @@ class GraphPage;
 class HelpPage;
 class ServerLink;
 class QTimer;
+class QVBoxLayout;
+class QResizeEvent;
 
 // 상단 메뉴(구역 토글 + 페이지 탭)와 페이지 전환만 담당하는 셸.
 // 실제 화면 내용은 pages/*Page 클래스가 각자 소유한다.
@@ -30,6 +32,9 @@ public:
 signals:
     void loggedOut();
 
+protected:
+    void resizeEvent(QResizeEvent *event) override;
+
 private slots:
     void setZoneState(int zoneIndex, ZoneState state);
 
@@ -38,6 +43,8 @@ private:
     QWidget *createSubTabBar();
     QWidget *createDangerBanner();
     QWidget *createEvacuationBanner();
+    QWidget *createWarningAlertArea();
+    void positionWarningAlert(bool animate);
 
     void switchTab(int index);
     void switchZone(int index);
@@ -68,6 +75,8 @@ private:
     // 서버 sensor 메시지의 evacuation 필드로 갱신되는 전 구역 공통 상태(zone별 아님).
     QPushButton *evacuationBanner = nullptr;
     bool evacuationActive = false;
+    QWidget *warningAlertArea = nullptr;
+    QVBoxLayout *warningAlertLayout = nullptr;
 
     MonitorPage *monitorPage;
     EventLogPage *eventLogPage;
@@ -87,7 +96,7 @@ private:
     int currentValve = -1;
     int currentSiren = -1;
 
-    // zoneId -> 현재 열려있는 경고 팝업. sensor 메시지의 warnRemain을 실시간으로 반영하거나,
+    // zoneId -> 현재 표시 중인 상단 경고 배너. sensor 메시지의 warnRemain을 실시간으로 반영하거나,
     // 경고 상태를 벗어나면(안전 복귀/위험 전환) 자동으로 닫기 위해 추적한다.
     QMap<QString, WarningAlertDialog *> activeWarningDialogs;
 
