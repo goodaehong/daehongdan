@@ -14,6 +14,11 @@
 #include <QDateTime>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QCalendarWidget>
+#include <QTimeEdit>
+#include <QAbstractSpinBox>
+#include <QTextCharFormat>
+#include <QTimer>
 
 namespace {
 const QString kCardBg = "#14141f";
@@ -23,7 +28,7 @@ const QString kTextSecondary = "#8d87a0";
 const QString kAccent = "#8b7cf6";
 const QStringList kZoneFilterNames = { "전체", "A공장", "B공장", "C공장", "D공장" };
 const QStringList kSeverityFilterNames = { "전체", "안전", "경고", "위험" };
-const QStringList kPeriodFilterNames = { "전체 기간", "최근 1시간", "최근 24시간", "오늘" };
+const QStringList kPeriodFilterNames = { "전체 기간", "최근 1시간", "최근 6시간", "최근 24시간" };
 const QStringList kStatusFilterNames = { "전체", "해결됨", "오탐 처리됨" };
 
 const QString kComboStyle = QString(
@@ -39,10 +44,12 @@ const QString kLineEditStyle = QString(
     .arg(kCardBg, kTextPrimary, kCardBorder, kAccent);
 
 // 위험도별 행 배경 강조. 안전/정보는 강조 없음(투명), 경고/위험만 은은하게.
+// 기존엔 밝은 색을 낮은 알파로 어두운 배경 위에 얹어서 탁한 카키/갈색으로 보였음.
+// 채도 높은 색(rose/amber) + 알파를 조금 올려서 와인레드/골드 톤이 또렷하게 드러나도록 조정.
 QColor rowTintForSeverity(const QString &severity)
 {
-    if (severity == "위험") return QColor(248, 113, 113, 40);
-    if (severity == "경고") return QColor(251, 191, 36, 34);
+    if (severity == "위험") return QColor(244, 63, 94, 70);   // 와인레드
+    if (severity == "경고") return QColor(252, 211, 77, 70);  // 허니 골드 (R·G값을 가깝게 둬서 주황/갈색 느낌을 피함)
     return QColor(0, 0, 0, 0);
 }
 
@@ -86,7 +93,52 @@ EventLogPage::EventLogPage(QWidget *parent)
     filterRow1->addWidget(searchBtn);
     leftCol->addLayout(filterRow1);
 
+    // 날짜 - 시간(프리셋+직접 입력) - 위험도 - 처리상태 순서로 한 줄에 배치.
     auto *filterRow2 = new QHBoxLayout;
+
+    auto *dateLabel = new QLabel("날짜:", this);
+    dateLabel->setStyleSheet(QString("color:%1;").arg(kTextSecondary));
+    filterRow2->addWidget(dateLabel);
+    dateButton = new QPushButton("전체 날짜", this);
+    dateButton->setStyleSheet(QString(
+        "QPushButton { background-color:%1; color:%2; border:1px solid %3; border-radius:6px; padding:4px 10px; }"
+        "QPushButton:hover { border:1px solid %4; }").arg(kCardBg, kTextPrimary, kCardBorder, kAccent));
+    dateButton->setToolTip("클릭하면 달력에서 특정 날짜를 고를 수 있습니다");
+    filterRow2->addWidget(dateButton);
+    auto *clearDateBtn = new QPushButton("✕", this);
+    clearDateBtn->setFixedWidth(28);
+    clearDateBtn->setToolTip("날짜 필터 초기화");
+    clearDateBtn->setStyleSheet(QString(
+        "QPushButton { background-color:%1; color:%2; border:1px solid %3; border-radius:6px; }"
+        "QPushButton:hover { border:1px solid %4; color:%4; }").arg(kCardBg, kTextSecondary, kCardBorder, kAccent));
+    filterRow2->addWidget(clearDateBtn);
+
+    auto *timeLabel = new QLabel("시간:", this);
+    timeLabel->setStyleSheet(QString("color:%1;").arg(kTextSecondary));
+    filterRow2->addWidget(timeLabel);
+    periodFilterCombo = new QComboBox(this);
+    periodFilterCombo->addItems(kPeriodFilterNames);
+    periodFilterCombo->setStyleSheet(kComboStyle);
+    filterRow2->addWidget(periodFilterCombo);
+    const QString timeEditStyle = QString(
+        "QTimeEdit { background-color:%1; color:%2; border:1px solid %3; border-radius:6px; padding:4px 6px; }"
+        "QTimeEdit:focus { border:1px solid %4; }").arg(kCardBg, kTextPrimary, kCardBorder, kAccent);
+    startTimeEdit = new QTimeEdit(QTime(0, 0), this);
+    startTimeEdit->setDisplayFormat("HH:mm");
+    startTimeEdit->setStyleSheet(timeEditStyle);
+    startTimeEdit->setFocusPolicy(Qt::StrongFocus);
+    startTimeEdit->setButtonSymbols(QAbstractSpinBox::UpDownArrows);
+    filterRow2->addWidget(startTimeEdit);
+    auto *tildeLabel = new QLabel("~", this);
+    tildeLabel->setStyleSheet(QString("color:%1;").arg(kTextSecondary));
+    filterRow2->addWidget(tildeLabel);
+    endTimeEdit = new QTimeEdit(QTime(23, 59), this);
+    endTimeEdit->setDisplayFormat("HH:mm");
+    endTimeEdit->setStyleSheet(timeEditStyle);
+    endTimeEdit->setFocusPolicy(Qt::StrongFocus);
+    endTimeEdit->setButtonSymbols(QAbstractSpinBox::UpDownArrows);
+    filterRow2->addWidget(endTimeEdit);
+
     auto *severityLabel = new QLabel("위험도:", this);
     severityLabel->setStyleSheet(QString("color:%1;").arg(kTextSecondary));
     severityFilterCombo = new QComboBox(this);
@@ -94,14 +146,6 @@ EventLogPage::EventLogPage(QWidget *parent)
     severityFilterCombo->setStyleSheet(kComboStyle);
     filterRow2->addWidget(severityLabel);
     filterRow2->addWidget(severityFilterCombo);
-
-    auto *periodLabel = new QLabel("기간:", this);
-    periodLabel->setStyleSheet(QString("color:%1;").arg(kTextSecondary));
-    periodFilterCombo = new QComboBox(this);
-    periodFilterCombo->addItems(kPeriodFilterNames);
-    periodFilterCombo->setStyleSheet(kComboStyle);
-    filterRow2->addWidget(periodLabel);
-    filterRow2->addWidget(periodFilterCombo);
 
     auto *statusLabel = new QLabel("처리 상태:", this);
     statusLabel->setStyleSheet(QString("color:%1;").arg(kTextSecondary));
@@ -114,15 +158,28 @@ EventLogPage::EventLogPage(QWidget *parent)
     leftCol->addLayout(filterRow2);
     leftCol->addSpacing(8);
 
-    eventTable = new QTableWidget(0, 5, this);
-    eventTable->setHorizontalHeaderLabels({ "시간", "공장", "감지 내용", "대응 결과", "처리상태" });
+    eventTable = new QTableWidget(0, 6, this);
+    eventTable->setHorizontalHeaderLabels({ "날짜", "시간", "공장", "감지 내용", "대응 결과", "처리상태" });
     eventTable->horizontalHeader()->setStretchLastSection(true);
-    eventTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    // 이전엔 ResizeToContents라 사용자가 컬럼 폭을 직접 조절할 수 없었음 -> Interactive로 바꿔서
+    // 드래그로 셀 크기를 조절할 수 있게 함. 초기 폭은 아래 resizeColumnsToContents()로 한 번 맞춰줌.
+    eventTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     eventTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     eventTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    // 스크롤바도 다른 화면들과 동일한 다크/퍼플 accent 테마로 맞춤.
     eventTable->setStyleSheet(QString(
         "QTableWidget { background-color:%1; color:%2; border:1px solid %3; gridline-color:%3; }"
-        "QHeaderView::section { background-color:#1a1a26; color:%4; border:none; padding:6px; }")
+        "QHeaderView::section { background-color:#1a1a26; color:%4; border:none; padding:6px; }"
+        "QScrollBar:vertical { background:#14141f; width:10px; margin:0; border-radius:5px; }"
+        "QScrollBar::handle:vertical { background:#3a3550; min-height:24px; border-radius:5px; }"
+        "QScrollBar::handle:vertical:hover { background:#8b7cf6; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0; border:none; background:none; }"
+        "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background:none; }"
+        "QScrollBar:horizontal { background:#14141f; height:10px; margin:0; border-radius:5px; }"
+        "QScrollBar::handle:horizontal { background:#3a3550; min-width:24px; border-radius:5px; }"
+        "QScrollBar::handle:horizontal:hover { background:#8b7cf6; }"
+        "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width:0; border:none; background:none; }"
+        "QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background:none; }")
         .arg(kCardBg, kTextPrimary, kCardBorder, kTextSecondary));
     leftCol->addWidget(eventTable, 3);
 
@@ -211,6 +268,10 @@ EventLogPage::EventLogPage(QWidget *parent)
     connect(statusFilterCombo, &QComboBox::currentIndexChanged, this, &EventLogPage::applyFilter);
     connect(searchEdit, &QLineEdit::returnPressed, this, &EventLogPage::applyFilter);
     connect(eventTable, &QTableWidget::cellClicked, this, &EventLogPage::showDetail);
+    connect(dateButton, &QPushButton::clicked, this, &EventLogPage::showDatePicker);
+    connect(clearDateBtn, &QPushButton::clicked, this, &EventLogPage::clearDateFilter);
+    connect(startTimeEdit, &QTimeEdit::timeChanged, this, &EventLogPage::applyFilter);
+    connect(endTimeEdit, &QTimeEdit::timeChanged, this, &EventLogPage::applyFilter);
 }
 
 void EventLogPage::updateZone(const Zone &zone)
@@ -237,6 +298,7 @@ void EventLogPage::addEntry(const QString &zone, const QString &detection, const
 {
     EventEntry entry;
     entry.timestamp = QDateTime::currentDateTime();
+    entry.date = entry.timestamp.toString("yyyy-MM-dd");
     entry.time = entry.timestamp.toString("HH:mm:ss");
     entry.zone = zone;
     entry.detection = detection;
@@ -263,6 +325,7 @@ void EventLogPage::loadEntriesFromServer(const QJsonArray &rows)
 
         EventEntry entry;
         entry.timestamp = QDateTime::fromSecsSinceEpoch(qint64(row.value("ts").toDouble()));
+        entry.date = entry.timestamp.toString("yyyy-MM-dd");
         entry.time = entry.timestamp.toString("HH:mm:ss");
         // 서버는 zone을 "A" 한 글자로 주는데, 필터 콤보/화면 표기는 "A공장" 형태라 맞춰준다.
         const QString zoneCode = row.value("zone").toString();
@@ -304,6 +367,9 @@ void EventLogPage::loadEntriesFromServer(const QJsonArray &rows)
         appendRow(entry);
     }
 
+    // 처음 로드될 때만 내용에 맞춰 컬럼 폭을 잡아준다. 이후엔 사용자가 드래그로 조절한 폭이
+    // 유지되도록 매 행마다 다시 호출하지 않는다(Interactive resize mode).
+    eventTable->resizeColumnsToContents();
     applyFilter();
 }
 
@@ -314,6 +380,7 @@ void EventLogPage::appendRow(const EventEntry &entry)
     const int row = eventTable->rowCount();
     eventTable->insertRow(row);
 
+    auto *dateItem = new QTableWidgetItem(entry.date);
     auto *timeItem = new QTableWidgetItem(entry.time);
     auto *zoneItem = new QTableWidgetItem(entry.zone);
     auto *detectionItem = new QTableWidgetItem(entry.detection);
@@ -321,18 +388,19 @@ void EventLogPage::appendRow(const EventEntry &entry)
     auto *statusItem = new QTableWidgetItem(entry.status);
 
     const QColor rowTint = rowTintForSeverity(entry.severity);
-    QTableWidgetItem *items[] = { timeItem, zoneItem, detectionItem, responseItem, statusItem };
+    QTableWidgetItem *items[] = { dateItem, timeItem, zoneItem, detectionItem, responseItem, statusItem };
     for (QTableWidgetItem *item : items) {
         if (rowTint.alpha() > 0)
             item->setBackground(rowTint);
     }
     responseItem->setForeground(responseTextColor(entry.response));
 
-    eventTable->setItem(row, 0, timeItem);
-    eventTable->setItem(row, 1, zoneItem);
-    eventTable->setItem(row, 2, detectionItem);
-    eventTable->setItem(row, 3, responseItem);
-    eventTable->setItem(row, 4, statusItem);
+    eventTable->setItem(row, 0, dateItem);
+    eventTable->setItem(row, 1, timeItem);
+    eventTable->setItem(row, 2, zoneItem);
+    eventTable->setItem(row, 3, detectionItem);
+    eventTable->setItem(row, 4, responseItem);
+    eventTable->setItem(row, 5, statusItem);
     eventTable->scrollToBottom();
 }
 
@@ -367,6 +435,59 @@ void EventLogPage::markFalseAlarm()
         item->setText("오탐 처리됨");
 }
 
+void EventLogPage::showDatePicker()
+{
+    // GraphPage의 날짜 팝업과 동일한 구성: 버튼 바로 아래에 뜨는 Qt::Popup 달력.
+    auto *popup = new QFrame(this, Qt::Popup);
+    popup->setAttribute(Qt::WA_DeleteOnClose);
+    popup->setStyleSheet("background-color:#14141f; border:1px solid #333344; border-radius:8px;");
+
+    auto *layout = new QVBoxLayout(popup);
+    layout->setContentsMargins(8, 8, 8, 8);
+
+    auto *calendar = new QCalendarWidget(popup);
+    calendar->setGridVisible(true);
+    calendar->setMaximumDate(QDate::currentDate());
+    calendar->setSelectedDate(filterDate.isValid() ? filterDate : QDate::currentDate());
+    calendar->setStyleSheet(
+        "QCalendarWidget { background-color:#14141f; color:#f5f5fa; }"
+        "QCalendarWidget QToolButton { color:#f5f5fa; background-color:transparent; font-size:14px; icon-size:20px; padding:6px; }"
+        "QCalendarWidget QToolButton:hover { background-color:#232333; border-radius:6px; }"
+        "QCalendarWidget QMenu { background-color:#1a1a26; color:#f5f5fa; }"
+        "QCalendarWidget QSpinBox { background-color:#1a1a26; color:#f5f5fa; }"
+        "QCalendarWidget QAbstractItemView:enabled { background-color:#14141f; color:#f5f5fa; }"
+        "QCalendarWidget QAbstractItemView::item:selected { border:2px solid #a78bfa; "
+        "background-color:#8b7cf6; color:white; border-radius:4px; }"
+        "QCalendarWidget QAbstractItemView:disabled { color:#4a4658; }"
+        "QCalendarWidget QWidget#qt_calendar_navigationbar { background-color:#1a1a26; }");
+
+    QTextCharFormat todayFormat;
+    todayFormat.setFontWeight(QFont::Bold);
+    todayFormat.setForeground(QColor(kAccent));
+    calendar->setDateTextFormat(QDate::currentDate(), todayFormat);
+
+    layout->addWidget(calendar);
+
+    auto pickDate = [this, popup](const QDate &date) {
+        filterDate = date;
+        dateButton->setText("📅 " + filterDate.toString("yyyy-MM-dd"));
+        applyFilter();
+        QTimer::singleShot(150, popup, [popup]() { popup->close(); });
+    };
+    connect(calendar, &QCalendarWidget::clicked, popup, pickDate);
+    connect(calendar, &QCalendarWidget::activated, popup, pickDate);
+
+    popup->move(dateButton->mapToGlobal(QPoint(0, dateButton->height() + 4)));
+    popup->show();
+}
+
+void EventLogPage::clearDateFilter()
+{
+    filterDate = QDate();
+    dateButton->setText("전체 날짜");
+    applyFilter();
+}
+
 void EventLogPage::applyFilter()
 {
     const QString zone = zoneFilterCombo->currentText();
@@ -375,6 +496,8 @@ void EventLogPage::applyFilter()
     const QString statusFilter = statusFilterCombo->currentText();
     const QString keyword = searchEdit->text().trimmed();
     const QDateTime now = QDateTime::currentDateTime();
+    const QTime rangeStart = startTimeEdit->time();
+    const QTime rangeEnd = endTimeEdit->time();
 
     for (int row = 0; row < eventTable->rowCount() && row < eventEntries.size(); ++row) {
         const EventEntry &entry = eventEntries[row];
@@ -392,10 +515,18 @@ void EventLogPage::applyFilter()
         bool periodMatch = true;
         if (periodFilter == "최근 1시간")
             periodMatch = entry.timestamp.secsTo(now) <= 3600;
+        else if (periodFilter == "최근 6시간")
+            periodMatch = entry.timestamp.secsTo(now) <= 6 * 3600;
         else if (periodFilter == "최근 24시간")
             periodMatch = entry.timestamp.secsTo(now) <= 24 * 3600;
-        else if (periodFilter == "오늘")
-            periodMatch = entry.timestamp.date() == now.date();
+
+        // 날짜 팝업으로 고른 특정 날짜(있으면) + 시:분 직접 입력 범위는 위 기간 필터와 별개로
+        // AND 조건으로 함께 적용된다. 초 단위 차이로 경계값이 어긋나지 않도록 분 단위로만 비교.
+        const bool dateMatch = !filterDate.isValid() || entry.timestamp.date() == filterDate;
+        const QTime entryTimeOfDay(entry.timestamp.time().hour(), entry.timestamp.time().minute());
+        const bool timeMatch = rangeStart <= rangeEnd
+            ? (entryTimeOfDay >= rangeStart && entryTimeOfDay <= rangeEnd)
+            : (entryTimeOfDay >= rangeStart || entryTimeOfDay <= rangeEnd); // 자정 넘어가는 범위(예: 22:00~02:00)
 
         const bool statusMatch = (statusFilter == "전체") || (entry.status == statusFilter);
 
@@ -403,6 +534,7 @@ void EventLogPage::applyFilter()
             || entry.detection.contains(keyword, Qt::CaseInsensitive)
             || entry.response.contains(keyword, Qt::CaseInsensitive);
 
-        eventTable->setRowHidden(row, !(zoneMatch && severityMatch && periodMatch && statusMatch && keywordMatch));
+        eventTable->setRowHidden(row, !(zoneMatch && severityMatch && periodMatch && dateMatch && timeMatch
+                                         && statusMatch && keywordMatch));
     }
 }
