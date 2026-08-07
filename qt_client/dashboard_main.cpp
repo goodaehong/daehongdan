@@ -18,7 +18,7 @@ void showDashboard()
         dashboard->deleteLater();
         showLogin();
     });
-    dashboard->show();
+    dashboard->showMaximized();
 }
 
 void showLogin()
