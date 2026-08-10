@@ -193,12 +193,12 @@ StatusPanel::StatusPanel(QWidget *parent)
     addGaugeRow(sensorLayout, sensorCardWidget, "불꽃 센서", "임계 1.0V", &flameValueLabel, &flameGaugeBar, &flameTrendLabel);
 
     auto *smokeRow = new QHBoxLayout;
-    auto *smokeName = new QLabel("연기 감지", sensorCardWidget);
+    auto *smokeName = new QLabel("연기 농도", sensorCardWidget);
     smokeName->setStyleSheet(QString("color:%1; font-size:14px; border:none;").arg(kTextSecondary));
-    smokeBadgeLabel = new QLabel(sensorCardWidget);
+    smokeValueLabel = new QLabel(sensorCardWidget);
     smokeRow->addWidget(smokeName);
     smokeRow->addStretch();
-    smokeRow->addWidget(smokeBadgeLabel);
+    smokeRow->addWidget(smokeValueLabel);
     sensorLayout->addLayout(smokeRow);
 
     smokeGaugeBar = new GaugeBar(sensorCardWidget);
@@ -482,7 +482,7 @@ void StatusPanel::updateZone(const Zone &zone)
         smokeDetected = zone.state == ZoneState::Danger;
     }
 
-    gasValueLabel->setText(QString::number(gasVal, 'f', 0) + " ppm");
+    gasValueLabel->setText(QString::number(gasVal, 'f', 2) + " ppm");
     const QColor gasColor = gasVal >= kGasDanger ? QColor(kDangerColor)
                              : gasVal >= kGasWarn ? QColor(kWarnColor) : QColor(kSafeColor);
     gasGaugeBar->setRatio(gasVal / kGasScale, gasColor);
@@ -499,8 +499,10 @@ void StatusPanel::updateZone(const Zone &zone)
     flameTrendLabel->setText(flameTrend.text);
     flameTrendLabel->setStyleSheet(QString("font-size:11px; border:none; color:%1;").arg(flameTrend.color));
 
-    smokeBadgeLabel->setText(smokeDetected ? "감지됨" : "미검지");
-    smokeBadgeLabel->setStyleSheet(pillStyle(smokeDetected ? kDangerColor : kSafeColor, true));
+    // 그래프 화면처럼 감지 여부 배지 대신 실제 ppm 수치를 그대로 보여준다.
+    smokeValueLabel->setText(QString::number(smokeVal, 'f', 2) + " ppm");
+    smokeValueLabel->setStyleSheet(QString("color:%1; font-size:15px; font-weight:bold; border:none;")
+        .arg(smokeDetected ? kDangerColor : kTextPrimary));
     smokeGaugeBar->setRatio(smokeVal / kSmokeScale, smokeDetected ? QColor(kDangerColor) : QColor(kSafeColor));
     int smokeDetectedCount = 0;
     for (bool b : zone.smokeDetectHistory)
