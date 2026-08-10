@@ -13,6 +13,9 @@ struct AlarmOutcome {
     bool released;          // 위험 해제 → 복귀 대응 + resolveIncident + event_log(resolve)
     bool wasDanger;         // 이 사태가 위험까지 갔었나 (해제 처리 구분용)
     long durationMs;        // released일 때 위험 지속시간
+    bool evacEntered;       // 이번 tick에 대피 모드 발동  
+    bool evacCleared;       // 이번 tick에 대피 모드 해제
+    bool evacActive;        // 현재 대피 모드인가 (Qt 전송용)  
 };
 
 // 경고 무응답 타이머 + 강제 전환 + 사태(incident) 생명주기
@@ -23,6 +26,10 @@ public:
 
     // Qt에서 warning_ack 수신 시 호출 (수신 스레드에서 부름)
     void onWarningAck() { ack_ = true; }
+
+    // Qt에서 대피 모드 발동/해제 요청 시 호출 (수신 스레드에서 부름) 
+    // 실제 실행은 다음 tick의 update()에서 — 출력 장치는 센서 스레드만 만진다
+    void onEvacuationRequest(bool on) { evacReq_ = on ? 1 : 0; }        
 
 private:
     static constexpr int WARN_TIMEOUT = 10;   // 무응답 자동 전환까지 (초)
@@ -39,4 +46,7 @@ private:
 
     std::string prevState_ = "safe";
     std::string prevCause_ = "";
+
+    std::atomic<int> evacReq_{-1};   // -1=요청없음, 0=해제요청, 1=발동요청  
+    bool evacActive_ = false;        // 현재 대피 모드 상태                
 };

@@ -6,6 +6,12 @@ AlarmOutcome AlarmState::update(const Judgement& in, long nowTs) {
     o.j = in;
     o.warnRemain = -1;   // -1 = JSON에 미포함 (warning 아닐 때)
 
+    // ── 대피 모드: 수신 스레드가 넣어둔 요청을 여기서 반영 ──    
+    int req = evacReq_.exchange(-1);
+    if (req == 1 && !evacActive_) { evacActive_ = true;  o.evacEntered = true; }
+    if (req == 0 &&  evacActive_) { evacActive_ = false; o.evacCleared = true; }
+    o.evacActive = evacActive_;                                   
+
     // ── 경고 무응답 타이머: warning 지속 중 관리자 미확인 시 위험 강제 전환 ──
     if (o.j.state == "warning") {
         if (warnStartTs_ < 0) {          // warning 진입 순간

@@ -136,6 +136,26 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
                              s.gasPpm, s.smokePpm, "해결됨", o.durationMs, "", o.incidentId, "");
         }
 
+                // ── 수동 대피 모드 (관리자가 Qt에서 발동) ──                      
+        // 사람에게 알리는 것만 담당. 팬·밸브는 안 건드린다
+        // (원인에 따라 방향이 반대라 관리자가 개별 제어로 조작하는 것이 정확)
+        if (o.evacEntered) {
+            Actuator_Execute("siren", "on", "수동:대피");
+            // cause가 없으면(safe 상태에서 발동) 화재로 표시
+            StmDisplay_SendAlert(o.j.cause.empty() ? Cause::FireConfirmed : o.j.cause, 1);
+            std::cout << "[대피] 대피 모드 발동 — 사이렌 + 전광판 전환\n";
+        }
+        if (o.evacCleared) {
+            // 위험이 지속 중이면 사이렌·전광판은 그대로 둔다.
+            // 대피 해제가 위험 해제는 아니므로 경보를 끄면 안 됨
+            if (o.j.state != "danger") {
+                Actuator_Execute("siren", "off", "수동:대피해제");
+                StmDisplay_SendClear();
+            }
+            std::cout << "[대피] 대피 모드 해제"
+                      << (o.j.state == "danger" ? " (위험 지속 — 경보 유지)" : "") << "\n";
+        }                                                                   
+
         QtLink_SendSensor(link, s, o);
         StmDisplay_SendUpdate(s, o.j.state);
         g_db.insertSensor(now, "A", s.temp, s.humidity, s.gasPpm, s.smokePpm, s.flameVal, o.j.state);
