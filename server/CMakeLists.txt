@@ -41,6 +41,7 @@ set(SERVER_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/judgement.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/alarm_state.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/qt_link.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/audio/speaker_alert.cpp
 )
 
 # ── 하드웨어 계층: mock / 실물 교체 ──

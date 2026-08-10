@@ -23,6 +23,7 @@
 #include "alarm_state.h"
 #include "qt_link.h"
 #include "db/Database.h"
+#include "audio/speaker_alert.h"
 
 // 4채널 프레임 공유 저장소. 채널별 mutex로 워커/센서 스레드 간 경합 방지
 struct FrameStore {
@@ -121,6 +122,7 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
             if (!ok) std::cerr << "[액추에이터] 자동 대응 실패 — " << src << "\n";
             QtLink_SendActuator(link, Actuator_GetState());
             StmDisplay_SendAlert(o.j.cause, 1);
+            SpeakerAlert_Start();
 
             std::string snap = saveSnapshot(store, detCh, "A", now);
             g_db.insertEvent(now, "A", "danger", o.j.state, o.j.cause,
@@ -136,6 +138,7 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
                     std::cerr << "[액추에이터] 해제 대응 실패\n"; 
                 QtLink_SendActuator(link, Actuator_GetState());
                 StmDisplay_SendClear();
+                SpeakerAlert_Stop();
             }
             const char* resp = o.wasDanger ? "위험 해제" : "경고 해제";     
 
