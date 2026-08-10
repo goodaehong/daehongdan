@@ -81,7 +81,6 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
         }
         if (!prevSensorOk) std::cout << "[센서] 복구됨\n";
         prevSensorOk = true; 
-
         // 4채널 중 하나라도 감지면 true + 감지 채널 기록 (스냅샷용)
         bool camFire = false, camSmoke = false;
         int  detCh = -1;
