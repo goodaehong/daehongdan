@@ -28,12 +28,14 @@
 struct FrameStore {
     cv::Mat frames[4];
     std::mutex mtx[4];
+    std::atomic<long> lastFrameTs[4]{};   // 마지막 프레임 수신 시각 (visionOk 판정용)
 };
 
 // 채널별 최신 감지 상태. 워커가 갱신, 판단(센서 스레드)이 읽음
 struct DetectionState {
     std::atomic<bool> fire{false};
     std::atomic<bool> smoke{false};
+    std::atomic<long> lastInferTs{0};     // 마지막 추론 결과 시각 (visionOk 판정용) 
 };
 DetectionState detState[4];
 
@@ -66,21 +68,47 @@ static std::string respToText(const Response& r) {
          + ",fan_"  + fan;
 }
 
+         + ",fan_"  + fan;
+}
+
+// 서버가 내리려 한 목표 대응. 실제 상태와 비교해 responseOk를 낸다      
+static Response g_target = responseForSafe();
+
+// 목표가 실제 액추에이터에 반영됐는가
+// 관리자가 수동으로 조작한 장치는 목표와 달라도 정상 → 비교 제외
+static bool responseApplied(const Response& t, const ActuatorSnapshot& a) {
+    auto isAuto = [](const std::string& src) { return src.rfind("수동", 0) != 0; };
+    if (!a.linkOk) return false;
+    if (isAuto(a.fanSrc)   && a.fan   != t.fan)   return false;
+    if (isAuto(a.valveSrc) && a.valve != t.valve) return false;
+    if (isAuto(a.sirenSrc) && a.siren != t.siren) return false;
+    return true;
+}                                                                   
+
 // ── 센서 스레드: 1초마다 읽기 → 판단 → 대응 → 기록 → 전송 ──
 void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
     int tick = 0;
+    SensorReading lastGood{};      // 마지막으로 정상 읽은 값               
+    long lastGoodTs = 0;           // 그 값을 읽은 시각 (0 = 아직 없음)
+    const int STALE_SEC = 10;      // 이보다 오래되면 Qt에 신뢰 불가로 알림
 
     while (true) {
+        long now = std::time(nullptr);   // 아래에 있던 선언을 여기로 올림   
         SensorReading s;
+        bool sensorOk = true; 
         static bool prevSensorOk = true;   // 센서 상태 로그: 변화 시에만 (실패 시 1초마다 도배 방지) 
-        if (!SensorReader_Read(s)) {
-            if (prevSensorOk) std::cerr << "[센서] 읽기 실패 — 판단 중단\n";
+        if (SensorReader_Read(s)) {                                      
+            if (!prevSensorOk) std::cout << "[센서] 복구됨\n";
+            prevSensorOk = true;
+            lastGood = s; lastGoodTs = now;
+        } else {
+            if (prevSensorOk) std::cerr << "[센서] 읽기 실패\n";
             prevSensorOk = false;
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-            continue;
-        }
-        if (!prevSensorOk) std::cout << "[센서] 복구됨\n";
-        prevSensorOk = true; 
+            // 0으로 채우면 "가스 0ppm = 안전"이 되어 위험이 저절로 풀린다. 
+            // 값은 마지막 정상값을 유지하고, 오래됐다는 건 sensorOk로만 알린다
+            s = lastGood;   // 한 번도 못 읽었으면 0 초기값 그대로
+            sensorOk = (lastGoodTs != 0 && now - lastGoodTs <= STALE_SEC);  
+        }                                                                
 
         // 4채널 중 하나라도 감지면 true + 감지 채널 기록 (스냅샷용)
         bool camFire = false, camSmoke = false;
@@ -94,7 +122,6 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
         if (camSmoke) smokeHold = 5;
         else if (smokeHold > 0) { --smokeHold; camSmoke = true; }
 
-        long now = std::time(nullptr);
         AlarmOutcome o = alarm.update(judgeState(camFire, camSmoke, s), now);
 
         // 경고 진입 = 기록 + 스냅샷 (액추에이터 대응은 없음)
@@ -136,29 +163,11 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
                              s.gasPpm, s.smokePpm, "해결됨", o.durationMs, "", o.incidentId, "");
         }
 
-                // ── 수동 대피 모드 (관리자가 Qt에서 발동) ──                      
-        // 사람에게 알리는 것만 담당. 팬·밸브는 안 건드린다
-        // (원인에 따라 방향이 반대라 관리자가 개별 제어로 조작하는 것이 정확)
-        if (o.evacEntered) {
-            Actuator_Execute("siren", "on", "수동:대피");
-            // cause가 없으면(safe 상태에서 발동) 화재로 표시
-            StmDisplay_SendAlert(o.j.cause.empty() ? Cause::FireConfirmed : o.j.cause, 1);
-            std::cout << "[대피] 대피 모드 발동 — 사이렌 + 전광판 전환\n";
-        }
-        if (o.evacCleared) {
-            // 위험이 지속 중이면 사이렌·전광판은 그대로 둔다.
-            // 대피 해제가 위험 해제는 아니므로 경보를 끄면 안 됨
-            if (o.j.state != "danger") {
-                Actuator_Execute("siren", "off", "수동:대피해제");
-                StmDisplay_SendClear();
-            }
-            std::cout << "[대피] 대피 모드 해제"
-                      << (o.j.state == "danger" ? " (위험 지속 — 경보 유지)" : "") << "\n";
-        }                                                                   
-
-        QtLink_SendSensor(link, s, o);
+        QtLink_SendSensor(link, s, o,sensorOk);
         StmDisplay_SendUpdate(s, o.j.state);
-        g_db.insertSensor(now, "A", s.temp, s.humidity, s.gasPpm, s.smokePpm, s.flameVal, o.j.state);
+        if (sensorOk) {   // 고장 중 0값을 이력에 남기면 통계가 망가진다     
+            g_db.insertSensor(now, "A", s.temp, s.humidity, s.gasPpm, s.smokePpm, s.flameVal, o.j.state);
+        }    
 
         // 액추에이터 상태 주기 보고: Qt가 새로 접속해도 화면 동기화되게
         if (++tick % 5 == 0) {                                 

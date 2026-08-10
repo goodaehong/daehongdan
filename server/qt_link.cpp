@@ -7,7 +7,7 @@
 #include <cstdlib>
 
 // ── 센서 정보 ──
-void QtLink_SendSensor(Link& link, const SensorReading& s, const AlarmOutcome& o) {
+void QtLink_SendSensor(Link& link, const SensorReading& s, const AlarmOutcome& o,bool sensorOk) {
     std::ostringstream oss;
     oss << std::fixed << std::setprecision(1);
     oss << "{\"type\":\"sensor\",\"zone\":\"A\""
@@ -20,7 +20,7 @@ void QtLink_SendSensor(Link& link, const SensorReading& s, const AlarmOutcome& o
         << ",\"state\":\"" << o.j.state << "\""
         << ",\"cause\":\"" << o.j.cause << "\"";
     if (o.j.state == "warning") oss << ",\"warnRemain\":" << o.warnRemain;
-    oss << ",\"evacuation\":" << (o.evacActive ? 1 : 0);   // 대피 모드 여부 <- 처음/끝
+    oss << ",\"sensorOk\":" << (sensorOk ? "true" : "false");   // 센서 값 신뢰 여부 
     oss << "}";
     link.send(oss.str());
 }
