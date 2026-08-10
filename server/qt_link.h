@@ -24,7 +24,7 @@ struct PersonBox {
 
 // ── 서버 → Qt ──
 // 명세서 "센서 정보" 스키마
-void QtLink_SendSensor(Link& link, const SensorReading& s, const AlarmOutcome& o);
+void QtLink_SendSensor(Link& link, const SensorReading& s, const AlarmOutcome& o, bool sensorOk);
 
 // 명세서 "카메라 정보" 스키마. 박스 0개여도 전송 (Qt가 오버레이 지움)
 void QtLink_SendDetection(Link& link, int ch, int frameId, int srcW, int srcH,
