@@ -7,6 +7,7 @@ struct SensorReading {
     float gasPpm;      // ppm (MQ-9)
     float smokePpm;    // ppm (MQ-2)
     float flameVal;    // 불꽃 세기 (DFR0076 AO)
+    bool  dhtOk;       // 이번 틱에 DHT22를 실제로 읽었는지 (false=캐시값 재사용, 최초 실행 전이면 0/0)
 };
 
 // 센서 1회 읽기. 실패 시 false (0 채우면 "가스 0ppm=안전"으로 오판함)

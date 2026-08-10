@@ -37,16 +37,15 @@ bool SensorReader_Read(SensorReading& out) {
     // DHT22는 실패 시 마지막 정상값을 그대로 쓴다 (0으로 떨어뜨리면 온습도만 왜곡되고
     // 판단 로직엔 안 쓰이니 무해하지만, 그래도 값 자체는 유지).
     static float lastTemp = 0.0f, lastHum = 0.0f;
-    // TODO(dhtOk): 최초 실행부터 DHT22가 실패하면 lastTemp/lastHum이 0으로 나간다.
-    // "신뢰 가능 여부"를 Qt에 알리려면 SensorReading에 플래그가 필요한데,
-    // fix/sensor-resilience의 sensorOk와 같은 종류 문제라 그쪽과 맞춰서 별도 처리 예정.
     float temp, hum;
-    if (readDHT22(temp, hum)) {
+    bool dhtOk = readDHT22(temp, hum);
+    if (dhtOk) {
         lastTemp = temp;
         lastHum = hum;
     }
     out.temp = lastTemp;
     out.humidity = lastHum;
+    out.dhtOk = dhtOk;
 
     int rawMq9, rawMq2, rawFlame;
     if (!readADS1115(rawMq9, rawMq2, rawFlame)) return false;

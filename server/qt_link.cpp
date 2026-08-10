@@ -20,6 +20,7 @@ void QtLink_SendSensor(Link& link, const SensorReading& s, const AlarmOutcome& o
         << ",\"cause\":\"" << o.j.cause << "\"";
     if (o.j.state == "warning") oss << ",\"warnRemain\":" << o.warnRemain;
     oss << ",\"sensorOk\":" << (sensorOk ? "true" : "false");   // 센서 값 신뢰 여부 
+    oss << ",\"dhtOk\":" << (s.dhtOk ? "true" : "false");   // 온습도 신뢰 여부
     oss << "}";
     link.send(oss.str());
 }
