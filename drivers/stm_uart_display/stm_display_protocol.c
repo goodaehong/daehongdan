@@ -3,6 +3,8 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <termios.h>
+#include <poll.h>
+#include <string.h>
 
 #define STM_DISPLAY_STX 0xAA
 #define STM_DISPLAY_ETX 0x55
@@ -104,6 +106,72 @@ bool StmDisplayProtocol_SendClear(int fd)
     }
 
     return SendPacket(fd, STM_DISPLAY_CMD_CLEAR, NULL, 0);
+}
+
+/* poll()로 timeoutMs 안에 데이터 들어오길 기다렸다가 1바이트 읽음. 못 받으면 false */
+static bool ReadByteTimeout(int fd, uint8_t *outByte, int timeoutMs)
+{
+    struct pollfd pfd;
+    pfd.fd = fd;
+    pfd.events = POLLIN;
+
+    if (poll(&pfd, 1, timeoutMs) > 0)
+    {
+        return read(fd, outByte, 1) == 1;
+    }
+    return false;
+}
+
+bool StmDisplayProtocol_ReadAck(int fd, int timeoutMs, uint8_t *outStatus)
+{
+    if (fd < 0)
+    {
+        return false;
+    }
+
+    uint8_t b;
+    do
+    {
+        if (!ReadByteTimeout(fd, &b, timeoutMs))
+        {
+            return false;
+        }
+    } while (b != STM_DISPLAY_STX);
+
+    uint8_t len, cmd;
+    if (!ReadByteTimeout(fd, &len, timeoutMs)) return false;
+    if (!ReadByteTimeout(fd, &cmd, timeoutMs)) return false;
+
+    uint8_t data[16];
+    if (len > sizeof(data))
+    {
+        return false;   /* 손상된 길이 값 - 정상 ACK(1바이트)일 리 없음 */
+    }
+
+    uint8_t checksumCalc = (uint8_t)(len + cmd);
+    for (uint8_t i = 0; i < len; i++)
+    {
+        if (!ReadByteTimeout(fd, &data[i], timeoutMs))
+        {
+            return false;
+        }
+        checksumCalc += data[i];
+    }
+
+    uint8_t checksum, etx;
+    if (!ReadByteTimeout(fd, &checksum, timeoutMs)) return false;
+    if (!ReadByteTimeout(fd, &etx, timeoutMs)) return false;
+
+    if (etx != STM_DISPLAY_ETX || checksum != checksumCalc || cmd != STM_DISPLAY_CMD_ACK)
+    {
+        return false;
+    }
+
+    if (outStatus != NULL && len >= 1)
+    {
+        *outStatus = data[0];
+    }
+    return true;
 }
 
 void StmDisplayProtocol_Close(int fd)

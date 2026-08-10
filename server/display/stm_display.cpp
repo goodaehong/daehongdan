@@ -6,6 +6,11 @@
 
 // UART fd는 이 모듈 안에만 보관 (stm_display.h 주석 규칙 - 밖으로 안 꺼냄)
 static int s_fd = -1;
+static bool s_linkOk = false;
+
+// STM32가 UPDATE를 받자마자 바로 ACK를 쏘므로 짧게만 기다리면 됨.
+// 너무 길게 잡으면 SendUpdate가 1초 주기 루프를 블로킹해버림
+static const int kAckTimeoutMs = 200;
 
 bool StmDisplay_Open(const char* devPath)
 {
@@ -42,12 +47,23 @@ bool StmDisplay_SendUpdate(const SensorReading& s, const std::string& state)
     time_t now = time(nullptr);
     tm* lt = localtime(&now);
 
-    return StmDisplayProtocol_SendUpdate(s_fd, faceGasColor, faceGasColor, gas,
-                                          temp, humidity,
-                                          (uint8_t)lt->tm_hour, (uint8_t)lt->tm_min,
-                                          (uint8_t)(lt->tm_year % 100),
-                                          (uint8_t)(lt->tm_mon + 1),
-                                          (uint8_t)lt->tm_mday);
+    bool sent = StmDisplayProtocol_SendUpdate(s_fd, faceGasColor, faceGasColor, gas,
+                                               temp, humidity,
+                                               (uint8_t)lt->tm_hour, (uint8_t)lt->tm_min,
+                                               (uint8_t)(lt->tm_year % 100),
+                                               (uint8_t)(lt->tm_mon + 1),
+                                               (uint8_t)lt->tm_mday);
+
+    // ACK 수신 여부는 통신 상태 트래킹용일 뿐 - 여기서 실패해도 SendUpdate 자체 성공/실패(sent)와는 별개로 취급
+    uint8_t ackStatus = 0;
+    s_linkOk = sent && StmDisplayProtocol_ReadAck(s_fd, kAckTimeoutMs, &ackStatus);
+
+    return sent;
+}
+
+bool StmDisplay_GetLinkOk()
+{
+    return s_linkOk;
 }
 
 bool StmDisplay_SendAlert(const std::string& cause, int zoneId)

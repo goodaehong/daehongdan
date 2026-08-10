@@ -99,10 +99,15 @@ int main()
                                                  (uint8_t)(lt->tm_mon + 1),
                                                  (uint8_t)lt->tm_mday);
 
+        // STM32가 CMD_UPDATE 처리 직후 곧바로 CMD_ACK(0xB0)를 보내므로 짧게 기다렸다 확인
+        uint8_t ackStatus = 0;
+        bool ackOk = ok && StmDisplayProtocol_ReadAck(fd, 200, &ackStatus);
+
         std::cout << "[센서] 온도" << s.temp << " 습도" << s.humidity
                   << " 가스" << s.gasPpm << "ppm 연기" << s.smokePpm << "ppm"
                   << " 불꽃" << s.flameVal << "V"
-                  << " -> 전송 " << (ok ? "성공" : "실패") << "\n";
+                  << " -> 전송 " << (ok ? "성공" : "실패")
+                  << " / 통신 " << (ackOk ? "양호 (ACK 수신)" : "불량 (ACK 없음)") << "\n";
 
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }

@@ -17,6 +17,10 @@ bool StmDisplay_SendAlert(const std::string& cause, int zoneId);
 // 위험 해제 → 평상시 화면 복귀
 bool StmDisplay_SendClear();
 
+// STM32가 마지막 SendUpdate에 대해 ACK(CMD 0xB0)를 보내왔는지. false면 통신 불량으로 간주
+// (SendUpdate 안에서 자동으로 짧게 기다렸다 갱신함 - 따로 Poll 호출할 필요 없음)
+bool StmDisplay_GetLinkOk();
+
 // fd는 모듈 안에 보관 (밖으로 안 꺼냄)
 // STM32와 공유하는 패킷 조립 C 코드는 stm_display_protocol.h로 따로. 이건 서버가 부르는 얼굴
 // 스레드 만들지 말 것

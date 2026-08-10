@@ -54,6 +54,12 @@ bool StmDisplayProtocol_SendAlert(int fd, uint8_t disasterType, uint8_t zoneId);
 /* 비상 해제 패킷(CMD 0xA0) 전송. 데이터 없음(0바이트) - STM32가 평상시 화면으로 복귀함 */
 bool StmDisplayProtocol_SendClear(int fd);
 
+/* CMD_ACK(0xB0) 응답 대기. STM32는 CMD_UPDATE를 처리하자마자 곧바로 ACK를 보내므로
+   SendUpdate 호출 직후에만 의미 있음 (ALERT/CLEAR는 STM32가 ACK를 안 보냄).
+   timeoutMs 안에 STX~ETX 프레임을 온전히 못 받으면 false. outStatus에 데이터[0](상태 바이트) 저장,
+   필요 없으면 NULL 가능 */
+bool StmDisplayProtocol_ReadAck(int fd, int timeoutMs, uint8_t *outStatus);
+
 void StmDisplayProtocol_Close(int fd);
 
 #ifdef __cplusplus
