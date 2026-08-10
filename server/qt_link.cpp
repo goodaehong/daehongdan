@@ -5,9 +5,33 @@
 #include <iostream>
 #include <ctime>
 #include <cstdlib>
+#include <mutex>
+
+// 서버가 내린 목표 대응. 센서 스레드가 쓰고 두 스레드가 읽는다        
+static std::mutex g_targetMtx;
+static Response   g_target = responseForSafe();
+
+void QtLink_SetTarget(const Response& r) {
+    std::lock_guard<std::mutex> lk(g_targetMtx);
+    g_target = r;
+}
+Response QtLink_GetTarget() {
+    std::lock_guard<std::mutex> lk(g_targetMtx);
+    return g_target;
+}
+
+// "checklist":[...] 원문을 통째로 꺼낸다 (배열이라 jsonStr로는 못 읽음)
+static std::string jsonRawArray(const std::string& line, const std::string& key) {
+    auto p = line.find("\"" + key + "\"");
+    if (p == std::string::npos) return "";
+    auto b = line.find('[', p);
+    auto e = line.find(']', b);
+    if (b == std::string::npos || e == std::string::npos) return "";
+    return line.substr(b, e - b + 1);
+}                                                                
 
 // ── 센서 정보 ──
-void QtLink_SendSensor(Link& link, const SensorReading& s, const AlarmOutcome& o,bool sensorOk) {
+void QtLink_SendSensor(Link& link, const SensorReading& s, const AlarmOutcome& o,const ServerStatus& st) {
     std::ostringstream oss;
     oss << std::fixed << std::setprecision(1);
     oss << "{\"type\":\"sensor\",\"zone\":\"A\""
@@ -20,7 +44,19 @@ void QtLink_SendSensor(Link& link, const SensorReading& s, const AlarmOutcome& o
         << ",\"state\":\"" << o.j.state << "\""
         << ",\"cause\":\"" << o.j.cause << "\"";
     if (o.j.state == "warning") oss << ",\"warnRemain\":" << o.warnRemain;
-    oss << ",\"sensorOk\":" << (sensorOk ? "true" : "false");   // 센서 값 신뢰 여부 
+    
+    // 감지·대응이 살아있는가 + 해제 체크리스트 (매초 보냄 — Qt가 필드 유무를 분기 안 하게) 
+    oss << ",\"sensorOk\":"      << (st.sensorOk   ? "true" : "false")
+        << ",\"responseOk\":"    << (st.responseOk ? "true" : "false")
+        << ",\"dangerSource\":\"" << (o.manual ? "manual" : "auto") << "\""
+        << ",\"admin\":\""        << jsonEscape(o.admin) << "\""
+        << ",\"visionOk\":[";
+    for (int i = 0; i < 4; i++)
+        oss << (i ? "," : "") << (st.visionOk[i] ? "true" : "false");
+    oss << "],\"clearCheck\":{\"sensor\":" << (st.clearSensor   ? "true" : "false")
+        << ",\"vision\":"                  << (st.clearVision   ? "true" : "false")
+        << ",\"actuator\":"                << (st.clearActuator ? "true" : "false") << "}";
+
     oss << "}";
     link.send(oss.str());
 }
@@ -76,6 +112,7 @@ void QtLink_SendPerson(Link& link, int ch, int srcW, int srcH,
 
 // ── 액추에이터 상태 ──
 void QtLink_SendActuator(Link& link, const ActuatorSnapshot& st) {
+    Response t = QtLink_GetTarget(); 
     std::ostringstream oss;
     oss << "{\"type\":\"actuator_status\",\"fan\":" << st.fan
         << ",\"valve\":" << st.valve
@@ -84,6 +121,9 @@ void QtLink_SendActuator(Link& link, const ActuatorSnapshot& st) {
         << ",\"valveSrc\":\"" << st.valveSrc << "\""
         << ",\"sirenSrc\":\"" << st.sirenSrc << "\""
         << ",\"link\":\"" << (st.linkOk ? "ok" : "down") << "\""   // STM 연결 상태
+        << ",\"linkReason\":\"" << jsonEscape(st.linkReason) << "\""     
+        << ",\"target\":{\"fan\":" << t.fan << ",\"valve\":" << t.valve
+        << ",\"siren\":" << t.siren << "}"
         << "}";                                                  
     link.send(oss.str());
 }
@@ -119,26 +159,30 @@ static void handleControl(Link& link, Database& db, const std::string& line) {
     link.send(oss.str());
 }
 
-// 수동 대피 모드 발동/해제. 실제 실행은 sensorWorker가 다음 tick에 한다
+// 비상 모드 전환/해제. 실제 실행은 sensorWorker가 다음 tick에 한다
 // (액추에이터·전광판을 만지는 코드를 한 곳에 유지하기 위함)
-static void handleEvacuation(Link& link, Database& db, AlarmState& alarm,
-                             const std::string& line, bool on) {
+static void handleEmergency(Link& link, Database& db, AlarmState& alarm,
+                            const std::string& line, bool on) {
     std::string cmdId = jsonStr(line, "cmdId");
     std::string zone  = jsonStr(line, "zone");    // 발생 구역 표시용. 적용은 전 구역
     std::string admin = jsonStr(line, "admin");
+    std::string cause = jsonStr(line, "cause");   // 전환일 때만. 해제는 빈 값
 
-    alarm.onEvacuationRequest(on);
-    std::cout << "[대피] " << (on ? "발동" : "해제") << " 요청 — " << admin << "\n";
+    alarm.requestEmergency(on, cause, admin);
+    std::cout << "[비상] " << (on ? "전환" : "해제") << " 요청 — " << admin
+              << (on ? " (" + cause + ")" : "") << "\n";
 
-    db.insertEvent(std::time(nullptr), zone,
-                   on ? "evacuation" : "evacuation_clear", "", "",
-                   "", "manual", on ? "대피 모드 발동" : "대피 모드 해제", admin,
-                   0, 0, "", 0, "", 0, "");
+    // 해제는 확인자·체크 내역을 남긴다. 사태 종료 기록(resolve)은 센서 스레드가 따로 남김
+    if (!on)
+        db.insertEvent(std::time(nullptr), zone, "emergency_clear", "", "", "",
+                       "manual", "비상 모드 해제", admin,
+                       0, 0, "", 0, "", 0, jsonRawArray(line, "checklist"));
 
+    // 거절 없음 — 켜는 방향은 막지 않고, 해제도 "해제 후 재발"이라 접수로 답한다
     std::ostringstream oss;
-    oss << "{\"type\":\"evacuation_ack\",\"cmdId\":\"" << cmdId
+    oss << "{\"type\":\"emergency_ack\",\"cmdId\":\"" << cmdId
         << "\",\"zone\":\"" << zone << "\",\"mode\":\"" << (on ? "trigger" : "clear")
-        << "\",\"result\":\"ok\",\"reason\":null,\"ts\":" << std::time(nullptr) << "}";
+        << "\",\"result\":\"accepted\",\"ts\":" << std::time(nullptr) << "}";
     link.send(oss.str());
 }
 
@@ -151,10 +195,10 @@ void QtLink_RecvWorker(Link& link, AlarmState& alarm, Database& db) {
             alarm.onWarningAck();          // 관리자 인지 → 센서 스레드가 타이머 취소
         else if (line.find("\"type\":\"control\"") != std::string::npos)
             handleControl(link, db, line);
-        else if (line.find("\"type\":\"evacuation_trigger\"") != std::string::npos)  
-            handleEvacuation(link, db, alarm, line, true);
-        else if (line.find("\"type\":\"evacuation_clear\"") != std::string::npos)
-            handleEvacuation(link, db, alarm, line, false);                         
+        else if (line.find("\"type\":\"emergency_trigger\"") != std::string::npos) 
+            handleEmergency(link, db, alarm, line, true);
+        else if (line.find("\"type\":\"emergency_clear\"") != std::string::npos)
+            handleEmergency(link, db, alarm, line, false);                                               
         else if (line.find("\"type\":\"query\"") != std::string::npos)   
             link.send(handleQuery(db, line));
     }

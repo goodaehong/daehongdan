@@ -1,16 +1,51 @@
 #include "alarm_state.h"
 #include <iostream>
 
+// ── Qt 요청 접수. 거절하지 않는다 (켜는 방향은 막지 않음) ──
+void AlarmState::requestEmergency(bool on, const std::string& cause, const std::string& admin) {
+    std::lock_guard<std::mutex> lk(reqMtx_);
+    if (on) { reqTrigger_ = true; reqCause_ = cause; }
+    else      reqClear_ = true;
+    reqAdmin_ = admin;
+}
+
 AlarmOutcome AlarmState::update(const Judgement& in, long nowTs) {
     AlarmOutcome o{};
     o.j = in;
-    o.warnRemain = -1;   // -1 = JSON에 미포함 (warning 아닐 때)
+    o.naturalState = in.state;   // 래치·수동 전환 적용 전 원본
+    o.warnRemain = -1;           // -1 = JSON에 미포함 (warning 아닐 때)
 
-    // ── 대피 모드: 수신 스레드가 넣어둔 요청을 여기서 반영 ──    
-    int req = evacReq_.exchange(-1);
-    if (req == 1 && !evacActive_) { evacActive_ = true;  o.evacEntered = true; }
-    if (req == 0 &&  evacActive_) { evacActive_ = false; o.evacCleared = true; }
-    o.evacActive = evacActive_;                                   
+    // ── 수신 스레드가 넣어둔 요청 꺼내기 ──
+    bool trig = false, clr = false;
+    std::string reqCause, reqAdmin;
+    {
+        std::lock_guard<std::mutex> lk(reqMtx_);
+        trig = reqTrigger_; clr = reqClear_;
+        reqCause = reqCause_; reqAdmin = reqAdmin_;
+        reqTrigger_ = reqClear_ = false;
+    }
+
+    // 해제를 먼저 본다. 이 tick에서는 래치를 다시 걸지 않는다
+    // (같은 tick에 풀고 걸면 사태 번호와 액추에이터가 꼬임 — 재발이면 다음 tick에 새 사태로)
+    bool justCleared = false;
+    if (clr && latched_) {
+        latched_ = false; manual_ = false; forcedDanger_ = false;
+        manualAdmin_.clear();
+        o.emergCleared = true;
+        justCleared = true;
+        std::cout << "[비상] 해제 — 확인자: " << reqAdmin << "\n";
+    }
+    if (trig) {
+        if (latched_) {           // 이미 위험 = 대응 재실행. 원인·발령자는 그대로 둔다
+            o.emergEntered = true;
+            o.emergReapply = true;   
+            std::cout << "[비상] 대응 재실행 — " << reqAdmin << "\n";
+        } else {
+            manual_ = true; manualCause_ = reqCause; manualAdmin_ = reqAdmin;
+            o.emergEntered = true;
+            std::cout << "[비상] 전환 — 원인: " << reqCause << " (" << reqAdmin << ")\n";
+        }
+    }
 
     // ── 경고 무응답 타이머: warning 지속 중 관리자 미확인 시 위험 강제 전환 ──
     if (o.j.state == "warning") {
@@ -20,10 +55,10 @@ AlarmOutcome AlarmState::update(const Judgement& in, long nowTs) {
             ackLogged_    = false;
             forcedDanger_ = false;
             o.warnEntered = true;
-            if (incidentId_ == 0) {              // 사태 시작 (경고부터 한 사태로) 
+            if (incidentId_ == 0) {              // 사태 시작 (경고부터 한 사태로)
                 incidentId_      = ++incidentSeq_;
                 incidentStartTs_ = nowTs;
-            }  
+            }
             std::cout << "[경고] " << o.j.cause << " 발생 → 관리자 알림 ("
                       << WARN_TIMEOUT << "초 대기)\n";
         }
@@ -43,7 +78,7 @@ AlarmOutcome AlarmState::update(const Judgement& in, long nowTs) {
             }
         }
     } else {
-        if (warnStartTs_ >= 0 && o.j.state == "safe" && !forcedDanger_)   // 위험까지 안 간 경우, 안전 복귀일 때만
+        if (warnStartTs_ >= 0 && o.j.state == "safe" && !forcedDanger_ && !latched_)  // 래치 중엔 해제 로그 금지
             std::cout << "[경고] 해제됨 (감지 사라짐)\n";
         warnStartTs_ = -1;               // warning 벗어남 → 타이머 리셋
         if (o.j.state == "safe") forcedDanger_ = false;   // 안전 복귀 시 강제상태 해제
@@ -58,30 +93,57 @@ AlarmOutcome AlarmState::update(const Judgement& in, long nowTs) {
         else                                      o.j.cause = Cause::FireConfirmed;   // 기본
     }
 
-    if (o.j.state != prevState_)   // 판단 상태 전이 로그 (강제전환 반영된 최종 상태)
+    // ── 수동 발령: 자연 판정이 위험이 아니어도 위험으로 만든다 ──
+    // 자연 판정이 이미 위험이면 그쪽 원인이 더 정확하므로 건드리지 않는다
+    if (manual_ && o.j.state != "danger") {
+        o.j.state = "danger";
+        o.j.cause = manualCause_;
+    }
+
+    // ── 래치: 위험에 닿으면 걸리고, 수동 해제 전까지 안 풀린다 ──
+    if (o.j.state == "danger" && !justCleared) {
+        latched_ = true; latchCause_ = o.j.cause;
+        hazardEndTs_ = 0;                       // 아직 위험 지속 중
+    } else if (latched_) {
+        if (hazardEndTs_ == 0) {                // 자연 판정이 막 안전으로 돌아온 순간
+            hazardEndTs_ = nowTs;
+            std::cout << "[비상] 수치 정상 복귀 — 관리자 확인 대기\n";
+        }
+        o.j.state = "danger";                   // 래치 유지
+        o.j.cause = latchCause_;
+    }
+    o.manual = manual_;
+    o.admin  = manualAdmin_;
+
+    if (o.j.state != prevState_)   // 판단 상태 전이 로그 (최종 상태 기준)
         std::cout << "[판단] " << prevState_ << " → " << o.j.state
                   << " (" << (o.j.cause.empty() ? "정상" : o.j.cause) << ")\n";
 
     // 엣지 트리거: 위험 "진입" 또는 위험 중 "원인 변경" 순간에만 발사
     // (가스로 팬 최대 배출 중 → 불 붙음 → 팬 차단으로 뒤집어야 함)
     if (o.j.state == "danger" && (prevState_ != "danger" || o.j.cause != prevCause_)) {
-        if (incidentId_ == 0) {                  // 경고 없이 바로 위험이면 여기서 발급 
+        if (incidentId_ == 0) {                  // 경고 없이 바로 위험이면 여기서 발급
             incidentId_      = ++incidentSeq_;
             incidentStartTs_ = nowTs;
         }
         wasDanger_ = true;
         o.dangerEntered = true;
     }
-    else if (incidentId_ != 0 && o.j.state == "safe") {   // 사태 열려있는데 안전 복귀 = 종료 
+
+    // 사태 종료: 위험까지 갔으면 수동 해제로만, 경고만이었으면 기존대로 자동
+    if (o.emergCleared || (incidentId_ != 0 && !latched_ && o.j.state == "safe")) {
         o.released   = true;
         o.wasDanger  = wasDanger_;
-        o.durationMs = (nowTs - incidentStartTs_) * 1000;   // 초→ms
-    }                                                                   
+        // 관리자 반응 시간이 통계에 섞이지 않게, 수치가 정상으로 돌아온 시각까지만 센다
+        long endTs   = hazardEndTs_ ? hazardEndTs_ : nowTs;
+        o.durationMs = (endTs - incidentStartTs_) * 1000;   // 초→ms
+    }
 
     o.incidentId = incidentId_;
-    if (o.released) { incidentId_ = 0; wasDanger_ = false; }   // 사태 종료
+    if (o.released) { incidentId_ = 0; wasDanger_ = false; hazardEndTs_ = 0; }
 
-    prevState_ = o.j.state;
-    prevCause_ = o.j.cause;
+    // 해제한 tick은 다음 위험이 새 사태로 잡히도록 전이 기준을 초기화한다
+    prevState_ = o.emergCleared ? "safe" : o.j.state;
+    prevCause_ = o.emergCleared ? ""     : o.j.cause;
     return o;
 }
