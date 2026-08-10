@@ -3,6 +3,10 @@
 
 #include <QApplication>
 
+#ifndef VLC_PLUGIN_PATH
+#define VLC_PLUGIN_PATH ""
+#endif
+
 namespace {
 void showLogin();
 
@@ -30,6 +34,8 @@ void showLogin()
 
 int main(int argc, char *argv[])
 {
+    qputenv("VLC_PLUGIN_PATH", VLC_PLUGIN_PATH);
+
     QApplication a(argc, argv);
     showLogin();
     return QCoreApplication::exec();
