@@ -6,6 +6,7 @@
 
 // UART fd는 이 모듈 안에만 보관 (stm_display.h 주석 규칙 - 밖으로 안 꺼냄)
 static int s_fd = -1;
+static std::string s_devPath;
 static bool s_linkOk = false;
 
 // STM32가 UPDATE를 받자마자 바로 ACK를 쏘므로 짧게만 기다리면 됨.
@@ -14,8 +15,19 @@ static const int kAckTimeoutMs = 200;
 
 bool StmDisplay_Open(const char* devPath)
 {
+    s_devPath = devPath;
     s_fd = StmDisplayProtocol_Open(devPath);
     return s_fd >= 0;
+}
+
+// USB-시리얼처럼 케이블을 뽑았다 꽂으면 기존 fd가 죽은 채로 남아서 재부팅 전까지
+// 계속 전송 실패만 남는 문제가 있었음 - Send*가 실패하면 다음 시도 전에 재연결해둠
+static void ReconnectIfBroken(bool sent)
+{
+    if (!sent && !s_devPath.empty())
+    {
+        s_fd = StmDisplayProtocol_Reconnect(s_fd, s_devPath.c_str());
+    }
 }
 
 void StmDisplay_Close()
@@ -58,6 +70,7 @@ bool StmDisplay_SendUpdate(const SensorReading& s, const std::string& state)
     uint8_t ackStatus = 0;
     s_linkOk = sent && StmDisplayProtocol_ReadAck(s_fd, kAckTimeoutMs, &ackStatus);
 
+    ReconnectIfBroken(sent);
     return sent;
 }
 
@@ -70,10 +83,14 @@ bool StmDisplay_SendAlert(const std::string& cause, int zoneId)
 {
     // Cause::Gas만 가스 화면, 나머지(화재/연기/복합 원인)는 전부 화재 화면 (팀 확인 완료)
     uint8_t disasterType = (cause == Cause::Gas) ? STM_DISPLAY_DISASTER_GAS : STM_DISPLAY_DISASTER_FIRE;
-    return StmDisplayProtocol_SendAlert(s_fd, disasterType, (uint8_t)zoneId);
+    bool sent = StmDisplayProtocol_SendAlert(s_fd, disasterType, (uint8_t)zoneId);
+    ReconnectIfBroken(sent);
+    return sent;
 }
 
 bool StmDisplay_SendClear()
 {
-    return StmDisplayProtocol_SendClear(s_fd);
+    bool sent = StmDisplayProtocol_SendClear(s_fd);
+    ReconnectIfBroken(sent);
+    return sent;
 }

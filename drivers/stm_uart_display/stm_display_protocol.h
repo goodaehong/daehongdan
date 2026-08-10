@@ -39,6 +39,11 @@ extern "C" {
    실패해도 호출자는 죽을 필요 없음 - 이후 Send 함수들은 fd<0이면 그냥 false만 반환함 */
 int StmDisplayProtocol_Open(const char *devPath);
 
+/* USB-시리얼처럼 뽑았다 꽂으면 기존 fd가 죽은 채로 남는 경우 복구용.
+   oldFd를 닫고 devPath를 다시 열어서 새 fd 반환 (실패하면 Open과 동일하게 -1).
+   Send* 함수가 실패하기 시작하면 호출해서 반환값으로 fd를 교체할 것 */
+int StmDisplayProtocol_Reconnect(int oldFd, const char *devPath);
+
 /* 평상시 갱신 패킷(CMD 0x80) 전송. gas는 ppm 값(0~9999), temp/humidity는 정수부만.
    성공하면 true, UART 쓰기 실패하면 false */
 bool StmDisplayProtocol_SendUpdate(int fd,

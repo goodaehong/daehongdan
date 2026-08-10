@@ -64,6 +64,12 @@ int StmDisplayProtocol_Open(const char *devPath)
     return fd;
 }
 
+int StmDisplayProtocol_Reconnect(int oldFd, const char *devPath)
+{
+    StmDisplayProtocol_Close(oldFd);   /* oldFd<0이면 내부에서 그냥 무시함 */
+    return StmDisplayProtocol_Open(devPath);
+}
+
 bool StmDisplayProtocol_SendUpdate(int fd,
                                     uint8_t face, uint8_t gasColor, uint16_t gas,
                                     uint8_t temp, uint8_t humidity,
