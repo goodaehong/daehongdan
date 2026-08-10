@@ -71,7 +71,7 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
     int tick = 0;
     SensorReading lastGood{};      // 마지막으로 정상 읽은 값               
     long lastGoodTs = 0;           // 그 값을 읽은 시각 (0 = 아직 없음)
-    const int STALE_SEC = 10;      // 이보다 오래 실패하면 판단에서 제외   
+    const int STALE_SEC = 10;      // 이보다 오래되면 Qt에 신뢰 불가로 알림
 
     while (true) {
         long now = std::time(nullptr);   // 아래에 있던 선언을 여기로 올림   
@@ -85,13 +85,10 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
         } else {
             if (prevSensorOk) std::cerr << "[센서] 읽기 실패\n";
             prevSensorOk = false;
-            // 틱을 건너뛰면 Qt로 sensor가 안 나가 경고 카운트다운이 끊긴다
-            if (lastGoodTs && now - lastGoodTs <= STALE_SEC) {
-                s = lastGood;              // 잠깐 튄 것 — 직전 값으로 버틴다
-            } else {
-                s = SensorReading{};       // 오래 끊김 — 카메라만으로 판단
-                sensorOk = false;
-            }
+            // 0으로 채우면 "가스 0ppm = 안전"이 되어 위험이 저절로 풀린다. 
+            // 값은 마지막 정상값을 유지하고, 오래됐다는 건 sensorOk로만 알린다
+            s = lastGood;   // 한 번도 못 읽었으면 0 초기값 그대로
+            sensorOk = (lastGoodTs != 0 && now - lastGoodTs <= STALE_SEC);  
         }                                                                
 
         // 4채널 중 하나라도 감지면 true + 감지 채널 기록 (스냅샷용)
