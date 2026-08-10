@@ -69,18 +69,30 @@ static std::string respToText(const Response& r) {
 // ── 센서 스레드: 1초마다 읽기 → 판단 → 대응 → 기록 → 전송 ──
 void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
     int tick = 0;
+    SensorReading lastGood{};      // 마지막으로 정상 읽은 값               
+    long lastGoodTs = 0;           // 그 값을 읽은 시각 (0 = 아직 없음)
+    const int STALE_SEC = 10;      // 이보다 오래 실패하면 판단에서 제외   
 
     while (true) {
+        long now = std::time(nullptr);   // 아래에 있던 선언을 여기로 올림   
         SensorReading s;
+        bool sensorOk = true; 
         static bool prevSensorOk = true;   // 센서 상태 로그: 변화 시에만 (실패 시 1초마다 도배 방지) 
-        if (!SensorReader_Read(s)) {
-            if (prevSensorOk) std::cerr << "[센서] 읽기 실패 — 판단 중단\n";
+        if (SensorReader_Read(s)) {                                      
+            if (!prevSensorOk) std::cout << "[센서] 복구됨\n";
+            prevSensorOk = true;
+            lastGood = s; lastGoodTs = now;
+        } else {
+            if (prevSensorOk) std::cerr << "[센서] 읽기 실패\n";
             prevSensorOk = false;
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-            continue;
-        }
-        if (!prevSensorOk) std::cout << "[센서] 복구됨\n";
-        prevSensorOk = true; 
+            // 틱을 건너뛰면 Qt로 sensor가 안 나가 경고 카운트다운이 끊긴다
+            if (lastGoodTs && now - lastGoodTs <= STALE_SEC) {
+                s = lastGood;              // 잠깐 튄 것 — 직전 값으로 버틴다
+            } else {
+                s = SensorReading{};       // 오래 끊김 — 카메라만으로 판단
+                sensorOk = false;
+            }
+        }                                                                
 
         // 4채널 중 하나라도 감지면 true + 감지 채널 기록 (스냅샷용)
         bool camFire = false, camSmoke = false;
@@ -94,7 +106,6 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
         if (camSmoke) smokeHold = 5;
         else if (smokeHold > 0) { --smokeHold; camSmoke = true; }
 
-        long now = std::time(nullptr);
         AlarmOutcome o = alarm.update(judgeState(camFire, camSmoke, s), now);
 
         // 경고 진입 = 기록 + 스냅샷 (액추에이터 대응은 없음)
@@ -136,9 +147,11 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
                              s.gasPpm, s.smokePpm, "해결됨", o.durationMs, "", o.incidentId, "");
         }
 
-        QtLink_SendSensor(link, s, o);
+        QtLink_SendSensor(link, s, o,sensorOk);
         StmDisplay_SendUpdate(s, o.j.state);
-        g_db.insertSensor(now, "A", s.temp, s.humidity, s.gasPpm, s.smokePpm, s.flameVal, o.j.state);
+        if (sensorOk) {   // 고장 중 0값을 이력에 남기면 통계가 망가진다     
+            g_db.insertSensor(now, "A", s.temp, s.humidity, s.gasPpm, s.smokePpm, s.flameVal, o.j.state);
+        }    
 
         // 액추에이터 상태 주기 보고: Qt가 새로 접속해도 화면 동기화되게
         if (++tick % 5 == 0) {                                 
