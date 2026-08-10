@@ -47,6 +47,7 @@ void QtLink_SendSensor(Link& link, const SensorReading& s, const AlarmOutcome& o
     
     // 감지·대응이 살아있는가 + 해제 체크리스트 (매초 보냄 — Qt가 필드 유무를 분기 안 하게) 
     oss << ",\"sensorOk\":"      << (st.sensorOk   ? "true" : "false")
+        << ",\"dhtOk\":"         << (s.dhtOk       ? "true" : "false") 
         << ",\"responseOk\":"    << (st.responseOk ? "true" : "false")
         << ",\"dangerSource\":\"" << (o.manual ? "manual" : "auto") << "\""
         << ",\"admin\":\""        << jsonEscape(o.admin) << "\""
