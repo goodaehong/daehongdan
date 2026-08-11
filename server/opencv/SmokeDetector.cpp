@@ -311,6 +311,14 @@ public:
             box.label = label;
             box.type = DetectionType::SMOKE;
             box.score = candidate.score;
+            box.normalizedX = std::clamp(
+                static_cast<double>(box.box.x) / bgr.cols, 0.0, 1.0);
+            box.normalizedY = std::clamp(
+                static_cast<double>(box.box.y) / bgr.rows, 0.0, 1.0);
+            box.normalizedWidth = std::clamp(
+                static_cast<double>(box.box.width) / bgr.cols, 0.0, 1.0);
+            box.normalizedHeight = std::clamp(
+                static_cast<double>(box.box.height) / bgr.rows, 0.0, 1.0);
             result.boxes.push_back(std::move(box));
         }
         result.candidate = !result.boxes.empty();

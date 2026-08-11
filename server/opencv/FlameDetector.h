@@ -7,6 +7,7 @@
 #include <opencv2/ml.hpp>
 
 #include "DetectionTypes.h"
+#include "IgnoreRegionFilter.h"
 
 // RGB/HSV 색상, MOG2 움직임, 형태·질감 특징과 시간 추적을 결합한 화염 검출기다.
 // 연기 검출은 포함하지 않으며 SmokeDetector가 별도로 담당한다.
@@ -15,7 +16,12 @@ class FlameDetector
 public:
     FlameDetector();
 
-    DetectionResult detect(const cv::Mat& inputFrame);
+    DetectionResult detect(
+        const cv::Mat& inputFrame,
+        std::uint64_t frameId = 0,
+        std::int64_t timestampMs = 0);
+    // UI/서버가 전달한 활성 영역만 적용한다. 빈 설정이면 기존 감지와 동일하다.
+    void setIgnoreRegionConfig(const IgnoreRegionConfig& config);
     void reset();
 
 private:
@@ -53,6 +59,9 @@ private:
         // 같은 위치의 후보를 여러 분석 프레임에 걸쳐 확인하는 내부 추적 상태다.
         int id = -1;
         cv::Rect box;
+        cv::Rect firstBox;
+        std::uint64_t firstSeenFrameId = 0;
+        std::int64_t firstSeenTimestampMs = 0;
         int hits = 0;
         int misses = 0;
         int strongHits = 0;
@@ -93,7 +102,11 @@ private:
         double& energy
     ) const;
 
-    std::vector<DetectionBox> updateTracks(const std::vector<Features>& detections);
+    std::vector<DetectionBox> updateTracks(
+        const std::vector<Features>& detections,
+        const cv::Size& frameSize,
+        std::uint64_t frameId,
+        std::int64_t timestampMs);
     static double intersectionOverUnion(const cv::Rect& a, const cv::Rect& b);
     static bool sameTarget(const cv::Rect& a, const cv::Rect& b);
     double classify(const Features& features) const;
@@ -106,6 +119,7 @@ private:
     cv::Mat previousGray_;
     cv::Mat previousCandidateMask_;
     std::vector<Track> tracks_;
+    IgnoreRegionFilter ignoreRegionFilter_;
 
     int frameIndex_ = 0;
     int nextTrackId_ = 1;

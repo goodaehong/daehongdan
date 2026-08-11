@@ -8,11 +8,13 @@
 
 #include "DetectionTypes.h"
 #include "FireAlarmController.h"
+#include "IgnoreRegionFilter.h"
 
 struct FireRuntimeSnapshot
 {
     DetectionResult detection;
     FireAlarmStatus alarm;
+    CameraHealthStatus cameraHealth;
 
     bool hasResult = false;
     bool resultIsFresh = false;
@@ -47,6 +49,9 @@ public:
         std::uint64_t frameId,
         TimePoint sourceTime = Clock::now()
     );
+
+    // 스레드 안전. 빈 regions 또는 모두 disabled이면 기존 검출을 그대로 사용한다.
+    void setIgnoreRegionConfig(const IgnoreRegionConfig& config);
 
     // 카메라 재연결 또는 동영상 반복 시 이전 배경·추적·알람 상태를 폐기한다.
     void resetStream();
