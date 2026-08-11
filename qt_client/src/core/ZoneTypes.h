@@ -19,6 +19,8 @@ struct Zone {
     bool hasLiveSensorData = false;
     // 서버 sensor 메시지의 cause 코드 (server/judgement.h Cause 네임스페이스와 1:1). safe면 빈 문자열.
     QString cause;
+    // 목표 대응(target)이 실제 액추에이터에 반영됐는가. 비상 모드 버튼 활성/비활성 판단에 씀.
+    bool responseOk = true;
     // state가 마지막으로 바뀐 시각. StatusPanel의 "MM:SS 경과" 표시에 씀.
     QDateTime stateEnteredAt = QDateTime::currentDateTime();
     // 실시간 가스농도 추이 그래프용 최근 이력(최대 30개, 오래된 것부터).

@@ -187,8 +187,10 @@ void ServerLink::handleLine(const QByteArray &line)
     } else if (type == "sensor") {
         // warnRemain은 warning 상태일 때만 서버가 채워 보냄. 없으면 -1로 "해당없음" 표시.
         const int warnRemain = obj.contains("warnRemain") ? obj.value("warnRemain").toInt() : -1;
-        // evacuation: 0(평상)/1(대피 모드 발동 중). 필드 자체가 없는 구버전 서버는 0(평상)으로 취급.
+        // evacuation: 구버전 필드. 새 서버는 안 보내서 항상 false — emergency-mode #13~18에서 정리 예정.
         const bool evacuationActive = obj.value("evacuation").toInt() != 0;
+        // 필드 자체가 없는 구버전 서버는 true(정상)로 취급 — 없다고 경고를 띄우면 안 됨.
+        const bool responseOk = obj.contains("responseOk") ? obj.value("responseOk").toBool() : true;
         emit sensorReceived(obj.value("zone").toString(),
                              qint64(obj.value("ts").toDouble()),
                              obj.value("temp").toDouble(),
@@ -198,7 +200,7 @@ void ServerLink::handleLine(const QByteArray &line)
                              obj.value("flameVal").toDouble(),
                              obj.value("state").toString(),
                              obj.value("cause").toString(),
-                             warnRemain, evacuationActive);
+                             warnRemain, evacuationActive, responseOk);
     } else if (type == "led_matrix_status") {
         emit ledMatrixStatusReceived(obj.value("status").toInt());
     } else if (type == "actuator_status") {

@@ -148,7 +148,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(serverLink, &ServerLink::sensorReceived, this,
             [this](const QString &zoneId, qint64, double temp, double humidity,
                    double gasPpm, double smokePpm, double flameVal, const QString &state,
-                   const QString &cause, int warnRemain, bool evacuationActive) {
+                   const QString &cause, int warnRemain, bool evacuationActive, bool responseOk) {
                 if (this->evacuationActive != evacuationActive) {
                     this->evacuationActive = evacuationActive;
                     updateEvacuationBanner();
@@ -165,6 +165,7 @@ MainWindow::MainWindow(QWidget *parent)
                     zone.flameVal = flameVal;
                     zone.state = zoneStateFromString(state);
                     zone.cause = cause;
+                    zone.responseOk = responseOk;
                     zone.hasLiveSensorData = true;
                     if (oldState != zone.state)
                         zone.stateEnteredAt = QDateTime::currentDateTime();

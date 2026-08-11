@@ -52,9 +52,11 @@ signals:
     // flameVal: 불꽃센서(DFR0076) 전압(V). 클수록 강함.
     // evacuationActive: 대피 모드 발동 중 여부(전 구역 공통 상태). 1초마다 오는 sensor 메시지에 실려서
     // Qt가 재접속해도 자동으로 동기화된다.
+    // evacuationActive: 구버전 필드, 새 서버는 안 보냄(emergency-mode #13~18에서 정리 예정, 지금은 항상 false).
+    // responseOk: 목표 대응이 실제 액추에이터에 반영됐는가. 비상 모드 버튼 활성/비활성 판단에 씀.
     void sensorReceived(const QString &zone, qint64 ts, double temp, double humidity,
                          double gasPpm, double smokePpm, double flameVal, const QString &state,
-                         const QString &cause, int warnRemain, bool evacuationActive);
+                         const QString &cause, int warnRemain, bool evacuationActive, bool responseOk);                         const QString &cause, int warnRemain, bool evacuationActive);
     void ledMatrixStatusReceived(int status);
     // link: "ok"/"down" (STM보드(1) 연결 상태, fan/valve/siren 공통 — 한 보드에서 오는 값이라 개별 구분 불가).
     // fanSrc/valveSrc/sirenSrc: 각각 "auto"/"manual" (액추에이터별 자동/수동, 위험 시 셋 다 자동으로
