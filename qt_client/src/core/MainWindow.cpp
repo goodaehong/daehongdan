@@ -349,7 +349,7 @@ QWidget *MainWindow::createDangerBanner()
     dangerBanner = new QPushButton(this);
     dangerBanner->setCursor(Qt::PointingHandCursor);
     dangerBanner->setStyleSheet(
-        "QPushButton { background-color:#7f1d1d; color:white; font-size:22px; font-weight:bold; "
+        "QPushButton { background-color:#7f1d1d; color:white; font-size:22px; font-weight:bold; font-family:\"hanwhaGothic EL\"; "
         "border:none; padding:20px 16px; text-align:center; }"
         "QPushButton:hover { background-color:#991b1b; }");
     dangerBanner->setVisible(false);
@@ -418,7 +418,7 @@ QWidget *MainWindow::createTopBar()
     layout->setSpacing(16);
 
     auto *title = new QLabel("통합 관제 플랫폼", bar);
-    title->setStyleSheet(QString("color:%1; font-size:20px; font-weight:bold;").arg(kTextPrimary));
+    title->setStyleSheet(QString("color:%1; font-size:20px; font-weight:bold; font-family:\"hanwhaGothic EL\";").arg(kTextPrimary));
     layout->addWidget(title);
 
     const QString zoneBtnStyle = QString(
@@ -438,7 +438,7 @@ QWidget *MainWindow::createTopBar()
     layout->addStretch();
 
     topStatusLabel = new QLabel(bar);
-    topStatusLabel->setStyleSheet(QString("border:1px solid %1; border-radius:12px; padding:6px 14px; font-size:14px; font-weight:bold;").arg(kCardBorder));
+    topStatusLabel->setStyleSheet(QString("border:1px solid %1; border-radius:12px; padding:6px 14px; font-size:14px; font-weight:bold; font-family:\"hanwhaGothic EL\";").arg(kCardBorder));
     layout->addWidget(topStatusLabel);
 
     connBadge = new QLabel("<span style='color:#6b7280;'>●</span> 서버 연결 확인 중...", bar);
@@ -534,7 +534,7 @@ void MainWindow::refreshZoneUi()
 
     const QString color = colorForState(zone.state);
     topStatusLabel->setText(QString("● %1 %2").arg(zone.name, textForState(zone.state)));
-    topStatusLabel->setStyleSheet(QString("color:%1; border:1px solid %1; border-radius:12px; padding:6px 14px; font-size:14px; font-weight:bold;").arg(color));
+    topStatusLabel->setStyleSheet(QString("color:%1; border:1px solid %1; border-radius:12px; padding:6px 14px; font-size:14px; font-weight:bold; font-family:\"hanwhaGothic EL\";").arg(color));
 }
 
 void MainWindow::showWarningAlert(const QString &zoneName, const QString &zoneId, const QString &cause, int warnRemain)

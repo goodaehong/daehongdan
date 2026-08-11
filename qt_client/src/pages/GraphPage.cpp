@@ -35,7 +35,7 @@ GraphPage::GraphPage(QWidget *parent)
 
     auto *gasCol = new QVBoxLayout;
     gasTitleLabel = new QLabel(this);
-    gasTitleLabel->setStyleSheet(QString("color:%1; font-size:20px; font-weight:bold;").arg(kTextPrimary));
+    gasTitleLabel->setStyleSheet(QString("color:%1; font-size:20px; font-weight:bold; font-family:\"hanwhaGothic EL\";").arg(kTextPrimary));
     gasCol->addWidget(gasTitleLabel);
     gasCol->addSpacing(8);
     gasGraph = new GasGraphWidget(this);
@@ -47,7 +47,7 @@ GraphPage::GraphPage(QWidget *parent)
 
     auto *smokeCol = new QVBoxLayout;
     smokeTitleLabel = new QLabel(this);
-    smokeTitleLabel->setStyleSheet(QString("color:%1; font-size:20px; font-weight:bold;").arg(kTextPrimary));
+    smokeTitleLabel->setStyleSheet(QString("color:%1; font-size:20px; font-weight:bold; font-family:\"hanwhaGothic EL\";").arg(kTextPrimary));
     smokeCol->addWidget(smokeTitleLabel);
     smokeCol->addSpacing(8);
     smokeGraph = new GasGraphWidget(this);
@@ -141,7 +141,7 @@ QWidget *GraphPage::createControlBar()
     outer->addWidget(legendLabel);
 
     noteLabel = new QLabel(bar);
-    noteLabel->setStyleSheet(QString("color:%1; font-size:12px;").arg(kTextSecondary));
+    noteLabel->setStyleSheet(QString("color:%1; font-size:13px;").arg(kTextSecondary));
     noteLabel->setVisible(false); // 조회 실패했을 때만 showQueryFailed()가 채워서 보여줌
     noteLabel->setWordWrap(true);
     outer->addWidget(noteLabel);
@@ -275,7 +275,7 @@ void GraphPage::loadSensorLogFromServer(const QJsonArray &rows)
 void GraphPage::showQueryFailed(const QString &reason)
 {
     noteLabel->setText("⚠ 조회 실패: " + (reason.isEmpty() ? "알 수 없는 오류" : reason));
-    noteLabel->setStyleSheet("color:#f87171; font-size:10px;");
+    noteLabel->setStyleSheet("color:#f87171; font-size:11px;");
     noteLabel->setVisible(true);
 }
 

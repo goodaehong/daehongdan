@@ -31,7 +31,7 @@ void showLogin()
         login->close();
         login->deleteLater();
     });
-    login->showMaximized();
+    login->show();   // 결정 #8: 창 크기 고정이라 최대화 없이 고정 크기로 띄운다
 }
 }
 
@@ -44,11 +44,16 @@ int main(int argc, char *argv[])
     QCoreApplication::setOrganizationName("daehongdan");
     QCoreApplication::setApplicationName("gas_fire_dashboard");
 
-    // 한화고딕 폰트를 앱 전체 기본 폰트로 적용. 로드 실패해도(예: 리소스 누락) 시스템 기본
-    // 폰트로 자연스럽게 대체되도록 family를 못 얻으면 setFont()를 아예 건너뛴다.
-    const int fontId = QFontDatabase::addApplicationFont(":/fonts/HanwhaGothicL.ttf");
-    if (fontId != -1) {
-        const QStringList families = QFontDatabase::applicationFontFamilies(fontId);
+    // 한화고딕 두 굵기를 등록한다. L(기본)을 앱 전체 기본 폰트로 적용하고, EL은 각 스타일시트가
+    // "font-weight:bold"와 함께 font-family로 직접 지정해서 쓴다 — 이 두 TTF는 서로 다른 family로
+    // 등록돼 있어(같은 패밀리의 weight variant가 아님) Qt가 bold 요청만으로 자동으로 EL을 골라주지
+    // 않기 때문에, 굵게 써야 할 자리마다 명시적으로 family를 지정해야 한다.
+    // 로드 실패해도(예: 리소스 누락) 시스템 기본 폰트로 자연스럽게 대체되도록 family를 못 얻으면
+    // setFont()를 아예 건너뛴다.
+    const int regularFontId = QFontDatabase::addApplicationFont(":/fonts/06HanwhaGothicL.ttf");
+    QFontDatabase::addApplicationFont(":/fonts/07HanwhaGothicEL.ttf");
+    if (regularFontId != -1) {
+        const QStringList families = QFontDatabase::applicationFontFamilies(regularFontId);
         if (!families.isEmpty())
             QApplication::setFont(QFont(families.first()));
     }

@@ -16,7 +16,7 @@ HelpPage::HelpPage(QWidget *parent)
     layout->setSpacing(10);
 
     auto *title = new QLabel("도움말", this);
-    title->setStyleSheet(QString("color:%1; font-size:16px; font-weight:bold;").arg(kTextPrimary));
+    title->setStyleSheet(QString("color:%1; font-size:16px; font-weight:bold; font-family:\"hanwhaGothic EL\";").arg(kTextPrimary));
     layout->addWidget(title);
 
     const QStringList bullets = {

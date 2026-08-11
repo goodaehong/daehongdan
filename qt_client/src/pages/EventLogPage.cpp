@@ -184,7 +184,7 @@ EventLogPage::EventLogPage(QWidget *parent)
     leftCol->addWidget(eventTable, 3);
 
     auto *graphLabel = new QLabel("가스 농도 추이", this);
-    graphLabel->setStyleSheet(QString("color:%1; font-size:13px; font-weight:bold;").arg(kTextPrimary));
+    graphLabel->setStyleSheet(QString("color:%1; font-size:13px; font-weight:bold; font-family:\"hanwhaGothic EL\";").arg(kTextPrimary));
     leftCol->addSpacing(8);
     leftCol->addWidget(graphLabel);
     gasGraph = new GasGraphWidget(this);
@@ -214,7 +214,7 @@ EventLogPage::EventLogPage(QWidget *parent)
         nameLabel->setStyleSheet(QString("color:%1;").arg(kTextSecondary));
         nameLabel->setFixedWidth(90);
         auto *valueLabel = new QLabel(detailContent);
-        valueLabel->setStyleSheet(QString("color:%1; font-weight:bold;").arg(kTextPrimary));
+        valueLabel->setStyleSheet(QString("color:%1; font-weight:bold; font-family:\"hanwhaGothic EL\";").arg(kTextPrimary));
         valueLabel->setWordWrap(true);
         row->addWidget(nameLabel);
         row->addWidget(valueLabel, 1);

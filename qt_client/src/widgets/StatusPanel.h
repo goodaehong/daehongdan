@@ -12,6 +12,7 @@ class QPushButton;
 class QTimer;
 class QFrame;
 class GaugeBar;
+class QGraphicsDropShadowEffect;
 
 // 좌측 구역 종합상태 카드: 히어로 글로우 서클 + 위험 감지 센서(가스/불꽃/연기) +
 // 환경(온습도) + 카메라 채널 연결 현황 + 액추에이터 상태 + 수동 제어 + DEMO 상태 시뮬레이션 버튼.
@@ -76,6 +77,7 @@ private:
 
     QLabel *heroTitleLabel;
     QLabel *heroCircle;
+    QGraphicsDropShadowEffect *heroGlow;
     QLabel *heroStateLabel;
     QLabel *heroCauseLabel;
     QLabel *heroElapsedLabel;

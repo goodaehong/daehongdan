@@ -121,8 +121,11 @@ void GasGraphWidget::paintEvent(QPaintEvent *)
     QFont avgLabelFont = baseFont;
     avgLabelFont.setPixelSize(16);
     avgLabelFont.setBold(true);
+    // L/EL은 서로 다른 family로 등록돼 있어 setBold()만으로는 Qt가 EL을 자동으로 골라주지
+    // 않는다 — 페이지들의 QSS와 동일하게 굵은 글씨 자리엔 EL을 직접 지정한다.
+    avgLabelFont.setFamily("hanwhaGothic EL");
     QFont legendFont = baseFont;
-    legendFont.setPixelSize(12);
+    legendFont.setPixelSize(13);
 
     const QString axisTextColor = "#a8a2ba"; // 기존 #5a5468는 너무 어두워서 잘 안 보였음
 
@@ -308,9 +311,14 @@ void GasGraphWidget::paintEvent(QPaintEvent *)
         QStringList tipLines;
         if (hasPerPointLabels)
             tipLines << m_xLabels[m_hoverIndex];
-        tipLines << QString("평균 %1%2").arg(m_values[m_hoverIndex], 0, 'f', 1).arg(m_unit);
-        if (!m_maxValues.isEmpty())
+        // 구간 집계(AVG+MAX 두 선) 기간에서만 m_values가 실제 "평균"이다. 원본(단일 선) 기간에는
+        // 그 시각에 측정된 값 그대로라 "평균"이라고 하면 틀린 말이 된다 — 그때는 라벨 없이 값만.
+        if (m_maxValues.isEmpty()) {
+            tipLines << QString("%1%2").arg(m_values[m_hoverIndex], 0, 'f', 1).arg(m_unit);
+        } else {
+            tipLines << QString("평균 %1%2").arg(m_values[m_hoverIndex], 0, 'f', 1).arg(m_unit);
             tipLines << QString("최댓값 %1%2").arg(m_maxValues[m_hoverIndex], 0, 'f', 1).arg(m_unit);
+        }
 
         QFont tipFont = painter.font();
         tipFont.setPixelSize(13);

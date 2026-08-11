@@ -25,7 +25,7 @@ set(VLC_DEF "${CMAKE_CURRENT_BINARY_DIR}/libvlc.def")
 set(VLC_IMPLIB "${CMAKE_CURRENT_BINARY_DIR}/libvlc.a")
 
 file(WRITE "${VLC_DEF}"
-"LIBRARY libvlc.dll\nEXPORTS\nlibvlc_new\nlibvlc_release\nlibvlc_media_new_location\nlibvlc_media_release\nlibvlc_media_add_option\nlibvlc_media_player_new_from_media\nlibvlc_media_player_release\nlibvlc_media_player_set_hwnd\nlibvlc_media_player_play\nlibvlc_media_player_stop\n"
+"LIBRARY libvlc.dll\nEXPORTS\nlibvlc_new\nlibvlc_release\nlibvlc_media_new_location\nlibvlc_media_release\nlibvlc_media_add_option\nlibvlc_media_player_new_from_media\nlibvlc_media_player_release\nlibvlc_media_player_set_hwnd\nlibvlc_media_player_play\nlibvlc_media_player_stop\nlibvlc_video_set_crop_geometry\n"
 )
 
 get_filename_component(_mingw_bin_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)

@@ -117,17 +117,17 @@ StatusPanel::StatusPanel(QWidget *parent)
     heroLayout->setSpacing(9);
 
     heroTitleLabel = new QLabel(contentWidget);
-    heroTitleLabel->setStyleSheet(QString("color:%1; font-size:14px; font-weight:bold; border:none;").arg(kTextSecondary));
+    heroTitleLabel->setStyleSheet(QString("color:%1; font-size:14px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;").arg(kTextSecondary));
     heroTitleLabel->setAlignment(Qt::AlignCenter);
     heroLayout->addWidget(heroTitleLabel);
 
     heroCircle = new QLabel(contentWidget);
     heroCircle->setFixedSize(86, 86);
-    auto *glow = new QGraphicsDropShadowEffect;
-    glow->setBlurRadius(36);
-    glow->setOffset(0, 0);
-    glow->setColor(QColor("#34d399"));
-    heroCircle->setGraphicsEffect(glow);
+    heroGlow = new QGraphicsDropShadowEffect;
+    heroGlow->setBlurRadius(36);
+    heroGlow->setOffset(0, 0);
+    heroGlow->setColor(QColor("#34d399"));
+    heroCircle->setGraphicsEffect(heroGlow);
 
     auto *circleRow = new QHBoxLayout;
     circleRow->addStretch();
@@ -147,7 +147,7 @@ StatusPanel::StatusPanel(QWidget *parent)
 
     heroElapsedLabel = new QLabel(contentWidget);
     heroElapsedLabel->setAlignment(Qt::AlignCenter);
-    heroElapsedLabel->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kTextSecondary));
+    heroElapsedLabel->setStyleSheet(QString("color:%1; font-size:13px; border:none;").arg(kTextSecondary));
     heroLayout->addWidget(heroElapsedLabel);
 
     elapsedTimer = new QTimer(this);
@@ -161,7 +161,7 @@ StatusPanel::StatusPanel(QWidget *parent)
         cardLayout->setContentsMargins(14, 12, 14, 12);
         cardLayout->setSpacing(8);
         auto *header = new QLabel(sectionTitle, card);
-        header->setStyleSheet(QString("color:%1; font-size:12px; font-weight:bold; letter-spacing:1px; border:none;").arg(kTextSecondary));
+        header->setStyleSheet(QString("color:%1; font-size:13px; font-weight:bold; font-family:\"hanwhaGothic EL\"; letter-spacing:1px; border:none;").arg(kTextSecondary));
         cardLayout->addWidget(header);
         heroLayout->addWidget(card);
         return cardLayout;
@@ -173,7 +173,7 @@ StatusPanel::StatusPanel(QWidget *parent)
         auto *nameLabel = new QLabel(name, cardWidget);
         nameLabel->setStyleSheet(QString("color:%1; font-size:14px; border:none;").arg(kTextSecondary));
         auto *valueLabel = new QLabel(cardWidget);
-        valueLabel->setStyleSheet(QString("color:%1; font-size:17px; font-weight:bold; border:none;").arg(kTextPrimary));
+        valueLabel->setStyleSheet(QString("color:%1; font-size:17px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;").arg(kTextPrimary));
         valueLabel->setAlignment(Qt::AlignRight);
         topRow->addWidget(nameLabel);
         topRow->addStretch();
@@ -185,9 +185,9 @@ StatusPanel::StatusPanel(QWidget *parent)
 
         auto *bottomRow = new QHBoxLayout;
         auto *trendLabel = new QLabel(cardWidget);
-        trendLabel->setStyleSheet(QString("font-size:11px; border:none; color:%1;").arg(kTextSecondary));
+        trendLabel->setStyleSheet(QString("font-size:12px; border:none; color:%1;").arg(kTextSecondary));
         auto *thresholdLabel = new QLabel(thresholdText, cardWidget);
-        thresholdLabel->setStyleSheet(QString("color:%1; font-size:11px; border:none;").arg(kTextSecondary));
+        thresholdLabel->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kTextSecondary));
         bottomRow->addWidget(trendLabel);
         bottomRow->addStretch();
         bottomRow->addWidget(thresholdLabel);
@@ -230,9 +230,9 @@ StatusPanel::StatusPanel(QWidget *parent)
     // 알기 어려웠다. 왼쪽엔 기존 "최근 N회 판정" 이력을 그대로 유지.
     auto *smokeBottomRow = new QHBoxLayout;
     smokeHistoryLabel = new QLabel(sensorCardWidget);
-    smokeHistoryLabel->setStyleSheet(QString("color:%1; font-size:11px; border:none;").arg(kTextSecondary));
+    smokeHistoryLabel->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kTextSecondary));
     auto *smokeThresholdLabel = new QLabel("임계 150ppm", sensorCardWidget);
-    smokeThresholdLabel->setStyleSheet(QString("color:%1; font-size:11px; border:none;").arg(kTextSecondary));
+    smokeThresholdLabel->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kTextSecondary));
     smokeBottomRow->addWidget(smokeHistoryLabel);
     smokeBottomRow->addStretch();
     smokeBottomRow->addWidget(smokeThresholdLabel);
@@ -271,7 +271,7 @@ StatusPanel::StatusPanel(QWidget *parent)
         cell->setContentsMargins(8, 5, 8, 5);
         cell->setSpacing(6);
         auto *dot = new QLabel("●", cellFrame);
-        dot->setStyleSheet("color:#6b7280; font-size:12px; border:none;");
+        dot->setStyleSheet("color:#6b7280; font-size:13px; border:none;");
         auto *nameLabel = new QLabel(QString("Ch.%1 · %2").arg(i + 1).arg(channelTargetName(i + 1)), cellFrame);
         nameLabel->setStyleSheet(QString("color:%1; font-size:13px; border:none;").arg(kTextPrimary));
         cell->addWidget(dot);
@@ -291,15 +291,14 @@ StatusPanel::StatusPanel(QWidget *parent)
 
     auto *actuatorHeaderRow = new QHBoxLayout;
     auto *realtimeLabel = new QLabel("실시간", actuatorCardWidget);
-    realtimeLabel->setStyleSheet(QString("color:%1; font-size:11px; border:none;").arg(kTextSecondary));
+    realtimeLabel->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kTextSecondary));
     actuatorLinkLabel = new QLabel(actuatorCardWidget);
-    actuatorLinkLabel->setStyleSheet(QString("color:%1; font-size:11px; border:none;").arg(kTextSecondary));
+    actuatorLinkLabel->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kTextSecondary));
     actuatorLinkLabel->setText("● 확인 중");
 
     actuatorLinkInfoIcon = new QLabel("ⓘ", actuatorCardWidget);
-    actuatorLinkInfoIcon->setStyleSheet(QString("color:%1; font-size:11px; border:none;").arg(kTextSecondary));
+    actuatorLinkInfoIcon->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kTextSecondary));
     actuatorLinkInfoIcon->setToolTip("아직 서버로부터 연결 상태를 받지 못했습니다.");
-    actuatorLinkInfoIcon->setCursor(Qt::WhatsThisCursor);
 
     actuatorHeaderRow->addWidget(realtimeLabel);
     actuatorHeaderRow->addStretch();
@@ -317,7 +316,7 @@ StatusPanel::StatusPanel(QWidget *parent)
         nameLabel->setStyleSheet(QString("color:%1; font-size:14px; border:none;").arg(kTextSecondary));
         auto *modeLabel = new QLabel("확인 중", cardWidget);
         modeLabel->setStyleSheet(QString(
-            "background-color:transparent; color:%1; font-size:10px; border-radius:8px; padding:2px 6px; border:1px solid %1;")
+            "background-color:transparent; color:%1; font-size:11px; border-radius:8px; padding:2px 6px; border:1px solid %1;")
             .arg(kTextSecondary));
         auto *valueLabel = new QLabel(cardWidget);
         row->addWidget(nameLabel);
@@ -369,6 +368,25 @@ StatusPanel::StatusPanel(QWidget *parent)
     addControlRow("밸브", { "잠금", "개방" }, { "close", "open" }, "valve", valveCtrlButtons);
     addControlRow("사이렌", { "OFF", "ON" }, { "off", "on" }, "siren", sirenCtrlButtons);
 
+    // 대피 안내 음성(스피커)은 STM 액추에이터가 아니라 서버가 트는 WAV라 fan/valve/siren과
+    // 달리 "현재 상태"를 서버가 보내주지 않는다 — 그래서 addControlRow 대신 버튼 하나만 둔다.
+    // 안전에 영향 없는 조작(경보 자체를 끄는 게 아니라 지금 시끄러운 소리만 끔)이라
+    // 다른 제어처럼 확인 팝업 없이 바로 실행한다. 다음 위험 진입/재실행 때 서버가 다시 튼다.
+    auto *speakerLabel = new QLabel("대피 안내 음성", controlCardWidget);
+    speakerLabel->setStyleSheet(QString("color:%1; font-size:13px; border:none;").arg(kTextSecondary));
+    controlLayout->addWidget(speakerLabel);
+    auto *speakerMuteBtn = new QPushButton("🔇 지금 끄기", controlCardWidget);
+    speakerMuteBtn->setCursor(Qt::PointingHandCursor);
+    speakerMuteBtn->setFixedHeight(30);
+    speakerMuteBtn->setStyleSheet(
+        "QPushButton { background-color:#232333; color:#f5f5fa; border:1px solid #3a3550; "
+        "border-radius:6px; font-size:13px; font-weight:bold; font-family:\"hanwhaGothic EL\"; }"
+        "QPushButton:hover { background-color:#2d2d40; border:1px solid #8b7cf6; }");
+    connect(speakerMuteBtn, &QPushButton::clicked, this, [this]() {
+        emit controlActionRequested("speaker", "mute", "대피 안내 음성 끄기");
+    });
+    controlLayout->addWidget(speakerMuteBtn);
+
     // 비상 모드 전환/해제는 교체가 아니라 2개 병존 — 상태에 따라 활성/비활성/숨김만 바뀐다 (emergency-mode #6).
     emergencyTriggerButton = new QPushButton("🚨 비상 모드 전환", controlCardWidget);
     emergencyTriggerButton->setCursor(Qt::PointingHandCursor);
@@ -397,6 +415,12 @@ StatusPanel::StatusPanel(QWidget *parent)
     emergencyClearButton = new QPushButton("비상 모드 해제", controlCardWidget);
     emergencyClearButton->setCursor(Qt::PointingHandCursor);
     emergencyClearButton->setFixedHeight(36);
+    // updateEmergencyButtons()는 visible만 토글하고 스타일은 안 건드려서 시스템 기본(밝은 배경+검정
+    // 글씨)으로 남아있었음 — 다른 버튼들처럼 다크 테마 글씨색을 명시한다.
+    emergencyClearButton->setStyleSheet(QString(
+        "QPushButton { background-color:#232333; color:%1; border:1px solid #3a3550; "
+        "border-radius:6px; font-size:13px; font-weight:bold; font-family:\"hanwhaGothic EL\"; }"
+        "QPushButton:hover { background-color:#2d2d40; border:1px solid #8b7cf6; }").arg(kTextPrimary));
     connect(emergencyClearButton, &QPushButton::clicked, this, [this]() {
         QString admin;
         QStringList checklist;
@@ -424,7 +448,7 @@ StatusPanel::StatusPanel(QWidget *parent)
         const QString c = colorForState(ZoneState(i));
         btn->setStyleSheet(QString(
             "QPushButton { color:%1; background:transparent; border:1px solid %1; border-radius:6px; padding:7px; font-size:14px; }"
-            "QPushButton:checked { background-color:%1; color:#0a0a12; font-weight:bold; }").arg(c));
+            "QPushButton:checked { background-color:%1; color:#0a0a12; font-weight:bold; font-family:\"hanwhaGothic EL\"; }").arg(c));
         connect(btn, &QPushButton::clicked, this, [this, i]() { emit demoStateRequested(ZoneState(i)); });
         demoRow->addWidget(btn);
         demoStateButtons.append(btn);
@@ -436,9 +460,9 @@ StatusPanel::StatusPanel(QWidget *parent)
 QString StatusPanel::pillStyle(const QString &color, bool filled) const
 {
     if (filled)
-        return QString("background-color:%1; color:#0a0a12; font-size:12px; font-weight:bold; "
+        return QString("background-color:%1; color:#0a0a12; font-size:13px; font-weight:bold; font-family:\"hanwhaGothic EL\"; "
                         "border-radius:9px; padding:3px 10px; border:none;").arg(color);
-    return QString("background-color:transparent; color:%1; font-size:12px; font-weight:bold; "
+    return QString("background-color:transparent; color:%1; font-size:13px; font-weight:bold; font-family:\"hanwhaGothic EL\"; "
                     "border-radius:9px; padding:3px 10px; border:1px solid %1;").arg(color);
 }
 
@@ -499,7 +523,7 @@ void StatusPanel::refreshChannelColor(int index)
                             : (connected && !visionOk)  ? kWarnColor
                             : (!connected && visionOk)  ? kTextSecondary
                                                          : kDangerColor;
-    channelDotLabels[index]->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(dotColor));
+    channelDotLabels[index]->setStyleSheet(QString("color:%1; font-size:13px; border:none;").arg(dotColor));
     channelFrames[index]->setStyleSheet(QString("QFrame { border:1px solid %1; border-radius:6px; }").arg(dotColor));
     channelFrames[index]->setToolTip(
         (connected && visionOk)  ? "정상" :
@@ -513,19 +537,23 @@ void StatusPanel::updateZone(const Zone &zone)
     updateEmergencyButtons(zone.state, zone.responseOk);   // emergency-mode #6~7
 
     const QString color = colorForState(zone.state);
+    // 상단 배지/데모 버튼 등 다른 곳은 colorForState()의 danger 톤(#f87171, 옅은 핑크빛)을 그대로
+    // 쓰지만, 종합상태 구슬/문구는 위험을 더 강하게 인지시키려고 여기서만 진한 빨강으로 덮어쓴다.
+    const QString heroColor = (zone.state == ZoneState::Danger) ? "#ef4444" : color;
 
     heroTitleLabel->setText(zone.name + " 종합상태");
     heroCircle->setStyleSheet(QString(
         "background-color: qradialgradient(cx:0.5, cy:0.4, radius:0.6, fx:0.5, fy:0.4, stop:0 white, stop:0.15 %1, stop:1 %1);"
         "border-radius:%2px;")
-        .arg(color).arg(heroCircle->width() / 2));
+        .arg(heroColor).arg(heroCircle->width() / 2));
+    heroGlow->setColor(QColor(heroColor));
     heroStateLabel->setText(textForState(zone.state));
-    heroStateLabel->setStyleSheet(QString("color:%1; font-size:21px; font-weight:bold; border:none;").arg(color));
+    heroStateLabel->setStyleSheet(QString("color:%1; font-size:21px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;").arg(heroColor));
 
     const QString causePhrase = causeText(zone.cause);
     heroCauseLabel->setText(causePhrase.isEmpty() ? "이상 없음" : causePhrase);
     heroCauseLabel->setStyleSheet(QString("color:%1; font-size:13px; border:none;")
-        .arg(causePhrase.isEmpty() ? kTextSecondary : color));
+        .arg(causePhrase.isEmpty() ? kTextSecondary : heroColor));
 
     stateEnteredAt = zone.stateEnteredAt;
     updateElapsedLabel();
@@ -545,10 +573,10 @@ void StatusPanel::updateZone(const Zone &zone)
     // 값을 지우진 않고(마지막 정상값이라 여전히 유효) 작은 표시만 붙인다 (emergency-mode #13).
     const bool dhtStale = zone.hasLiveSensorData && !zone.dhtOk;
     tempValueLabel->setText(QString("%1℃%2").arg(QString::number(zone.temp, 'f', 1), dhtStale ? " ⚠" : ""));
-    tempValueLabel->setStyleSheet(QString("color:%1; font-size:16px; font-weight:bold; border:none;").arg(dhtStale ? kWarnColor : "#60a5fa"));
+    tempValueLabel->setStyleSheet(QString("color:%1; font-size:16px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;").arg(dhtStale ? kWarnColor : "#60a5fa"));
     tempValueLabel->setToolTip(dhtStale ? "온습도 센서 읽기 실패 — 마지막 정상값 표시 중" : "");
     humidityValueLabel->setText(QString("%1%%2").arg(QString::number(zone.humidity, 'f', 1), dhtStale ? " ⚠" : ""));
-    humidityValueLabel->setStyleSheet(QString("color:%1; font-size:16px; font-weight:bold; border:none;").arg(dhtStale ? kWarnColor : "#22d3ee"));
+    humidityValueLabel->setStyleSheet(QString("color:%1; font-size:16px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;").arg(dhtStale ? kWarnColor : "#22d3ee"));
     humidityValueLabel->setToolTip(dhtStale ? "온습도 센서 읽기 실패 — 마지막 정상값 표시 중" : "");
 
     // 서버 임계값: 가스 경고 200ppm / 위험 2000ppm (server/judgement.cpp GAS_WARN_THRESHOLD/GAS_DANGER_THRESHOLD)
@@ -581,24 +609,24 @@ void StatusPanel::updateZone(const Zone &zone)
     const QColor gasColor = sensorStale ? QColor(kWarnColor)
                              : gasVal >= kGasDanger ? QColor(kDangerColor)
                              : gasVal >= kGasWarn ? QColor(kWarnColor) : QColor(kSafeColor);
-    gasValueLabel->setStyleSheet(QString("color:%1; font-size:15px; font-weight:bold; border:none;").arg(sensorStale ? kWarnColor : kTextPrimary));
+    gasValueLabel->setStyleSheet(QString("color:%1; font-size:15px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;").arg(sensorStale ? kWarnColor : kTextPrimary));
     gasGaugeBar->setRatio(sensorStale ? 0 : gasVal / kGasScale, gasColor);
     const Trend gasTrend = trendFor(zone.gasHistory);
     gasTrendLabel->setText(gasTrend.text);
-    gasTrendLabel->setStyleSheet(QString("font-size:11px; border:none; color:%1;").arg(gasTrend.color));
+    gasTrendLabel->setStyleSheet(QString("font-size:12px; border:none; color:%1;").arg(gasTrend.color));
 
     flameValueLabel->setText(sensorStale ? "--- (센서 오류)" : QString::number(flameVal, 'f', 2) + " V");
-    flameValueLabel->setStyleSheet(QString("color:%1; font-size:15px; font-weight:bold; border:none;")
+    flameValueLabel->setStyleSheet(QString("color:%1; font-size:15px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;")
         .arg(sensorStale ? kWarnColor : flameVal > kFlameThreshold ? kDangerColor : kTextPrimary));
     const QColor flameColor = sensorStale ? QColor(kWarnColor) : flameVal > kFlameThreshold ? QColor(kDangerColor) : QColor(kSafeColor);
     flameGaugeBar->setRatio(sensorStale ? 0 : flameVal / kFlameScale, flameColor);
     const Trend flameTrend = trendFor(zone.flameHistory);
     flameTrendLabel->setText(flameTrend.text);
-    flameTrendLabel->setStyleSheet(QString("font-size:11px; border:none; color:%1;").arg(flameTrend.color));
+    flameTrendLabel->setStyleSheet(QString("font-size:12px; border:none; color:%1;").arg(flameTrend.color));
 
     // 그래프 화면처럼 감지 여부 배지 대신 실제 ppm 수치를 그대로 보여준다.
     smokeValueLabel->setText(sensorStale ? "--- (센서 오류)" : QString::number(smokeVal, 'f', 2) + " ppm");
-    smokeValueLabel->setStyleSheet(QString("color:%1; font-size:15px; font-weight:bold; border:none;")
+    smokeValueLabel->setStyleSheet(QString("color:%1; font-size:15px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;")
         .arg(sensorStale ? kWarnColor : smokeDetected ? kDangerColor : kTextPrimary));
     smokeGaugeBar->setRatio(sensorStale ? 0 : smokeVal / kSmokeScale, sensorStale ? QColor(kWarnColor) : smokeDetected ? QColor(kDangerColor) : QColor(kSafeColor));
     int smokeDetectedCount = 0;
@@ -617,11 +645,11 @@ void StatusPanel::setActuatorStatus(int fan, int valve, int siren, const QString
 {
     if (link == "ok") {
         actuatorLinkLabel->setText("● 연결됨");
-        actuatorLinkLabel->setStyleSheet(QString("color:%1; font-size:11px; border:none;").arg(kSafeColor));
+        actuatorLinkLabel->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kSafeColor));
         actuatorLinkInfoIcon->setToolTip("STM 보드(환기팬·밸브·사이렌)와 정상적으로 통신 중입니다.");
     } else if (link == "down") {
         actuatorLinkLabel->setText("● 연결 끊김");
-        actuatorLinkLabel->setStyleSheet(QString("color:%1; font-size:11px; border:none;").arg(kDangerColor));
+        actuatorLinkLabel->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kDangerColor));
         // linkReason이 오면(emergency-mode #16) 실제 사유를 그대로 보여준다. 없는 구버전 서버는
         // 기존처럼 원인을 지어내지 않고 일반적으로 확인해볼 것들만 안내한다.
         actuatorLinkInfoIcon->setToolTip(linkReason.isEmpty()
@@ -633,7 +661,7 @@ void StatusPanel::setActuatorStatus(int fan, int valve, int siren, const QString
             : QString("STM 보드(환기팬·밸브·사이렌)와 통신이 끊겼습니다.\n사유: %1").arg(linkReason));
     } else {
         actuatorLinkLabel->setText("● 확인 중");
-        actuatorLinkLabel->setStyleSheet(QString("color:%1; font-size:11px; border:none;").arg(kTextSecondary));
+        actuatorLinkLabel->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kTextSecondary));
         actuatorLinkInfoIcon->setToolTip("아직 서버로부터 연결 상태를 한 번도 받지 못했습니다.");
     }
 
@@ -692,20 +720,18 @@ void StatusPanel::setActuatorStatus(int fan, int valve, int siren, const QString
 
 void StatusPanel::updateModeLabel(QLabel *label, const QString &source)
 {
+    // 예전엔 투명 배경 + 10px 얇은 글씨라 카드 배경 위에서 거의 안 보였음 — 다른 상태 배지와
+    // 동일하게 pillStyle(filled)로 채워서 대비를 확실히 준다.
     if (source == "manual") {
         label->setText("수동 개입");
-        label->setStyleSheet(
-            "background-color:transparent; color:#f59e0b; font-size:10px; border-radius:8px; padding:2px 6px; border:1px solid #f59e0b;");
+        label->setStyleSheet(pillStyle(kWarnColor, true));
     } else if (source == "auto") {
         const bool emergency = lastKnownZoneState != ZoneState::Safe;
         label->setText(emergency ? "자동(위험)" : "자동(평상시)");
-        const QString color = emergency ? kDangerColor : kSafeColor;
-        label->setStyleSheet(QString(
-            "background-color:transparent; color:%1; font-size:10px; border-radius:8px; padding:2px 6px; border:1px solid %1;").arg(color));
+        label->setStyleSheet(pillStyle(emergency ? kDangerColor : kSafeColor, true));
     } else {
         label->setText("확인 중");
-        label->setStyleSheet(QString(
-            "background-color:transparent; color:%1; font-size:10px; border-radius:8px; padding:2px 6px; border:1px solid %1;").arg(kTextSecondary));
+        label->setStyleSheet(pillStyle(kTextSecondary, false));
     }
 }
 
@@ -734,12 +760,12 @@ void StatusPanel::updateEmergencyButtons(ZoneState state, bool responseOk)
             emergencyTriggerButton->setEnabled(false);
             emergencyTriggerButton->setText("🚨 비상 모드 전환");
             emergencyTriggerButton->setStyleSheet(
-                "QPushButton { background-color:#3a3550; color:#8d87a0; border:none; border-radius:6px; font-size:13px; font-weight:bold; }");
+                "QPushButton { background-color:#3a3550; color:#8d87a0; border:none; border-radius:6px; font-size:13px; font-weight:bold; font-family:\"hanwhaGothic EL\"; }");
         } else {
             emergencyTriggerButton->setEnabled(true);
             emergencyTriggerButton->setText("⟳ 대응 재실행");
             emergencyTriggerButton->setStyleSheet(
-                "QPushButton { background-color:#f59e0b; color:#241c00; border:none; border-radius:6px; font-size:13px; font-weight:bold; }"
+                "QPushButton { background-color:#f59e0b; color:#241c00; border:none; border-radius:6px; font-size:13px; font-weight:bold; font-family:\"hanwhaGothic EL\"; }"
                 "QPushButton:hover { background-color:#d97706; }");
         }
     } else {
@@ -747,7 +773,7 @@ void StatusPanel::updateEmergencyButtons(ZoneState state, bool responseOk)
         emergencyTriggerButton->setEnabled(true);
         emergencyTriggerButton->setText("🚨 비상 모드 전환");
         emergencyTriggerButton->setStyleSheet(
-            "QPushButton { background-color:#ef4444; color:white; border:none; border-radius:6px; font-size:13px; font-weight:bold; }"
+            "QPushButton { background-color:#ef4444; color:white; border:none; border-radius:6px; font-size:13px; font-weight:bold; font-family:\"hanwhaGothic EL\"; }"
             "QPushButton:hover { background-color:#dc2626; }");
     }
 }
@@ -757,7 +783,7 @@ void StatusPanel::updateControlButtonStyles(QVector<QPushButton *> &buttons, int
     for (int i = 0; i < buttons.size(); ++i) {
         const bool active = (i == activeIndex);
         buttons[i]->setStyleSheet(active
-            ? "QPushButton { background-color:#8b7cf6; color:white; border:none; border-radius:6px; font-size:13px; font-weight:bold; }"
+            ? "QPushButton { background-color:#8b7cf6; color:white; border:none; border-radius:6px; font-size:13px; font-weight:bold; font-family:\"hanwhaGothic EL\"; }"
             : QString("QPushButton { background-color:#232333; color:%1; border:none; border-radius:6px; font-size:13px; }").arg(kTextSecondary));
     }
 }
@@ -765,7 +791,7 @@ void StatusPanel::updateControlButtonStyles(QVector<QPushButton *> &buttons, int
 void StatusPanel::showCommandStatus(const QString &text, const QString &color)
 {
     commandStatusLabel->setText(text);
-    commandStatusLabel->setStyleSheet(QString("color:%1; font-size:12px; font-weight:bold; border:none;").arg(color));
+    commandStatusLabel->setStyleSheet(QString("color:%1; font-size:13px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;").arg(color));
     commandStatusLabel->setVisible(!text.isEmpty());
 
     if (!statusClearTimer) {
@@ -790,11 +816,11 @@ bool StatusPanel::showConfirmDialog(const QString &actionName)
     layout->setSpacing(14);
 
     auto *header = new QLabel("⚠ 조작 확인", &dialog);
-    header->setStyleSheet("color:#fbbf24; font-size:18px; font-weight:bold; border:none;");
+    header->setStyleSheet("color:#fbbf24; font-size:18px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;");
     layout->addWidget(header);
 
     auto *question = new QLabel(QString("정말 '%1'를 실행하시겠습니까?").arg(actionName), &dialog);
-    question->setStyleSheet(QString("color:%1; font-size:16px; font-weight:bold; border:none;").arg(kTextPrimary));
+    question->setStyleSheet(QString("color:%1; font-size:16px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;").arg(kTextPrimary));
     question->setWordWrap(true);
     layout->addWidget(question);
 
@@ -809,7 +835,7 @@ bool StatusPanel::showConfirmDialog(const QString &actionName)
     auto *cancelBtn = new QPushButton("취소", &dialog);
     cancelBtn->setStyleSheet(QString("QPushButton { background-color:#232333; color:%1; font-size:15px; border-radius:8px; padding:14px; }").arg(kTextPrimary));
     auto *execBtn = new QPushButton("실행", &dialog);
-    execBtn->setStyleSheet("QPushButton { background-color:#fbbf24; color:#241c00; font-weight:bold; font-size:15px; border-radius:8px; padding:14px; }");
+    execBtn->setStyleSheet("QPushButton { background-color:#fbbf24; color:#241c00; font-weight:bold; font-family:\"hanwhaGothic EL\"; font-size:15px; border-radius:8px; padding:14px; }");
     btnRow->addWidget(cancelBtn);
     btnRow->addWidget(execBtn);
     layout->addLayout(btnRow);
@@ -831,16 +857,16 @@ bool StatusPanel::showEvacuationConfirmDialog()
     layout->setSpacing(14);
 
     auto *header = new QLabel("🚨 마지막 확인입니다", &dialog);
-    header->setStyleSheet("color:#ef4444; font-size:19px; font-weight:bold; border:none;");
+    header->setStyleSheet("color:#ef4444; font-size:19px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;");
     layout->addWidget(header);
 
     auto *question = new QLabel("정말 전 공장 대피 모드를 발동하시겠습니까?", &dialog);
-    question->setStyleSheet(QString("color:%1; font-size:17px; font-weight:bold; border:none;").arg(kTextPrimary));
+    question->setStyleSheet(QString("color:%1; font-size:17px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;").arg(kTextPrimary));
     question->setWordWrap(true);
     layout->addWidget(question);
 
     auto *sub = new QLabel("전 공장에 즉시 영향을 미치며, 발동 후에는 되돌리기 어렵습니다.", &dialog);
-    sub->setStyleSheet("color:#f87171; font-size:14px; font-weight:bold; border:none;");
+    sub->setStyleSheet("color:#f87171; font-size:14px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;");
     sub->setWordWrap(true);
     layout->addWidget(sub);
 
@@ -850,7 +876,7 @@ bool StatusPanel::showEvacuationConfirmDialog()
     auto *cancelBtn = new QPushButton("취소", &dialog);
     cancelBtn->setStyleSheet(QString("QPushButton { background-color:#232333; color:%1; font-size:15px; border-radius:8px; padding:14px; }").arg(kTextPrimary));
     auto *execBtn = new QPushButton("대피 모드 발동", &dialog);
-    execBtn->setStyleSheet("QPushButton { background-color:#ef4444; color:white; font-weight:bold; font-size:15px; border-radius:8px; padding:14px; }");
+    execBtn->setStyleSheet("QPushButton { background-color:#ef4444; color:white; font-weight:bold; font-family:\"hanwhaGothic EL\"; font-size:15px; border-radius:8px; padding:14px; }");
     btnRow->addWidget(cancelBtn);
     btnRow->addWidget(execBtn);
     layout->addLayout(btnRow);
@@ -873,7 +899,7 @@ bool StatusPanel::showEmergencyCauseDialog(QString &outCause)
     layout->setSpacing(14);
 
     auto *header = new QLabel("🚨 비상 모드 전환", &dialog);
-    header->setStyleSheet("color:#ef4444; font-size:18px; font-weight:bold; border:none;");
+    header->setStyleSheet("color:#ef4444; font-size:18px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;");
     layout->addWidget(header);
 
     auto *question = new QLabel("원인을 선택하세요.", &dialog);
@@ -889,7 +915,7 @@ bool StatusPanel::showEmergencyCauseDialog(QString &outCause)
     // 선택 안 된 항목은 어두운 회색으로 낮춰서 대비를 준다.
     const QString radioStyle = QString(
         "QRadioButton { color:%1; font-size:15px; border:none; padding:6px 0; }"
-        "QRadioButton:checked { color:%2; font-weight:bold; }"
+        "QRadioButton:checked { color:%2; font-weight:bold; font-family:\"hanwhaGothic EL\"; }"
         "QRadioButton::indicator { width:18px; height:18px; border-radius:9px; border:2px solid %1; background:transparent; }"
         "QRadioButton::indicator:checked { border:2px solid #ef4444; background:#ef4444; }"
     ).arg(kTextSecondary, kTextPrimary);
@@ -905,7 +931,7 @@ bool StatusPanel::showEmergencyCauseDialog(QString &outCause)
     auto *cancelBtn = new QPushButton("취소", &dialog);
     cancelBtn->setStyleSheet(QString("QPushButton { background-color:#232333; color:%1; font-size:15px; border-radius:8px; padding:14px; }").arg(kTextPrimary));
     auto *nextBtn = new QPushButton("다음", &dialog);
-    nextBtn->setStyleSheet("QPushButton { background-color:#ef4444; color:white; font-weight:bold; font-size:15px; border-radius:8px; padding:14px; }");
+    nextBtn->setStyleSheet("QPushButton { background-color:#ef4444; color:white; font-weight:bold; font-family:\"hanwhaGothic EL\"; font-size:15px; border-radius:8px; padding:14px; }");
     btnRow->addWidget(cancelBtn);
     btnRow->addWidget(nextBtn);
     layout->addLayout(btnRow);
@@ -950,12 +976,12 @@ bool StatusPanel::showEmergencyClearDialog(QString &outAdmin, QStringList &outCh
     layout->setSpacing(10);
 
     auto *header = new QLabel(QString("비상 모드 해제 — 원인: %1").arg(causeText(lastKnownCause)), &dialog);
-    header->setStyleSheet("color:#f59e0b; font-size:17px; font-weight:bold; border:none;");
+    header->setStyleSheet("color:#f59e0b; font-size:17px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;");
     header->setWordWrap(true);
     layout->addWidget(header);
 
     auto *sysLabel = new QLabel("시스템 확인 (자동 판정)", &dialog);
-    sysLabel->setStyleSheet(QString("color:%1; font-size:13px; font-weight:bold; border:none;").arg(kTextSecondary));
+    sysLabel->setStyleSheet(QString("color:%1; font-size:13px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;").arg(kTextSecondary));
     layout->addWidget(sysLabel);
 
     // 서버가 판정하는 3항목 — 그대로 보여주기만, 사용자가 못 누르게 disabled.
@@ -973,7 +999,7 @@ bool StatusPanel::showEmergencyClearDialog(QString &outAdmin, QStringList &outCh
 
     layout->addSpacing(6);
     auto *fieldLabel = new QLabel("현장 확인 (직접 확인 후 체크)", &dialog);
-    fieldLabel->setStyleSheet(QString("color:%1; font-size:13px; font-weight:bold; border:none;").arg(kTextSecondary));
+    fieldLabel->setStyleSheet(QString("color:%1; font-size:13px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;").arg(kTextSecondary));
     layout->addWidget(fieldLabel);
 
     auto *field1Box = new QCheckBox(field1Text, &dialog);
@@ -1011,7 +1037,7 @@ bool StatusPanel::showEmergencyClearDialog(QString &outAdmin, QStringList &outCh
                             && personnelBox->isChecked() && !nameEdit->text().trimmed().isEmpty();
         confirmBtn->setEnabled(ready);
         confirmBtn->setStyleSheet(ready
-            ? "QPushButton { background-color:#f59e0b; color:#241c00; font-weight:bold; font-size:15px; border-radius:8px; padding:14px; }"
+            ? "QPushButton { background-color:#f59e0b; color:#241c00; font-weight:bold; font-family:\"hanwhaGothic EL\"; font-size:15px; border-radius:8px; padding:14px; }"
             : "QPushButton { background-color:#3a3550; color:#8d87a0; font-size:15px; border-radius:8px; padding:14px; }");
     };
     connect(field1Box, &QCheckBox::toggled, &dialog, refreshConfirmEnabled);

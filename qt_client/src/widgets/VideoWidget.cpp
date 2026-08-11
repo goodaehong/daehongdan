@@ -26,13 +26,13 @@ VideoWidget::VideoWidget(int channel, QWidget *parent)
 
     alarmBadge = new QLabel("감지", this);
     alarmBadge->setStyleSheet(
-        "background-color:#f59e0b; color:#0a0a12; font-size:13px; font-weight:bold; "
+        "background-color:#f59e0b; color:#0a0a12; font-size:13px; font-weight:bold; font-family:\"hanwhaGothic EL\"; "
         "border-radius:9px; padding:3px 10px; border:none;");
     alarmBadge->setVisible(false);
     header->addWidget(alarmBadge);
 
     personBadge = new QLabel(this);
-    personBadge->setStyleSheet("font-size:16px; font-weight:bold; border:none;");
+    personBadge->setStyleSheet("font-size:16px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;");
     header->addWidget(personBadge);
 
     speakerIcon = new QLabel("🔊", this);
@@ -41,14 +41,14 @@ VideoWidget::VideoWidget(int channel, QWidget *parent)
     header->addWidget(speakerIcon);
 
     auto *liveBadge = new QLabel("● LIVE", this);
-    liveBadge->setStyleSheet("color:#f87171; font-size:14px; font-weight:bold; border:none;");
+    liveBadge->setStyleSheet("color:#f87171; font-size:14px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;");
     header->addWidget(liveBadge);
 
     const QString zoomButtonStyle =
         "QPushButton { color:#c4bfd2; background:#232333; border:1px solid #36364a; "
-        "border-radius:4px; font-size:15px; font-weight:bold; }"
+        "border-radius:4px; font-size:15px; font-weight:bold; font-family:\"hanwhaGothic EL\"; }"
         "QPushButton:hover { color:#ffffff; background:#343448; }";
-    auto *zoomOutBtn = new QPushButton("−", this);
+    zoomOutBtn = new QPushButton("−", this);
     zoomOutBtn->setFixedSize(26, 26);
     zoomOutBtn->setToolTip("0.1배 축소");
     zoomOutBtn->setStyleSheet(zoomButtonStyle);
@@ -60,16 +60,29 @@ VideoWidget::VideoWidget(int channel, QWidget *parent)
     zoomLabel->setFixedWidth(38);
     zoomLabel->setToolTip("클릭하면 배율과 위치를 초기화");
     zoomLabel->setCursor(Qt::PointingHandCursor);
-    zoomLabel->setStyleSheet("color:#c4bfd2; font-size:12px; border:none;");
+    zoomLabel->setStyleSheet("color:#c4bfd2; font-size:13px; border:none;");
     zoomLabel->installEventFilter(this);
     header->addWidget(zoomLabel);
 
-    auto *zoomInBtn = new QPushButton("+", this);
+    zoomInBtn = new QPushButton("+", this);
     zoomInBtn->setFixedSize(26, 26);
     zoomInBtn->setToolTip("0.1배 확대 (최대 2.5배)");
     zoomInBtn->setStyleSheet(zoomButtonStyle);
     connect(zoomInBtn, &QPushButton::clicked, this, [this]() { changeZoom(1); });
     header->addWidget(zoomInBtn);
+
+    roiButton = new QPushButton("▭", this);
+    roiButton->setCheckable(true);
+    roiButton->setFixedSize(26, 26);
+    roiButton->setCursor(Qt::PointingHandCursor);
+    roiButton->setToolTip("감시 제외 영역(ROI) 편집 — 드래그로 추가, 우클릭으로 삭제");
+    roiButton->setStyleSheet(
+        "QPushButton { color:#c4bfd2; background:#232333; border:1px solid #36364a; "
+        "border-radius:4px; font-size:14px; font-weight:bold; font-family:\"hanwhaGothic EL\"; }"
+        "QPushButton:hover { color:#ffffff; background:#343448; }"
+        "QPushButton:checked { color:#0a0a12; background:#f87171; border:1px solid #f87171; }");
+    connect(roiButton, &QPushButton::clicked, this, &VideoWidget::toggleRoiEdit);
+    header->addWidget(roiButton);
 
     auto *expandBtn = new QPushButton("⛶", this);
     expandBtn->setCursor(Qt::PointingHandCursor);
@@ -194,7 +207,7 @@ void VideoWidget::updateIndicators()
         color = "#34d399"; // 초록 - 있음
 
     personBadge->setText(QString("👤 %1").arg(personCount));
-    personBadge->setStyleSheet(QString("color:%1; font-size:16px; font-weight:bold; border:none;").arg(color));
+    personBadge->setStyleSheet(QString("color:%1; font-size:16px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;").arg(color));
 
     speakerIcon->setVisible(voiceActive);
     if (voiceActive) {
@@ -266,6 +279,30 @@ void VideoWidget::changeZoom(int direction)
     }
     zoomLabel->setText(QString::number(zoomFactor, 'f', 1) + "x");
     updateVideoTransform();
+}
+
+void VideoWidget::toggleRoiEdit()
+{
+    roiEditActive = !roiEditActive;
+    roiButton->setChecked(roiEditActive);
+
+    if (roiEditActive) {
+        // 편집 좌표 기준(zoom=1.0/pan=0)을 고정하기 위해 줌/이동을 초기화하고 잠근다.
+        zoomFactor = 1.0;
+        panX = 0.0;
+        panY = 0.0;
+        zoomLabel->setText("1.0x");
+        updateVideoTransform();
+        zoomOutBtn->setEnabled(false);
+        zoomInBtn->setEnabled(false);
+        overlay->setRoiRegions(savedRoiRegions);
+        overlay->setRoiEditMode(true);
+    } else {
+        savedRoiRegions = overlay->roiRegions();
+        overlay->setRoiEditMode(false);
+        zoomOutBtn->setEnabled(true);
+        zoomInBtn->setEnabled(true);
+    }
 }
 
 void VideoWidget::updateVideoTransform()
