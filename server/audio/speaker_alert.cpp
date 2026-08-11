@@ -8,8 +8,10 @@
 #include <sys/wait.h>
 
 namespace {
-    constexpr const char* AUDIO_DEVICE = "hw:2,0";
-    constexpr const char* AUDIO_FILE = "/home/yuna/daehongdan/audio/evacuation_alert.wav";
+    // 절대경로/장치번호를 소스에 박아두면 계정·기기가 다른 파이에서 안 돌아간다 —
+    // CMakeLists.txt가 빌드 시점에 채워주는 매크로를 그대로 쓴다 (DB_PATH와 동일한 패턴).
+    constexpr const char* kAudioDevice = AUDIO_DEVICE;
+    constexpr const char* kAudioFile = AUDIO_FILE;
 
     std::atomic<bool> g_alarmActive{false};
     std::thread g_thread;
@@ -24,7 +26,7 @@ namespace {
                 break;
             }
             if (pid == 0) {
-                execlp("aplay", "aplay", "-D", AUDIO_DEVICE, AUDIO_FILE, (char*)nullptr);
+                execlp("aplay", "aplay", "-D", kAudioDevice, kAudioFile, (char*)nullptr);
                 _exit(127);   // execlp 실패 시에만 도달
             }
             {
