@@ -69,22 +69,26 @@ QString ServerLink::sendControl(const QString &zone, const QString &target, cons
     return cmdId;
 }
 
-QString ServerLink::sendEvacuationTrigger(const QString &zone, const QString &admin)
+QString ServerLink::sendEmergencyTrigger(const QString &zone, const QString &cause, const QString &admin)
 {
-    return sendEvacuationRequest("evacuation_trigger", "trigger", zone, admin);
+    QJsonObject extra;
+    extra["cause"] = cause;
+    return sendEmergencyRequest("emergency_trigger", "trigger", zone, admin, extra);
 }
 
-QString ServerLink::sendEvacuationClear(const QString &zone, const QString &admin)
+QString ServerLink::sendEmergencyClear(const QString &zone, const QString &admin, const QStringList &checklist)
 {
-    return sendEvacuationRequest("evacuation_clear", "clear", zone, admin);
+    QJsonObject extra;
+    extra["checklist"] = QJsonArray::fromStringList(checklist);
+    return sendEmergencyRequest("emergency_clear", "clear", zone, admin, extra);
 }
 
-QString ServerLink::sendEvacuationRequest(const QString &type, const QString &mode,
-                                           const QString &zone, const QString &admin)
+QString ServerLink::sendEmergencyRequest(const QString &type, const QString &mode, const QString &zone,
+                                          const QString &admin, const QJsonObject &extraFields)
 {
     const QString cmdId = generateCmdId();
 
-    QJsonObject obj;
+    QJsonObject obj = extraFields;
     obj["type"] = type;
     obj["cmdId"] = cmdId;
     obj["zone"] = zone;
@@ -95,10 +99,10 @@ QString ServerLink::sendEvacuationRequest(const QString &type, const QString &mo
     auto *timer = new QTimer(this);
     timer->setSingleShot(true);
     connect(timer, &QTimer::timeout, this, [this, cmdId, zone, mode]() {
-        if (pendingEvacuationCommands.remove(cmdId) > 0)
-            emit evacuationTimedOut(cmdId, zone, mode);
+        if (pendingEmergencyCommands.remove(cmdId) > 0)
+            emit emergencyTimedOut(cmdId, zone, mode);
     });
-    pendingEvacuationCommands.insert(cmdId, timer);
+    pendingEmergencyCommands.insert(cmdId, timer);
     timer->start(kControlTimeoutMs);
 
     return cmdId;
@@ -212,15 +216,16 @@ void ServerLink::handleLine(const QByteArray &line)
         timer->deleteLater();
         emit controlResult(cmdId, obj.value("zone").toString(), obj.value("target").toString(),
                             obj.value("result").toString(), obj.value("reason").toString());
-    } else if (type == "evacuation_ack") {
+    } else if (type == "emergency_ack") {
         const QString cmdId = obj.value("cmdId").toString();
-        QTimer *timer = pendingEvacuationCommands.take(cmdId);
+        QTimer *timer = pendingEmergencyCommands.take(cmdId);
         if (!timer)
             return; // 이미 처리됐거나(중복 응답) 타임아웃된 명령 -> 무시
         timer->stop();
         timer->deleteLater();
-        emit evacuationResult(cmdId, obj.value("zone").toString(), obj.value("mode").toString(),
-                               obj.value("result").toString(), obj.value("reason").toString());
+        // 거절 없음 — result는 항상 "accepted"
+        emit emergencyResult(cmdId, obj.value("zone").toString(), obj.value("mode").toString(),
+                              obj.value("result").toString());
     } else if (type == "query_result") {
         const QString reqId = obj.value("reqId").toString();
         const QString target = obj.value("target").toString();
