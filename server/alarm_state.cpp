@@ -54,13 +54,13 @@ AlarmOutcome AlarmState::update(const Judgement& in, long nowTs) {
             ack_          = false;       // 새 경고 시작 → 이전 ack 무효화
             ackLogged_    = false;
             forcedDanger_ = false;
-            o.warnEntered = true;
-            if (incidentId_ == 0) {              // 사태 시작 (경고부터 한 사태로)
+            if (incidentId_ == 0) {              // 새 사태일 때만 기록·로그      
                 incidentId_      = ++incidentSeq_;
                 incidentStartTs_ = nowTs;
-            }
-            std::cout << "[경고] " << o.j.cause << " 발생 → 관리자 알림 ("
-                      << WARN_TIMEOUT << "초 대기)\n";
+                o.warnEntered = true;
+                std::cout << "[경고] " << o.j.cause << " 발생 → 관리자 알림 ("
+                          << WARN_TIMEOUT << "초 대기)\n";
+            }                                                               
         }
         if (ack_.load()) {
             if (!ackLogged_) {           // 한 번만
@@ -80,7 +80,8 @@ AlarmOutcome AlarmState::update(const Judgement& in, long nowTs) {
     } else {
         if (warnStartTs_ >= 0 && o.j.state == "safe" && !forcedDanger_ && !latched_)  // 래치 중엔 해제 로그 금지
             std::cout << "[경고] 해제됨 (감지 사라짐)\n";
-        warnStartTs_ = -1;               // warning 벗어남 → 타이머 리셋
+        // warnStartTs_는 여기서 리셋하지 않는다. 깜빡일 때마다 10초가 초기화되면 
+        // 실제 화재도 위험으로 못 올라간다. 사태가 종료될 때 같이 리셋한다
         if (o.j.state == "safe") forcedDanger_ = false;   // 안전 복귀 시 강제상태 해제
     }
 
@@ -130,8 +131,13 @@ AlarmOutcome AlarmState::update(const Judgement& in, long nowTs) {
         o.dangerEntered = true;
     }
 
-    // 사태 종료: 위험까지 갔으면 수동 해제로만, 경고만이었으면 기존대로 자동
-    if (o.emergCleared || (incidentId_ != 0 && !latched_ && o.j.state == "safe")) {
+    // 안전이 잠깐 스쳐도 사태를 닫지 않는다. 감지가 깜빡이면 한 사건이 여러 건으로 쪼개짐 
+    if (o.j.state == "safe") { if (safeSinceTs_ == 0) safeSinceTs_ = nowTs; }
+    else                       safeSinceTs_ = 0;
+    bool safeHeld = (safeSinceTs_ != 0 && nowTs - safeSinceTs_ >= RELEASE_HOLD);
+
+    // 사태 종료: 위험까지 갔으면 수동 해제로만, 경고만이었으면 안전이 지속될 때
+    if (o.emergCleared || (incidentId_ != 0 && !latched_ && safeHeld)) {     
         o.released   = true;
         o.wasDanger  = wasDanger_;
         // 관리자 반응 시간이 통계에 섞이지 않게, 수치가 정상으로 돌아온 시각까지만 센다
@@ -140,7 +146,8 @@ AlarmOutcome AlarmState::update(const Judgement& in, long nowTs) {
     }
 
     o.incidentId = incidentId_;
-    if (o.released) { incidentId_ = 0; wasDanger_ = false; hazardEndTs_ = 0; }
+    if (o.released) { incidentId_ = 0; wasDanger_ = false; hazardEndTs_ = 0;
+                      warnStartTs_ = -1; safeSinceTs_ = 0; } 
 
     // 해제한 tick은 다음 위험이 새 사태로 잡히도록 전이 기준을 초기화한다
     prevState_ = o.emergCleared ? "safe" : o.j.state;

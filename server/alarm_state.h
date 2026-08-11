@@ -64,4 +64,8 @@ private:
     bool        latched_ = false;     // 위험 래치 — 수동 해제 전까지 안 풀림
     std::string latchCause_;          // 래치 시점의 원인
     long        hazardEndTs_ = 0;     // 자연 판정이 안전으로 돌아온 시각 (0=아직)
+
+    // 감지 깜빡임으로 사태가 여러 건으로 쪼개지는 것을 막는다                
+    static constexpr int RELEASE_HOLD = 10;   // 안전이 이만큼 지속돼야 사태 종료
+    long safeSinceTs_ = 0;                    // 안전으로 내려간 시각 (0 = 안전 아님)
 };

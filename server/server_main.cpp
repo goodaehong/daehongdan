@@ -271,9 +271,10 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
                 std::cout << "[cam" << ch+1 << "] 연기 해제\n";
             prevSmoke = nowSmoke;
 
-            // 추론 파이프라인 생존 확인용. 화재·연기 중 하나라도 결과가 나오면 갱신 // 
-            if (snap.boxIsFresh || ssnap.hasResult)
-                detState[ch].lastInferTs = std::time(nullptr);   
+            // 추론 파이프라인 생존 확인용. 검출이 0건이어도 "결과는 나온 것"이므로  
+            // boxIsFresh(알람 중일 때만 참)가 아니라 resultIsFresh를 본다
+            if (snap.resultIsFresh || ssnap.resultIsFresh)
+                detState[ch].lastInferTs = std::time(nullptr);                  
 
             // ── 사람 (카메라 WiseAI) ──
             PersonMetadataFrame pf = person.snapshot(frame.size());
@@ -349,7 +350,8 @@ int main() {
     Actuator_Apply(responseForSafe(), "자동:초기화");   // 재시작 후 상태를 알 수 없으므로 평상으로 맞춤 
     QtLink_SetTarget(responseForSafe());                                              
     if (!StmDisplay_Open("/dev/stm_display"))        // STM 전광판 보드 (GPIO UART)
-        std::cerr << "[전광판] 초기화 실패 — 계속 진행\n";                    
+        std::cerr << "[전광판] 초기화 실패 — 계속 진행\n";    
+    StmDisplay_SendClear();   // 이전 실행이 대피 화면에서 끝났을 수 있으므로 평상 복귀                
 
     AlarmState alarm;
     FrameStore store;
