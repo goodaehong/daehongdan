@@ -19,6 +19,21 @@ struct Zone {
     bool hasLiveSensorData = false;
     // 서버 sensor 메시지의 cause 코드 (server/judgement.h Cause 네임스페이스와 1:1). safe면 빈 문자열.
     QString cause;
+    // 현재 위험이 자동 감지인지 수동 발령인지 ("auto"/"manual"). 배너 표시용 (emergency-mode #17).
+    QString dangerSource;
+    // 수동 발령자 이름. 자동이면 빈 문자열.
+    QString admin;
+    // 목표 대응(target)이 실제 액추에이터에 반영됐는가. 비상 모드 버튼 활성/비활성 판단에 씀.
+    bool responseOk = true;
+    // 가스/연기/불꽃(ADS1115) 값 신뢰 여부. false면 화면에 값 대신 "센서 오류" 표시 (emergency-mode #13).
+    bool sensorOk = true;
+    // 이번 틱에 온습도(DHT22)를 실제로 읽었는가. false면 직전 값(캐시)이라는 뜻.
+    bool dhtOk = true;
+    // 해제 체크리스트 "시스템 확인" 3항목(서버 판정, emergency-mode #10). sensor: 수치 정상+sensorOk,
+    // vision: 4채널 visionOk 전부 true, actuator: responseOk와 동일 값.
+    bool clearSensor = false;
+    bool clearVision = false;
+    bool clearActuator = false;
     // state가 마지막으로 바뀐 시각. StatusPanel의 "MM:SS 경과" 표시에 씀.
     QDateTime stateEnteredAt = QDateTime::currentDateTime();
     // 실시간 가스농도 추이 그래프용 최근 이력(최대 30개, 오래된 것부터).

@@ -11,10 +11,12 @@ class QComboBox;
 class QLineEdit;
 class QLabel;
 class QPushButton;
+class QTimeEdit;
 class GasGraphWidget;
 class QJsonArray;
 
 struct EventEntry {
+    QString date;        // 표시용 "yyyy-MM-dd"
     QString time;       // 표시용 "HH:mm:ss"
     QDateTime timestamp; // 기간 필터링용 실제 시각
     QString zone;
@@ -49,6 +51,8 @@ private slots:
     void applyFilter();
     void showDetail(int row, int column);
     void markFalseAlarm();
+    void showDatePicker();
+    void clearDateFilter();
 
 private:
     void appendRow(const EventEntry &entry);
@@ -59,6 +63,12 @@ private:
     QComboBox *periodFilterCombo;
     QComboBox *statusFilterCombo;
     QLineEdit *searchEdit;
+    // 그래프 화면과 동일한 방식(팝업 달력)의 특정 날짜 조회 + 시:분 직접 입력 시간대 조회.
+    // periodFilterCombo(전체 기간/최근 1시간 등)와 별개로 AND 조건으로 함께 적용된다.
+    QPushButton *dateButton;
+    QDate filterDate; // 무효(QDate()) = 날짜 제한 없음
+    QTimeEdit *startTimeEdit;
+    QTimeEdit *endTimeEdit;
     QVector<EventEntry> eventEntries;
     GasGraphWidget *gasGraph;
 
