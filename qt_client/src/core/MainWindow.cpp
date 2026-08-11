@@ -79,33 +79,30 @@ MainWindow::MainWindow(QWidget *parent)
                 monitorPage->setActuatorRowStatus(target, "처리 중...", "#8d87a0");
             });
 
-    // 대피 모드는 별도 메시지 타입(evacuation_trigger/clear)이라 sendControl()과 분리해서 보낸다.
+    // 비상 모드는 별도 메시지 타입(emergency_trigger/clear)이라 sendControl()과 분리해서 보낸다.
     // zone은 "발생 구역 표시용"일 뿐 실제 적용은 서버가 전 구역에 한다.
+    // TODO(emergency-mode #8/#10/#11): 원인 선택 모달·체크리스트 모달·로그인 실명이 아직 없어서
+    // 지금은 임시로 기본값(cause="fire_confirmed", checklist 빈 배열, admin="admin")을 보낸다.
     connect(monitorPage, &MonitorPage::evacuationActionRequested, this,
             [this](bool activate) {
                 const QString zoneId = zones[currentZone].name.left(1);
-                const QString label = activate ? "대피 모드 발동" : "대피 모드 해제";
+                const QString label = activate ? "비상 모드 전환" : "비상 모드 해제";
                 if (activate)
-                    serverLink->sendEvacuationTrigger(zoneId, "admin");
+                    serverLink->sendEmergencyTrigger(zoneId, "fire_confirmed", "admin");
                 else
-                    serverLink->sendEvacuationClear(zoneId, "admin");
+                    serverLink->sendEmergencyClear(zoneId, "admin", {});
                 monitorPage->showControlStatus(QString("처리 중... (%1)").arg(label), "#8d87a0");
             });
 
-    connect(serverLink, &ServerLink::evacuationResult, this,
-            [this](const QString &, const QString &, const QString &mode,
-                   const QString &result, const QString &reason) {
-                const QString label = mode == "trigger" ? "대피 모드 발동" : "대피 모드 해제";
-                if (result == "ok") {
-                    monitorPage->showControlStatus(QString("완료: %1").arg(label), "#34d399");
-                    // evacuationActive 자체는 여기서 낙관적으로 바꾸지 않는다 -> sensor 메시지의
-                    // evacuation 필드가 1초 이내로 실제 상태를 확정해서 알려준다.
-                } else {
-                    const QString reasonText = reason.isEmpty() ? "알 수 없는 오류" : reason;
-                    monitorPage->showControlStatus(QString("실패: %1 (%2)").arg(label, reasonText), "#f87171");
-                }
+    connect(serverLink, &ServerLink::emergencyResult, this,
+            [this](const QString &, const QString &, const QString &mode, const QString &result) {
+                Q_UNUSED(result);   // 거절 없음 — 항상 "accepted"
+                const QString label = mode == "trigger" ? "비상 모드 전환" : "비상 모드 해제";
+                monitorPage->showControlStatus(QString("완료: %1").arg(label), "#34d399");
+                // evacuationActive/버튼 상태는 여기서 낙관적으로 바꾸지 않는다 -> sensor 메시지의
+                // state/dangerSource가 실제 상태를 확정해서 알려준다 (13~18번 작업에서 연결 예정).
             });
-    connect(serverLink, &ServerLink::evacuationTimedOut, this,
+    connect(serverLink, &ServerLink::emergencyTimedOut, this,
             [this](const QString &, const QString &, const QString &) {
                 monitorPage->showControlStatus("응답 없음 — 서버 연결 확인 필요", "#f87171");
             });
