@@ -627,7 +627,13 @@ static void IWDG_Init(void)
   IWDG->KR = 0x5555;                 /* PR/RLR 쓰기 허용 */
   IWDG->PR = 3;                      /* 32분주: LSI/32 카운트 */
   IWDG->RLR = IWDG_RELOAD_VALUE;
-  while (IWDG->SR != 0) { }          /* PVU/RVU 반영될 때까지 대기 */
+
+  /* PVU/RVU 클리어는 정상이면 LSI 기준 수십~수백us 안에 끝남. 근데 여기가 무한루프면
+     워치독을 켜기도 전에(=HUB75_RefreshOnce 루프에 영영 못 들어가서) 화면이 계속
+     꺼진 채로 굳어버리는, "멈추면 자동 복구"라는 워치독의 목적과 정반대인 최악의
+     상황이 됨 - 그래서 못 끝나도 그냥 넘어가도록 반드시 타임아웃을 둠 */
+  for (volatile uint32_t i = 0; (IWDG->SR != 0) && (i < 100000U); i++) { }
+
   IWDG->KR = 0xAAAA;                 /* 리로드값 반영 */
   IWDG->KR = 0xCCCC;                 /* 워치독 시작 - 이 시점부터 Kick 없으면 리셋됨 */
 }
