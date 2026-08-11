@@ -41,6 +41,7 @@ set(SERVER_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/judgement.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/alarm_state.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/qt_link.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/audio/speaker_alert.cpp
 )
 
 # ── 하드웨어 계층: mock / 실물 교체 ──
@@ -48,6 +49,9 @@ option(USE_MOCK_SENSOR   "센서 mock 사용"       OFF)
 option(USE_MOCK_ACTUATOR "액추에이터 mock 사용"  OFF)
 option(USE_MOCK_DISPLAY  "전광판 mock 사용"     OFF)
 option(ENABLE_TLS        "Qt 연결에 TLS 사용"   OFF)
+# USB 사운드카드는 꽂는 순서에 따라 hw 번호가 바뀔 수 있어 하드코딩 대신 빌드 옵션으로 뺌.
+# 장치가 바뀌면 -DSPEAKER_ALSA_DEVICE=hw:X,0 으로 재지정.
+set(SPEAKER_ALSA_DEVICE "hw:2,0" CACHE STRING "스피커 출력에 쓸 ALSA 장치")
 
 if(USE_MOCK_SENSOR)
     set(SENSOR_SRC ${CMAKE_CURRENT_SOURCE_DIR}/sensors/sensor_reader_mock.cpp)
@@ -94,7 +98,9 @@ target_link_libraries(server_main PRIVATE
 
 target_compile_definitions(server_main PRIVATE
     DB_PATH="${CMAKE_CURRENT_SOURCE_DIR}/db/factory.db"
-    SNAPSHOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/db/snapshots")
+    SNAPSHOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/db/snapshots"
+    AUDIO_FILE="${CMAKE_CURRENT_SOURCE_DIR}/audio/evacuation_alert.wav"
+    AUDIO_DEVICE="${SPEAKER_ALSA_DEVICE}")
 
 if(ENABLE_TLS)
     find_package(OpenSSL REQUIRED)
