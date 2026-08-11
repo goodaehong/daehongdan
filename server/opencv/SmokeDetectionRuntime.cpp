@@ -93,6 +93,61 @@ namespace
             referenceSize * smoke_config::TRACK_MAX_CENTER_DISTANCE_RATIO;
     }
 
+    cv::Rect expandedForSmokeMerge(const cv::Rect& box)
+    {
+        const int marginX = std::max(1, static_cast<int>(std::round(
+            box.width * smoke_config::MERGE_EXPANSION_RATIO)));
+        const int marginY = std::max(1, static_cast<int>(std::round(
+            box.height * smoke_config::MERGE_EXPANSION_RATIO)));
+        return cv::Rect(
+            box.x - marginX,
+            box.y - marginY,
+            box.width + marginX * 2,
+            box.height + marginY * 2);
+    }
+
+    bool shouldMergeSmokeBoxes(const cv::Rect& left, const cv::Rect& right)
+    {
+        if (left.empty() || right.empty()) return false;
+        return !(expandedForSmokeMerge(left) & expandedForSmokeMerge(right)).empty();
+    }
+
+    void mergeNearbySmokeBoxes(std::vector<DetectionBox>& boxes)
+    {
+        bool merged = true;
+        while (merged)
+        {
+            merged = false;
+            for (std::size_t left = 0; left < boxes.size() && !merged; ++left)
+            {
+                for (std::size_t right = left + 1; right < boxes.size(); ++right)
+                {
+                    if (!shouldMergeSmokeBoxes(boxes[left].box, boxes[right].box))
+                        continue;
+
+                    boxes[left].box |= boxes[right].box;
+                    boxes[left].score = std::max(boxes[left].score, boxes[right].score);
+                    boxes.erase(boxes.begin() + static_cast<std::ptrdiff_t>(right));
+                    merged = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    void setNormalizedBoxGeometry(DetectionBox& box, const cv::Size& frameSize)
+    {
+        if (frameSize.width <= 0 || frameSize.height <= 0 || box.box.empty()) return;
+        box.normalizedX = std::clamp(
+            static_cast<double>(box.box.x) / frameSize.width, 0.0, 1.0);
+        box.normalizedY = std::clamp(
+            static_cast<double>(box.box.y) / frameSize.height, 0.0, 1.0);
+        box.normalizedWidth = std::clamp(
+            static_cast<double>(box.box.width) / frameSize.width, 0.0, 1.0);
+        box.normalizedHeight = std::clamp(
+            static_cast<double>(box.box.height) / frameSize.height, 0.0, 1.0);
+    }
+
     struct MotionEvidence
     {
         double localRatio = 0.0;
@@ -248,6 +303,17 @@ namespace
     }
 
     // 모델은 공유하지만 프레임 이력과 시간 누적 상태는 채널마다 분리한다.
+    struct SmokeTrack
+    {
+        int id = -1;
+        cv::Rect box;
+        double score = 0.0;
+        int hits = 0;
+        int misses = 0;
+        bool confirmed = false;
+        SmokeDetectionRuntime::TimePoint lastMatchedTime{};
+    };
+
     struct ChannelState
     {
         cv::Mat pendingFrame;
@@ -270,10 +336,152 @@ namespace
         int consecutiveMisses = 0;
         double latestDetectMs = 0.0;
         double averageDetectMs = 0.0;
-        cv::Rect trackedSmokeBox;
-        bool hasTrackedSmokeBox = false;
+        std::vector<SmokeTrack> smokeTracks;
+        int nextSmokeTrackId = 1;
+        IgnoreRegionFilter ignoreRegionFilter;
         std::uint64_t epoch = 0;
     };
+
+    struct SmokeAssociation
+    {
+        std::size_t trackIndex = 0;
+        std::size_t detectionIndex = 0;
+        double score = 0.0;
+    };
+
+    void updateSmokeTracks(
+        ChannelState& channel,
+        SmokeDetectionResult& detection,
+        const cv::Size& frameSize,
+        SmokeDetectionRuntime::TimePoint sourceTime)
+    {
+        mergeNearbySmokeBoxes(detection.boxes);
+
+        std::vector<SmokeAssociation> associations;
+        for (std::size_t trackIndex = 0;
+            trackIndex < channel.smokeTracks.size(); ++trackIndex)
+        {
+            const SmokeTrack& track = channel.smokeTracks[trackIndex];
+            for (std::size_t detectionIndex = 0;
+                detectionIndex < detection.boxes.size(); ++detectionIndex)
+            {
+                const DetectionBox& candidate = detection.boxes[detectionIndex];
+                if (!belongsToTrackedRegion(track.box, candidate.box)) continue;
+
+                const double iou = intersectionOverUnion(track.box, candidate.box);
+                const double trackCenterX = track.box.x + track.box.width * 0.5;
+                const double trackCenterY = track.box.y + track.box.height * 0.5;
+                const double candidateCenterX = candidate.box.x + candidate.box.width * 0.5;
+                const double candidateCenterY = candidate.box.y + candidate.box.height * 0.5;
+                const double distance = std::hypot(
+                    candidateCenterX - trackCenterX,
+                    candidateCenterY - trackCenterY);
+                const double referenceSize = static_cast<double>(std::max({
+                    track.box.width, track.box.height,
+                    candidate.box.width, candidate.box.height, 1 }));
+                const double proximity = 1.0 - std::clamp(
+                    distance / referenceSize, 0.0, 1.0);
+                associations.push_back({
+                    trackIndex,
+                    detectionIndex,
+                    iou * 2.0 + proximity + candidate.score * 0.05
+                });
+            }
+        }
+
+        std::sort(
+            associations.begin(), associations.end(),
+            [](const SmokeAssociation& left, const SmokeAssociation& right) {
+                return left.score > right.score;
+            });
+
+        std::vector<bool> trackMatched(channel.smokeTracks.size(), false);
+        std::vector<bool> detectionUsed(detection.boxes.size(), false);
+        for (const SmokeAssociation& association : associations)
+        {
+            if (trackMatched[association.trackIndex] ||
+                detectionUsed[association.detectionIndex])
+                continue;
+
+            SmokeTrack& track = channel.smokeTracks[association.trackIndex];
+            const DetectionBox& candidate = detection.boxes[association.detectionIndex];
+            track.box = candidate.box;
+            track.score = candidate.score;
+            track.hits = std::min(track.hits + 1, smoke_config::CONFIRM_HITS);
+            track.misses = 0;
+            track.lastMatchedTime = sourceTime;
+            if (track.hits >= smoke_config::CONFIRM_HITS)
+                track.confirmed = true;
+            trackMatched[association.trackIndex] = true;
+            detectionUsed[association.detectionIndex] = true;
+        }
+
+        for (std::size_t index = 0; index < channel.smokeTracks.size(); ++index)
+        {
+            if (!trackMatched[index]) channel.smokeTracks[index].misses++;
+        }
+
+        for (std::size_t index = 0; index < detection.boxes.size(); ++index)
+        {
+            if (detectionUsed[index] ||
+                channel.smokeTracks.size() >= smoke_config::MAX_TRACKS_PER_CHANNEL)
+                continue;
+
+            SmokeTrack track;
+            track.id = channel.nextSmokeTrackId++;
+            track.box = detection.boxes[index].box;
+            track.score = detection.boxes[index].score;
+            track.hits = 1;
+            track.lastMatchedTime = sourceTime;
+            channel.smokeTracks.push_back(track);
+        }
+
+        channel.smokeTracks.erase(
+            std::remove_if(
+                channel.smokeTracks.begin(), channel.smokeTracks.end(),
+                [sourceTime](const SmokeTrack& track) {
+                    if (!track.confirmed)
+                        return track.misses >= smoke_config::RELEASE_MISSES;
+
+                    return sourceTime - track.lastMatchedTime >=
+                        std::chrono::milliseconds(smoke_config::RELEASE_HOLD_MS);
+                }),
+            channel.smokeTracks.end());
+
+        std::vector<DetectionBox> confirmedBoxes;
+        channel.smokeDetected = false;
+        channel.positiveHits = 0;
+        channel.consecutiveMisses = smoke_config::RELEASE_HOLD_RESULTS;
+        for (const SmokeTrack& track : channel.smokeTracks)
+        {
+            channel.positiveHits = std::max(channel.positiveHits, track.hits);
+            if (!track.confirmed) continue;
+
+            channel.smokeDetected = true;
+            channel.consecutiveMisses = std::min(
+                channel.consecutiveMisses, track.misses);
+
+            DetectionBox box;
+            box.box = track.box;
+            box.type = DetectionType::SMOKE;
+            box.score = track.score;
+            box.trackId = track.id;
+            box.trackedPersistenceEvidence = track.misses > 0;
+            setNormalizedBoxGeometry(box, frameSize);
+
+            char label[64];
+            std::snprintf(label, sizeof(label), "SMOKE %.2f", track.score);
+            box.label = label;
+            confirmedBoxes.push_back(std::move(box));
+        }
+
+        if (!channel.smokeDetected)
+            channel.consecutiveMisses = channel.smokeTracks.empty() ?
+                smoke_config::RELEASE_HOLD_RESULTS : 0;
+
+        detection.boxes = std::move(confirmedBoxes);
+        detection.candidate = !detection.boxes.empty();
+    }
 }
 
 class SmokeDetectionRuntime::Impl
@@ -326,6 +534,27 @@ public:
         return true;
     }
 
+    bool setIgnoreRegionConfig(
+        std::size_t channelIndex,
+        const IgnoreRegionConfig& config)
+    {
+        if (channelIndex >= channels_.size()) return false;
+
+        std::lock_guard<std::mutex> lock(mutex_);
+        ChannelState& channel = channels_[channelIndex];
+        channel.ignoreRegionFilter.setConfig(config);
+
+        // 설정 전 검출이 새 ROI를 우회해 확정되지 않도록 시간 누적만 초기화한다.
+        channel.latestDetection = SmokeDetectionResult{};
+        channel.hasResult = false;
+        channel.smokeDetected = false;
+        channel.positiveHits = 0;
+        channel.consecutiveMisses = 0;
+        channel.smokeTracks.clear();
+        channel.nextSmokeTrackId = 1;
+        return true;
+    }
+
     void resetChannel(std::size_t channelIndex)
     {
         if (channelIndex >= channels_.size()) return;
@@ -344,8 +573,8 @@ public:
         channel.consecutiveMisses = 0;
         channel.latestDetectMs = 0.0;
         channel.averageDetectMs = 0.0;
-        channel.trackedSmokeBox = {};
-        channel.hasTrackedSmokeBox = false;
+        channel.smokeTracks.clear();
+        channel.nextSmokeTrackId = 1;
         const int phaseMs = static_cast<int>(channelIndex) *
             smoke_config::INFERENCE_INTERVAL_MS / static_cast<int>(channels_.size());
         channel.nextAcceptedTime = Clock::now() + std::chrono::milliseconds(phaseMs);
@@ -466,6 +695,17 @@ private:
             applyMotionScore(
                 frame, channel.previousMotionGray, detection, currentMotionGray);
             channel.previousMotionGray = std::move(currentMotionGray);
+
+            // 원본 영상이나 NCNN 입력은 가리지 않는다. 검출 및 모션 검증을
+            // 마친 박스만 사용자 지정 영역과 비교한 뒤 시간 누적으로 보낸다.
+            channel.ignoreRegionFilter.filter(detection.boxes, frame.size());
+            detection.candidate = !detection.boxes.empty();
+            detection.maxScore = 0.0;
+            for (const DetectionBox& box : detection.boxes)
+                detection.maxScore = std::max(detection.maxScore, box.score);
+
+            updateSmokeTracks(channel, detection, frame.size(), sourceTime);
+
             const double detectMs =
                 std::chrono::duration<double, std::milli>(Clock::now() - started).count();
             channel.latestDetection = std::move(detection);
@@ -479,48 +719,6 @@ private:
                 : channel.averageDetectMs * 0.90 + detectMs * 0.10;
             channel.hasResult = true;
 
-            // 같은 위치에서 연속 양성이 나온 경우에만 최종 smokeDetected를 켠다.
-            if (channel.latestDetection.candidate)
-            {
-                const auto bestBox = std::max_element(
-                    channel.latestDetection.boxes.begin(),
-                    channel.latestDetection.boxes.end(),
-                    [](const DetectionBox& left, const DetectionBox& right) {
-                        return left.score < right.score;
-                    });
-                const bool sameRegion =
-                    !channel.hasTrackedSmokeBox ||
-                    belongsToTrackedRegion(channel.trackedSmokeBox, bestBox->box);
-
-                if (sameRegion)
-                {
-                    channel.positiveHits =
-                        std::min(channel.positiveHits + 1, smoke_config::CONFIRM_HITS);
-                }
-                else
-                {
-                    channel.positiveHits = 1;
-                    channel.smokeDetected = false;
-                }
-                channel.trackedSmokeBox = bestBox->box;
-                channel.hasTrackedSmokeBox = true;
-                channel.consecutiveMisses = 0;
-                if (channel.positiveHits >= smoke_config::CONFIRM_HITS)
-                    channel.smokeDetected = true;
-            }
-            else
-            {
-                // 일시적인 누락은 허용하고 연속 음성이 기준을 넘으면 추적을 해제한다.
-                channel.consecutiveMisses = std::min(
-                    channel.consecutiveMisses + 1, smoke_config::RELEASE_MISSES);
-                if (channel.consecutiveMisses >= smoke_config::RELEASE_MISSES)
-                {
-                    channel.smokeDetected = false;
-                    channel.positiveHits = 0;
-                    channel.trackedSmokeBox = {};
-                    channel.hasTrackedSmokeBox = false;
-                }
-            }
         }
     }
 
@@ -553,6 +751,13 @@ bool SmokeDetectionRuntime::submitFrame(
     TimePoint sourceTime)
 {
     return impl_->submitFrame(channelIndex, frame, frameId, sourceTime);
+}
+
+bool SmokeDetectionRuntime::setIgnoreRegionConfig(
+    std::size_t channelIndex,
+    const IgnoreRegionConfig& config)
+{
+    return impl_->setIgnoreRegionConfig(channelIndex, config);
 }
 
 void SmokeDetectionRuntime::resetChannel(std::size_t channelIndex)
