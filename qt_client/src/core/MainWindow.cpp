@@ -57,7 +57,6 @@ MainWindow::MainWindow(QWidget *parent)
     rootLayout->setContentsMargins(0, 0, 0, 0);
     rootLayout->setSpacing(0);
 
-    rootLayout->addWidget(createEvacuationBanner());
     rootLayout->addWidget(createDangerBanner());
     rootLayout->addWidget(createTopBar());
     rootLayout->addWidget(createSubTabBar());
@@ -102,15 +101,17 @@ MainWindow::MainWindow(QWidget *parent)
     // zone은 "발생 구역 표시용"일 뿐 실제 적용은 서버가 전 구역에 한다.
     // TODO(emergency-mode #8/#10/#11): 원인 선택 모달·체크리스트 모달·로그인 실명이 아직 없어서
     // 지금은 임시로 기본값(cause="fire_confirmed", checklist 빈 배열, admin="admin")을 보낸다.
-    connect(monitorPage, &MonitorPage::evacuationActionRequested, this,
-            [this](bool activate) {
+    connect(monitorPage, &MonitorPage::emergencyTriggerRequested, this,
+            [this](const QString &cause) {
                 const QString zoneId = zones[currentZone].name.left(1);
-                const QString label = activate ? "비상 모드 전환" : "비상 모드 해제";
-                if (activate)
-                    serverLink->sendEmergencyTrigger(zoneId, "fire_confirmed", "admin");
-                else
-                    serverLink->sendEmergencyClear(zoneId, "admin", {});
-                monitorPage->showControlStatus(QString("처리 중... (%1)").arg(label), "#8d87a0");
+                serverLink->sendEmergencyTrigger(zoneId, cause, "admin");
+                monitorPage->showControlStatus("처리 중... (비상 모드 전환)", "#8d87a0");
+            });
+    connect(monitorPage, &MonitorPage::emergencyClearRequested, this,
+            [this](const QString &admin, const QStringList &checklist) {
+                const QString zoneId = zones[currentZone].name.left(1);
+                serverLink->sendEmergencyClear(zoneId, admin, checklist);
+                monitorPage->showControlStatus("처리 중... (비상 모드 해제)", "#8d87a0");
             });
 
     connect(serverLink, &ServerLink::emergencyResult, this,
@@ -118,8 +119,8 @@ MainWindow::MainWindow(QWidget *parent)
                 Q_UNUSED(result);   // 거절 없음 — 항상 "accepted"
                 const QString label = mode == "trigger" ? "비상 모드 전환" : "비상 모드 해제";
                 monitorPage->showControlStatus(QString("완료: %1").arg(label), "#34d399");
-                // evacuationActive/버튼 상태는 여기서 낙관적으로 바꾸지 않는다 -> sensor 메시지의
-                // state/dangerSource가 실제 상태를 확정해서 알려준다 (13~18번 작업에서 연결 예정).
+                // 버튼/배너 상태는 여기서 낙관적으로 바꾸지 않는다 -> sensor 메시지의
+                // state/dangerSource가 실제 상태를 확정해서 알려준다 (updateDangerIndicators에서 반영).
             });
     connect(serverLink, &ServerLink::emergencyTimedOut, this,
             [this](const QString &, const QString &, const QString &) {
@@ -151,11 +152,18 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(serverLink, &ServerLink::actuatorStatusReceived, this,
             [this](int fan, int valve, int siren, const QString &link,
-                   const QString &fanSrc, const QString &valveSrc, const QString &sirenSrc) {
+                   const QString &fanSrc, const QString &valveSrc, const QString &sirenSrc,
+                   int targetFan, int targetValve, int targetSiren, const QString &linkReason) {
                 currentFan = fan;
                 currentValve = valve;
                 currentSiren = siren;
-                monitorPage->setActuatorStatus(fan, valve, siren, link, fanSrc, valveSrc, sirenSrc);
+                monitorPage->setActuatorStatus(fan, valve, siren, link, fanSrc, valveSrc, sirenSrc,
+                                                targetFan, targetValve, targetSiren, linkReason);
+            });
+
+    connect(serverLink, &ServerLink::visionStatusReceived, this,
+            [this](bool ch1, bool ch2, bool ch3, bool ch4) {
+                monitorPage->setCameraVisionStatus(ch1, ch2, ch3, ch4);
             });
 
     connect(serverLink, &ServerLink::detectionReceived, this,
@@ -167,7 +175,14 @@ MainWindow::MainWindow(QWidget *parent)
     connect(serverLink, &ServerLink::sensorReceived, this,
             [this](const QString &zoneId, qint64, double temp, double humidity,
                    double gasPpm, double smokePpm, double flameVal, const QString &state,
-                   const QString &cause, int warnRemain, bool evacuationActive, bool responseOk) {
+                   const QString &cause, int warnRemain, bool responseOk,
+                   bool clearSensor, bool clearVision, bool clearActuator,
+                   bool sensorOk, bool dhtOk, const QString &dangerSource, const QString &admin) {
+                // sensor 메시지가 살아있다는 증거 — 워치독(emergency-mode #19)이 이 시각을 기준으로 판단.
+                const bool wasStale = lastSensorMsgAt.isValid() && lastSensorMsgAt.msecsTo(QDateTime::currentDateTime()) > 5000;
+                lastSensorMsgAt = QDateTime::currentDateTime();
+                if (wasStale)
+                    refreshConnBadge(); // 끊겼다가 막 복구된 순간이면 배지 즉시 갱신 (5초 기다릴 필요 없음)
                 for (Zone &zone : zones) {
                     if (!zone.name.startsWith(zoneId))
                         continue;
@@ -180,6 +195,13 @@ MainWindow::MainWindow(QWidget *parent)
                     zone.state = zoneStateFromString(state);
                     zone.cause = cause;
                     zone.responseOk = responseOk;
+                    zone.clearSensor = clearSensor;
+                    zone.clearVision = clearVision;
+                    zone.clearActuator = clearActuator;
+                    zone.sensorOk = sensorOk;
+                    zone.dhtOk = dhtOk;
+                    zone.dangerSource = dangerSource;
+                    zone.admin = admin;
                     zone.hasLiveSensorData = true;
                     if (oldState != zone.state)
                         zone.stateEnteredAt = QDateTime::currentDateTime();
@@ -272,9 +294,10 @@ MainWindow::MainWindow(QWidget *parent)
             });
 
     connect(serverLink, &ServerLink::connectionStateChanged, this, [this](bool connected) {
-        connBadge->setText(connected
-            ? "<span style='color:#34d399;'>●</span> 실시간 연결 중"
-            : "<span style='color:#f87171;'>●</span> 서버 연결 끊김");
+        socketConnected = connected;
+        if (connected)
+            lastSensorMsgAt = QDateTime::currentDateTime(); // 방금 붙었으니 아직 끊긴 걸로 오판하면 안 됨
+        refreshConnBadge();
         if (!connected)
             return;
         // 프로그램 시작 시 1회: 이벤트로그 최근 24시간 + 그래프용 센서 이력 직전 10분치.
@@ -295,24 +318,30 @@ MainWindow::MainWindow(QWidget *parent)
         graphPage->requestCurrentPeriod(); // 그래프 탭도 현재 선택된 기간/날짜로 최초 조회
     });
 
+    // sensor 메시지 흐름 감시(emergency-mode #19). 소켓은 붙어있어도 서버 내부(센서 스레드)가 멎으면
+    // sensor가 안 오는데, connectionStateChanged만 보면 이 상태를 "연결됨"으로 잘못 표시하게 된다.
+    sensorWatchdogTimer = new QTimer(this);
+    connect(sensorWatchdogTimer, &QTimer::timeout, this, &MainWindow::refreshConnBadge);
+    sensorWatchdogTimer->start(1000);
+
     serverLink->connectToServer(kServerHost, kServerPort);
 }
 
-QWidget *MainWindow::createEvacuationBanner()
+void MainWindow::refreshConnBadge()
 {
-    // 대피 모드는 zone과 무관한 전 구역 상태라, 위험 배너보다 위쪽에 두어 어느 탭/구역을 보고 있든
-    // 항상 최우선으로 보이게 한다. 클릭하면 모니터링 탭으로 이동(해제 버튼이 거기 있으므로).
-    evacuationBanner = new QPushButton("🚨 대피 모드 발동 중 — 클릭 시 모니터링으로 이동", this);
-    evacuationBanner->setCursor(Qt::PointingHandCursor);
-    evacuationBanner->setStyleSheet(
-        "QPushButton { background-color:#ef4444; color:white; font-size:22px; font-weight:bold; "
-        "border:none; padding:20px 16px; text-align:center; }"
-        "QPushButton:hover { background-color:#dc2626; }");
-    evacuationBanner->setVisible(false);
-    connect(evacuationBanner, &QPushButton::clicked, this, [this]() {
-        switchTab(0);
-    });
-    return evacuationBanner;
+    if (!socketConnected) {
+        connBadge->setText("<span style='color:#f87171;'>●</span> 서버 연결 끊김");
+        return;
+    }
+    // 5초 이상 sensor 메시지가 안 오면 서버 내부가 멎은 것으로 판단 (sensor는 매초 고정 주기로 옴).
+    const bool stale = lastSensorMsgAt.isValid() && lastSensorMsgAt.msecsTo(QDateTime::currentDateTime()) > 5000;
+    if (stale) {
+        connBadge->setText("<span style='color:#fbbf24;'>●</span> 서버 응답 없음 (5초+)");
+        connBadge->setToolTip("TCP 연결은 살아있지만 서버로부터 센서 데이터가 5초 이상 오지 않고 있습니다.\n서버(server_main) 프로세스 상태를 확인해야 합니다.");
+    } else {
+        connBadge->setText("<span style='color:#34d399;'>●</span> 실시간 연결 중");
+        connBadge->setToolTip("");
+    }
 }
 
 QWidget *MainWindow::createDangerBanner()
@@ -582,9 +611,14 @@ void MainWindow::updateDangerIndicators()
     // 1) 위험 배너: 클릭하면 해당 구역 모니터링으로 이동, 해제되면 사라짐.
     dangerBannerZoneIndex = dangerZoneIndex;
     if (anyDanger) {
-        const QString &cause = zones[dangerZoneIndex].cause;
-        const QString situation = causeText(cause).isEmpty() ? "위험 상태 발생" : causeText(cause);
-        dangerBanner->setText(QString("🚨 %1 %2! (클릭 시 모니터링으로 이동)").arg(zones[dangerZoneIndex].name, situation));
+        const Zone &dz = zones[dangerZoneIndex];
+        const QString situation = causeText(dz.cause).isEmpty() ? "위험 상태 발생" : causeText(dz.cause);
+        // 수동 발령은 발령자만 아는 근거(육안 확인, 냄새 등)가 있을 수 있어, 자동 감지와 구분해서
+        // 발령자 이름을 같이 보여준다 — 다른 사람이 근거 없이 함부로 해제하면 안 되기 때문 (emergency-mode #17).
+        const QString sourceText = dz.dangerSource == "manual"
+            ? QString("수동 발령%1").arg(dz.admin.isEmpty() ? "" : QString(" (%1)").arg(dz.admin))
+            : "자동 감지";
+        dangerBanner->setText(QString("🚨 %1 %2 · %3 (클릭 시 모니터링으로 이동)").arg(dz.name, situation, sourceText));
         dangerBanner->setVisible(true);
     } else {
         dangerBanner->setVisible(false);
@@ -600,8 +634,3 @@ void MainWindow::updateDangerIndicators()
     }
 }
 
-void MainWindow::updateEvacuationBanner()
-{
-    if (evacuationBanner)
-        evacuationBanner->setVisible(evacuationActive);
-}

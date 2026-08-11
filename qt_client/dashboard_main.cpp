@@ -53,6 +53,18 @@ int main(int argc, char *argv[])
             QApplication::setFont(QFont(families.first()));
     }
 
+    // 다크 테마인데 QToolTip은 OS 기본(밝은 배경+검정 글씨)을 써서 안 보이던 문제 — 앱 전체에
+    // 한 번에 적용해서 setToolTip() 쓰는 곳마다 따로 안 고쳐도 되게 한다.
+    a.setStyleSheet(
+        "QToolTip {"
+        "  background-color: #232333;"
+        "  color: #f5f5fa;"
+        "  border: 1px solid #3a3550;"
+        "  padding: 6px 10px;"
+        "  border-radius: 6px;"
+        "  font-size: 13px;"
+        "}");
+
     // 지난번에 "자동 로그인"을 체크하고 로그인했으면 로그인 화면 자체를 건너뛴다.
     QSettings settings;
     if (settings.value("autoLogin", false).toBool())

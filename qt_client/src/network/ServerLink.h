@@ -50,17 +50,29 @@ signals:
     // cause: server/judgement.h Cause 네임스페이스 값(gas/smoke_visual/fire_confirmed 등). safe면 빈 문자열.
     // warnRemain: warning 상태일 때만 서버가 채워 보냄(무응답 자동 전환까지 남은 초). 그 외엔 -1.
     // flameVal: 불꽃센서(DFR0076) 전압(V). 클수록 강함.
-    // evacuationActive: 구버전 필드, 새 서버는 안 보냄(emergency-mode #13~18에서 정리 예정, 지금은 항상 false).
     // responseOk: 목표 대응이 실제 액추에이터에 반영됐는가. 비상 모드 버튼 활성/비활성 판단에 씀.
+    // clearSensor/clearVision/clearActuator: 해제 체크리스트 "시스템 확인" 3항목(서버 판정, emergency-mode #10).
+    // sensorOk: 가스/연기/불꽃(ADS1115) 값을 믿을 수 있는가(10초 이상 못 읽으면 false).
+    // dhtOk: 이번 틱에 온습도(DHT22)를 실제로 읽었는가(false=직전 값 재사용, emergency-mode #13).
+    // dangerSource/admin: 자동 감지("auto")인지 수동 발령("manual")인지, 수동이면 발령자 이름 (emergency-mode #17).
     void sensorReceived(const QString &zone, qint64 ts, double temp, double humidity,
                          double gasPpm, double smokePpm, double flameVal, const QString &state,
-                         const QString &cause, int warnRemain, bool evacuationActive, bool responseOk);
+                         const QString &cause, int warnRemain, bool responseOk,
+                         bool clearSensor, bool clearVision, bool clearActuator,
+                         bool sensorOk, bool dhtOk, const QString &dangerSource, const QString &admin);
+    // 채널별(1~4) 서버 영상 감지 생존 여부. zone과 무관한 전역값이라 sensorReceived와 분리해서 보낸다.
+    // (emergency-mode #14 — Qt 자체 영상 수신 여부와 조합해서 카메라 채널 점 4색 표시에 씀)
+    void visionStatusReceived(bool ch1, bool ch2, bool ch3, bool ch4);
     void ledMatrixStatusReceived(int status);
     // link: "ok"/"down" (STM보드(1) 연결 상태, fan/valve/siren 공통 — 한 보드에서 오는 값이라 개별 구분 불가).
     // fanSrc/valveSrc/sirenSrc: 각각 "auto"/"manual" (액추에이터별 자동/수동, 위험 시 셋 다 자동으로
     // 바뀐 뒤 관리자가 하나만 수동 조작하는 경우가 있어 개별로 옴). 서버가 아직 안 보내는 구버전이면 빈 문자열.
+    // targetFan/targetValve/targetSiren: 서버가 내리려 한 목표값. fan/valve/siren(STM이 실제 수용한 값)과
+    // 비교해서 어느 장치가 명령 미반영인지 판별한다 (emergency-mode #15).
+    // linkReason: STM 링크 끊김 사유 문구. 정상이거나 구버전 서버면 빈 문자열 (emergency-mode #16).
     void actuatorStatusReceived(int fan, int valve, int siren, const QString &link,
-                                 const QString &fanSrc, const QString &valveSrc, const QString &sirenSrc);
+                                 const QString &fanSrc, const QString &valveSrc, const QString &sirenSrc,
+                                 int targetFan, int targetValve, int targetSiren, const QString &linkReason);
 
     void controlResult(const QString &cmdId, const QString &zone, const QString &target,
                         const QString &result, const QString &reason);

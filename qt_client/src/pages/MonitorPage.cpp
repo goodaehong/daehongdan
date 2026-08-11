@@ -18,7 +18,8 @@ MonitorPage::MonitorPage(QWidget *parent)
     statusPanel = new StatusPanel(this);
     connect(statusPanel, &StatusPanel::demoStateRequested, this, &MonitorPage::demoStateRequested);
     connect(statusPanel, &StatusPanel::controlActionRequested, this, &MonitorPage::controlActionRequested);
-    connect(statusPanel, &StatusPanel::evacuationActionRequested, this, &MonitorPage::evacuationActionRequested);
+    connect(statusPanel, &StatusPanel::emergencyTriggerRequested, this, &MonitorPage::emergencyTriggerRequested);
+    connect(statusPanel, &StatusPanel::emergencyClearRequested, this, &MonitorPage::emergencyClearRequested);
     layout->addWidget(statusPanel);
 
     auto *grid = new QGridLayout;
@@ -81,9 +82,11 @@ void MonitorPage::setChannelAlarm(int channel, bool active)
 }
 
 void MonitorPage::setActuatorStatus(int fan, int valve, int siren, const QString &link,
-                                     const QString &fanSrc, const QString &valveSrc, const QString &sirenSrc)
+                                     const QString &fanSrc, const QString &valveSrc, const QString &sirenSrc,
+                                     int targetFan, int targetValve, int targetSiren, const QString &linkReason)
 {
-    statusPanel->setActuatorStatus(fan, valve, siren, link, fanSrc, valveSrc, sirenSrc);
+    statusPanel->setActuatorStatus(fan, valve, siren, link, fanSrc, valveSrc, sirenSrc,
+                                    targetFan, targetValve, targetSiren, linkReason);
 }
 
 void MonitorPage::showControlStatus(const QString &text, const QString &color)
@@ -94,6 +97,11 @@ void MonitorPage::showControlStatus(const QString &text, const QString &color)
 void MonitorPage::setActuatorRowStatus(const QString &target, const QString &text, const QString &color)
 {
     statusPanel->setActuatorRowStatus(target, text, color);
+}
+
+void MonitorPage::setCameraVisionStatus(bool ch1, bool ch2, bool ch3, bool ch4)
+{
+    statusPanel->setCameraVisionStatus(ch1, ch2, ch3, ch4);
 }
 
 void MonitorPage::showEnlargedView(int channel)

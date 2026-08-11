@@ -187,10 +187,19 @@ void ServerLink::handleLine(const QByteArray &line)
     } else if (type == "sensor") {
         // warnRemain은 warning 상태일 때만 서버가 채워 보냄. 없으면 -1로 "해당없음" 표시.
         const int warnRemain = obj.contains("warnRemain") ? obj.value("warnRemain").toInt() : -1;
-        // evacuation: 구버전 필드. 새 서버는 안 보내서 항상 false — emergency-mode #13~18에서 정리 예정.
-        const bool evacuationActive = obj.value("evacuation").toInt() != 0;
         // 필드 자체가 없는 구버전 서버는 true(정상)로 취급 — 없다고 경고를 띄우면 안 됨.
         const bool responseOk = obj.contains("responseOk") ? obj.value("responseOk").toBool() : true;
+        // clearCheck는 없으면 전부 false(=해제 불가) 취급 — 구버전 서버에서 체크리스트가 통과된 것처럼 보이면 안 됨.
+        const QJsonObject clearCheck = obj.value("clearCheck").toObject();
+        const bool clearSensor = clearCheck.value("sensor").toBool();
+        const bool clearVision = clearCheck.value("vision").toBool();
+        const bool clearActuator = clearCheck.value("actuator").toBool();
+        // 필드 자체가 없는 구버전 서버는 true(정상)로 취급.
+        const bool sensorOk = obj.contains("sensorOk") ? obj.value("sensorOk").toBool() : true;
+        const bool dhtOk = obj.contains("dhtOk") ? obj.value("dhtOk").toBool() : true;
+        // dangerSource 없으면(구버전 서버) "auto"로 취급 — 수동 발령이 아닌 게 안전한 기본값.
+        const QString dangerSource = obj.contains("dangerSource") ? obj.value("dangerSource").toString() : "auto";
+        const QString admin = obj.value("admin").toString();
         emit sensorReceived(obj.value("zone").toString(),
                              qint64(obj.value("ts").toDouble()),
                              obj.value("temp").toDouble(),
@@ -200,15 +209,32 @@ void ServerLink::handleLine(const QByteArray &line)
                              obj.value("flameVal").toDouble(),
                              obj.value("state").toString(),
                              obj.value("cause").toString(),
-                             warnRemain, evacuationActive, responseOk);
+                             warnRemain, responseOk,
+                             clearSensor, clearVision, clearActuator,
+                             sensorOk, dhtOk, dangerSource, admin);
+        // visionOk 없으면(구버전 서버) 4채널 다 true로 취급 — 없다고 오류 표시하면 안 됨.
+        const QJsonArray visionArr = obj.value("visionOk").toArray();
+        bool visionOk[4] = { true, true, true, true };
+        for (int i = 0; i < 4 && i < visionArr.size(); ++i)
+            visionOk[i] = visionArr.at(i).toBool();
+        emit visionStatusReceived(visionOk[0], visionOk[1], visionOk[2], visionOk[3]);
     } else if (type == "led_matrix_status") {
         emit ledMatrixStatusReceived(obj.value("status").toInt());
     } else if (type == "actuator_status") {
         // link/fanSrc/valveSrc/sirenSrc는 서버가 추가하기로 한 필드라 구버전 서버에선 없을 수 있음
         // -> 없으면 빈 문자열(=미상).
-        emit actuatorStatusReceived(obj.value("fan").toInt(), obj.value("valve").toInt(), obj.value("siren").toInt(),
+        const int fan = obj.value("fan").toInt();
+        const int valve = obj.value("valve").toInt();
+        const int siren = obj.value("siren").toInt();
+        // target 자체가 없는 구버전 서버는 현재값과 같다고 취급 — 미반영 경고가 잘못 뜨면 안 됨.
+        const QJsonObject target = obj.value("target").toObject();
+        const int targetFan = target.contains("fan") ? target.value("fan").toInt() : fan;
+        const int targetValve = target.contains("valve") ? target.value("valve").toInt() : valve;
+        const int targetSiren = target.contains("siren") ? target.value("siren").toInt() : siren;
+        emit actuatorStatusReceived(fan, valve, siren,
                                      obj.value("link").toString(), obj.value("fanSrc").toString(),
-                                     obj.value("valveSrc").toString(), obj.value("sirenSrc").toString());
+                                     obj.value("valveSrc").toString(), obj.value("sirenSrc").toString(),
+                                     targetFan, targetValve, targetSiren, obj.value("linkReason").toString());
     } else if (type == "control_ack") {
         const QString cmdId = obj.value("cmdId").toString();
         QTimer *timer = pendingCommands.take(cmdId);

@@ -42,7 +42,6 @@ private:
     QWidget *createTopBar();
     QWidget *createSubTabBar();
     QWidget *createDangerBanner();
-    QWidget *createEvacuationBanner();
     QWidget *createWarningAlertArea();
     void positionWarningAlert(bool animate);
 
@@ -53,8 +52,9 @@ private:
     void showWarningAlert(const QString &zoneName, const QString &zoneId, const QString &cause, int warnRemain);
     // 위험 배너 + 화면 가장자리 글로우 + 모니터링 탭 강조. zones 상태가 바뀌거나 탭 전환할 때마다 호출.
     void updateDangerIndicators();
-    // 대피 모드는 zone과 무관한 전 구역 공통 상태라 어느 탭/구역을 보고 있든 항상 보이는 배너로 표시.
-    void updateEvacuationBanner();
+    // 소켓 연결 여부 + sensor 메시지 수신 흐름(5초 이상 끊기면 정지로 판단)을 합쳐 connBadge 3단계로 표시.
+    // (emergency-mode #19 — TCP는 붙어있어도 서버 내부가 멎으면 "연결됨"으로 잘못 보이는 문제 보완)
+    void refreshConnBadge();
 
     QStackedWidget *stack;
     QList<QPushButton *> tabButtons;
@@ -66,15 +66,17 @@ private:
     QLabel *topStatusLabel;
     // 서버 소켓 실제 연결 상태를 그대로 반영하는 배지 (ServerLink::connectionStateChanged로 갱신).
     QLabel *connBadge;
+    // TCP는 붙어있어도 서버 내부(센서 스레드)가 멎으면 sensor 메시지가 끊긴다 — 소켓 연결 여부만으론
+    // 이 상태를 못 잡으므로 별도로 감시한다 (emergency-mode #19, 서버 추가 작업 없음, 순수 Qt 감시).
+    QTimer *sensorWatchdogTimer = nullptr;
+    QDateTime lastSensorMsgAt;
+    bool socketConnected = false;
 
     QWidget *centralArea = nullptr;       // 루트 레이아웃을 담는 위젯 (setCentralWidget 대상)
     QPushButton *dangerBanner = nullptr;  // 위험 구역 있으면 상단에 표시, 클릭 시 해당 구역 모니터링으로 이동
     int dangerBannerZoneIndex = -1;
     DangerGlowOverlay *dangerGlow = nullptr; // 가장자리 은은한 빨간 글로우(숨쉬듯 펄스)
 
-    // 서버 sensor 메시지의 evacuation 필드로 갱신되는 전 구역 공통 상태(zone별 아님).
-    QPushButton *evacuationBanner = nullptr;
-    bool evacuationActive = false;
     QWidget *warningAlertArea = nullptr;
     QVBoxLayout *warningAlertLayout = nullptr;
 

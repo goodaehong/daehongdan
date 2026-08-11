@@ -331,16 +331,21 @@ void EventLogPage::loadEntriesFromServer(const QJsonArray &rows)
         const QString zoneCode = row.value("zone").toString();
         entry.zone = zoneCode.isEmpty() ? zoneCode : zoneCode + "공장";
 
+        const QString category = row.value("category").toString();
         const QString causePhrase = causeText(row.value("cause").toString());
         if (!causePhrase.isEmpty()) {
-            entry.detection = causePhrase;
+            // emergency/emergency_reapply는 원인은 자동 위험과 같은 값이라 원인 문구만으론 구분이 안 됨 —
+            // 수동 조작이었다는 걸 라벨로 명시한다 (emergency-mode #18). 실제 자동/수동 구분은 "관리자" 칸도 참고.
+            entry.detection = category == "emergency" ? "[비상 전환] " + causePhrase
+                             : category == "emergency_reapply" ? "[대응 재실행] " + causePhrase
+                             : causePhrase;
         } else {
             // cause가 없는 이벤트(수동제어/해제 등)는 category 코드를 한글 문구로 변환.
-            const QString category = row.value("category").toString();
             entry.detection = category == "resolve" ? "위험 해제"
                              : category == "manual_control" ? "관리자 수동 제어"
                              : category == "warning" ? "경고 상태 감지"
                              : category == "danger" ? "위험 상태 감지"
+                             : category == "emergency_clear" ? "비상 모드 해제"
                              : category.isEmpty() ? "-" : category;
         }
         entry.response = row.value("response").toString();

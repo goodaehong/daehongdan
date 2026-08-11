@@ -7,7 +7,6 @@
 #include <QFont>
 #include <QFontMetrics>
 #include <QMouseEvent>
-#include <QToolTip>
 #include <algorithm>
 #include <numeric>
 
@@ -25,10 +24,6 @@ GasGraphWidget::GasGraphWidget(QWidget *parent)
 {
     setMinimumHeight(220);
     setMouseTracking(true); // 클릭 없이 움직이기만 해도 mouseMoveEvent가 오도록
-    // 기본 QToolTip 배색이 검은 글씨라 배경도 어두운 이 화면에서는 거의 안 보였음 -> 직접 지정.
-    setStyleSheet(
-        "QToolTip { color:#f5f5fa; background-color:#1e1e2c; border:1px solid #3a3a4a; "
-        "padding:6px 8px; font-size:13px; }");
 }
 
 void GasGraphWidget::setData(const QVector<double> &values, const QStringList &xLabels)
@@ -305,6 +300,48 @@ void GasGraphWidget::paintEvent(QPaintEvent *)
             painter.setBrush(maxColor);
             painter.drawEllipse(hoverMax, 5, 5);
         }
+
+        // 값 박스도 OS 툴팁(QToolTip) 대신 직접 그린다. QToolTip::showText()를 마우스 이동마다
+        // 계속 호출하면 마우스를 빠르게 움직였을 때 위치 갱신이 못 따라와서 깨져 보이는 문제가 있었음
+        // — paintEvent 안에서 그리면 다른 그래프 요소들처럼 항상 정상적으로 리페인트된다.
+        const bool hasPerPointLabels = m_xLabels.size() == m_values.size();
+        QStringList tipLines;
+        if (hasPerPointLabels)
+            tipLines << m_xLabels[m_hoverIndex];
+        tipLines << QString("평균 %1%2").arg(m_values[m_hoverIndex], 0, 'f', 1).arg(m_unit);
+        if (!m_maxValues.isEmpty())
+            tipLines << QString("최댓값 %1%2").arg(m_maxValues[m_hoverIndex], 0, 'f', 1).arg(m_unit);
+
+        QFont tipFont = painter.font();
+        tipFont.setPixelSize(13);
+        painter.setFont(tipFont);
+        const QFontMetrics tipFm(tipFont);
+        int tipW = 0;
+        for (const QString &line : tipLines)
+            tipW = std::max(tipW, tipFm.horizontalAdvance(line));
+        tipW += 16;
+        const int tipLineH = tipFm.height() + 4;
+        const int tipH = tipLineH * tipLines.size() + 8;
+
+        // 커서(포인트) 오른쪽 위로 띄우되, 위젯 경계를 넘어가면 반대쪽으로 붙인다.
+        const QPointF anchor = pts[m_hoverIndex];
+        qreal tipX = anchor.x() + 12;
+        qreal tipY = anchor.y() - tipH - 12;
+        if (tipX + tipW > width() - 4)
+            tipX = anchor.x() - tipW - 12;
+        if (tipY < 4)
+            tipY = anchor.y() + 12;
+        const QRectF tipRect(tipX, tipY, tipW, tipH);
+
+        painter.setPen(QPen(QColor("#3a3a4a"), 1));
+        painter.setBrush(QColor(30, 30, 44, 235));
+        painter.drawRoundedRect(tipRect, 6, 6);
+
+        painter.setPen(QColor("#f5f5fa"));
+        for (int i = 0; i < tipLines.size(); ++i) {
+            painter.drawText(QRectF(tipRect.left() + 8, tipRect.top() + 4 + i * tipLineH, tipW - 16, tipLineH),
+                              Qt::AlignVCenter | Qt::AlignLeft, tipLines[i]);
+        }
     }
 }
 
@@ -313,7 +350,10 @@ void GasGraphWidget::mouseMoveEvent(QMouseEvent *event)
     QWidget::mouseMoveEvent(event);
 
     if (m_values.size() < 2) {
-        QToolTip::hideText();
+        if (m_hoverIndex != -1) {
+            m_hoverIndex = -1;
+            update();
+        }
         return;
     }
 
@@ -324,7 +364,6 @@ void GasGraphWidget::mouseMoveEvent(QMouseEvent *event)
             m_hoverIndex = -1;
             update();
         }
-        QToolTip::hideText();
         return;
     }
 
@@ -334,23 +373,8 @@ void GasGraphWidget::mouseMoveEvent(QMouseEvent *event)
 
     if (index != m_hoverIndex) {
         m_hoverIndex = index;
-        update(); // 강조 마커/가이드라인을 다시 그리기 위해 리페인트
+        update(); // 강조 마커/가이드라인/값 박스를 paintEvent에서 다시 그림
     }
-
-    // 포인트별 라벨을 다 받은 경우에만 정확한 시각을 보여준다(2개만 받은 옛 호출부는 값만 표시).
-    const bool hasPerPointLabels = m_xLabels.size() == m_values.size();
-    QString text = hasPerPointLabels ? m_xLabels[index] + "\n" : QString();
-    text += QString("평균 %1%2").arg(m_values[index], 0, 'f', 1).arg(m_unit);
-    int lineCount = hasPerPointLabels ? 2 : 1;
-    if (!m_maxValues.isEmpty()) {
-        text += QString("\n최댓값 %1%2").arg(m_maxValues[index], 0, 'f', 1).arg(m_unit);
-        ++lineCount;
-    }
-
-    // 커서 오른쪽 아래 대신 오른쪽 위로 뜨도록, 툴팁 예상 높이만큼 위로 밀어 올린다.
-    const int estimatedHeight = lineCount * 18 + 16;
-    const QPoint tooltipPos = event->globalPosition().toPoint() + QPoint(16, -(estimatedHeight + 10));
-    QToolTip::showText(tooltipPos, text, this);
 }
 
 void GasGraphWidget::leaveEvent(QEvent *event)
@@ -359,6 +383,5 @@ void GasGraphWidget::leaveEvent(QEvent *event)
         m_hoverIndex = -1;
         update();
     }
-    QToolTip::hideText();
     QWidget::leaveEvent(event);
 }
