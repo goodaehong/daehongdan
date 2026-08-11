@@ -345,11 +345,11 @@ int main() {
     }
     if (!g_db.open(DB_PATH))
         std::cerr << "[DB] 초기화 실패 — DB 없이 계속 진행\n";
-    if (!Actuator_Init("/dev/ttyACM0"))          // STM 액추에이터 보드 (USB)
+    if (!Actuator_Init("/dev/stm_actuator))          // STM 액추에이터 보드 (USB) (심볼릭링크)
         std::cerr << "[액추에이터] 초기화 실패 — 계속 진행\n";
     Actuator_Apply(responseForSafe(), "자동:초기화");   // 재시작 후 상태를 알 수 없으므로 평상으로 맞춤 
     QtLink_SetTarget(responseForSafe());                                              
-    if (!StmDisplay_Open("/dev/stm_display"))        // STM 전광판 보드 (GPIO UART)
+    if (!StmDisplay_Open("/dev/stm_display"))        // STM 전광판 보드 (GPIO UART) (심볼릭링크)
         std::cerr << "[전광판] 초기화 실패 — 계속 진행\n";    
     StmDisplay_SendClear();   // 이전 실행이 대피 화면에서 끝났을 수 있으므로 평상 복귀                
 
