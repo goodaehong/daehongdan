@@ -187,27 +187,45 @@ StatusPanel::StatusPanel(QWidget *parent)
         if (trendOut) *trendOut = trendLabel;
     };
 
+    // 가스/불꽃/연기 세 센서 줄을 눈으로 구분하기 쉽게 얇은 구분선을 사이사이에 넣는다.
+    auto addSensorDivider = [&](QVBoxLayout *cardLayout, QWidget *cardWidget) {
+        auto *divider = new QFrame(cardWidget);
+        divider->setFrameShape(QFrame::HLine);
+        divider->setFixedHeight(1);
+        divider->setStyleSheet(QString("background-color:%1; border:none;").arg(kCardBorder));
+        cardLayout->addWidget(divider);
+    };
+
     QVBoxLayout *sensorLayout = makeCard("위험 감지 센서");
     QWidget *sensorCardWidget = sensorLayout->parentWidget();
     addGaugeRow(sensorLayout, sensorCardWidget, "가스 농도", "임계 2000ppm", &gasValueLabel, &gasGaugeBar, &gasTrendLabel);
+    addSensorDivider(sensorLayout, sensorCardWidget);
     addGaugeRow(sensorLayout, sensorCardWidget, "불꽃 센서", "임계 1.0V", &flameValueLabel, &flameGaugeBar, &flameTrendLabel);
+    addSensorDivider(sensorLayout, sensorCardWidget);
 
     auto *smokeRow = new QHBoxLayout;
-    auto *smokeName = new QLabel("연기 감지", sensorCardWidget);
+    auto *smokeName = new QLabel("연기 농도", sensorCardWidget);
     smokeName->setStyleSheet(QString("color:%1; font-size:14px; border:none;").arg(kTextSecondary));
-    smokeBadgeLabel = new QLabel(sensorCardWidget);
+    smokeValueLabel = new QLabel(sensorCardWidget);
     smokeRow->addWidget(smokeName);
     smokeRow->addStretch();
-    smokeRow->addWidget(smokeBadgeLabel);
+    smokeRow->addWidget(smokeValueLabel);
     sensorLayout->addLayout(smokeRow);
 
     smokeGaugeBar = new GaugeBar(sensorCardWidget);
     sensorLayout->addWidget(smokeGaugeBar);
 
+    // 가스/불꽃과 똑같이 하단 줄 오른쪽에 임계값을 보여준다 — 이전엔 여기 없어서 위험 판단 기준을
+    // 알기 어려웠다. 왼쪽엔 기존 "최근 N회 판정" 이력을 그대로 유지.
+    auto *smokeBottomRow = new QHBoxLayout;
     smokeHistoryLabel = new QLabel(sensorCardWidget);
     smokeHistoryLabel->setStyleSheet(QString("color:%1; font-size:11px; border:none;").arg(kTextSecondary));
-    smokeHistoryLabel->setAlignment(Qt::AlignRight);
-    sensorLayout->addWidget(smokeHistoryLabel);
+    auto *smokeThresholdLabel = new QLabel("임계 150ppm", sensorCardWidget);
+    smokeThresholdLabel->setStyleSheet(QString("color:%1; font-size:11px; border:none;").arg(kTextSecondary));
+    smokeBottomRow->addWidget(smokeHistoryLabel);
+    smokeBottomRow->addStretch();
+    smokeBottomRow->addWidget(smokeThresholdLabel);
+    sensorLayout->addLayout(smokeBottomRow);
 
     QVBoxLayout *envLayout = makeCard("환경");
     QWidget *envCardWidget = envLayout->parentWidget();
@@ -482,7 +500,7 @@ void StatusPanel::updateZone(const Zone &zone)
         smokeDetected = zone.state == ZoneState::Danger;
     }
 
-    gasValueLabel->setText(QString::number(gasVal, 'f', 0) + " ppm");
+    gasValueLabel->setText(QString::number(gasVal, 'f', 2) + " ppm");
     const QColor gasColor = gasVal >= kGasDanger ? QColor(kDangerColor)
                              : gasVal >= kGasWarn ? QColor(kWarnColor) : QColor(kSafeColor);
     gasGaugeBar->setRatio(gasVal / kGasScale, gasColor);
@@ -499,8 +517,10 @@ void StatusPanel::updateZone(const Zone &zone)
     flameTrendLabel->setText(flameTrend.text);
     flameTrendLabel->setStyleSheet(QString("font-size:11px; border:none; color:%1;").arg(flameTrend.color));
 
-    smokeBadgeLabel->setText(smokeDetected ? "감지됨" : "미검지");
-    smokeBadgeLabel->setStyleSheet(pillStyle(smokeDetected ? kDangerColor : kSafeColor, true));
+    // 그래프 화면처럼 감지 여부 배지 대신 실제 ppm 수치를 그대로 보여준다.
+    smokeValueLabel->setText(QString::number(smokeVal, 'f', 2) + " ppm");
+    smokeValueLabel->setStyleSheet(QString("color:%1; font-size:15px; font-weight:bold; border:none;")
+        .arg(smokeDetected ? kDangerColor : kTextPrimary));
     smokeGaugeBar->setRatio(smokeVal / kSmokeScale, smokeDetected ? QColor(kDangerColor) : QColor(kSafeColor));
     int smokeDetectedCount = 0;
     for (bool b : zone.smokeDetectHistory)
