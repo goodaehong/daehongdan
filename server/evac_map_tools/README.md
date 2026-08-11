@@ -18,7 +18,7 @@ STM32나 라즈베리파이에서 돌리는 게 아니라, **이 데이터를 �
 
 > 판정 규칙: **흰색도 아니고 주황도 아니고 연두도 아니면 무조건 장애물.** 벽 색을 하나하나 등록할 필요 없음.
 
-원본 이미지에서 마커 색이 살짝 다르면 `image_to_bitmap.cpp` 상단의 `kWhiteLower/Upper`, `kDisplayMarker`, `kExitMarker` 값을 조정해야 함 (`probe_color.exe`로 실제 픽셀 색 뽑아서 확인 가능).
+원본 이미지에서 마커 색이 살짝 다르면 `image_to_bitmap.cpp` 상단의 `kWhiteLower/Upper`, `kDisplayMarker`, `kExitMarker` 값을 조정해야 함 (`probe_color`로 실제 픽셀 색 뽑아서 확인 가능. Windows는 `probe_color.exe`, 리눅스는 `./probe_color`).
 
 ## 2. 빌드
 
@@ -44,9 +44,16 @@ g++ -std=c++17 probe_color.cpp -o probe_color `pkg-config --cflags --libs opencv
 
 ## 3. 실행
 
+**Windows:**
 ```
 image_to_bitmap.exe <평면도 이미지 경로>
 ```
+
+**리눅스:**
+```
+./image_to_bitmap <평면도 이미지 경로>
+```
+(리눅스는 `.exe` 확장자 없고, 현재 폴더 실행파일은 `./`를 꼭 붙여야 함)
 
 같은 폴더에 3개 파일이 생성됨:
 
@@ -92,6 +99,6 @@ const uint8_t EvacExits[][2] = {      // 출구 위치들
 
 전광판 위치가 바뀌거나, 출구가 추가되거나, 평면도가 바뀌면:
 1. 원본 이미지에 마커 다시 찍기
-2. `image_to_bitmap.exe <이미지>` 재실행
+2. `image_to_bitmap.exe <이미지>` (Windows) 또는 `./image_to_bitmap <이미지>` (리눅스) 재실행
 3. `evac_preview.png`로 검증
 4. `evac_bitmap.c` 내용을 `main.c`에 다시 붙여넣기
