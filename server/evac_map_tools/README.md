@@ -29,9 +29,17 @@ cmake --build build --config Release
 ```
 결과물: `build/Release/image_to_bitmap.exe`, `build/Release/probe_color.exe`
 
-**라즈베리파이 (OpenCV 이미 설치돼있음):**
+**리눅스(서버/라즈베리파이 등) - cmake 안 씀, g++로 바로 컴파일:**
+
+OpenCV가 없으면 먼저 설치:
+```
+sudo apt install -y libopencv-dev build-essential pkg-config
+```
+
+그 다음 컴파일 (cmake/vcpkg 관련 명령어는 Windows 전용이니 리눅스에서는 절대 쓰지 말 것):
 ```
 g++ -std=c++17 image_to_bitmap.cpp -o image_to_bitmap `pkg-config --cflags --libs opencv4`
+g++ -std=c++17 probe_color.cpp -o probe_color `pkg-config --cflags --libs opencv4`
 ```
 
 ## 3. 실행
