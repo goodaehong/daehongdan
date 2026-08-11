@@ -73,7 +73,7 @@ private:
     QLabel *flameValueLabel;
     GaugeBar *flameGaugeBar;
     QLabel *flameTrendLabel;
-    QLabel *smokeBadgeLabel;
+    QLabel *smokeValueLabel;
     GaugeBar *smokeGaugeBar;
     QLabel *smokeHistoryLabel;
 
