@@ -23,6 +23,7 @@
 #include "alarm_state.h"
 #include "qt_link.h"
 #include "db/Database.h"
+#include "audio/speaker_alert.h"   
 
 // 4채널 프레임 공유 저장소. 채널별 mutex로 워커/센서 스레드 간 경합 방지
 struct FrameStore {
@@ -154,6 +155,7 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
             QtLink_SetTarget(r);                       // responseOk 비교 기준 갱신
             QtLink_SendActuator(link, Actuator_GetState());
             StmDisplay_SendAlert(o.j.cause, 1);
+             SpeakerAlert_Start();   // 대피 안내 음성 (사이렌은 STM 부저로 별개)    
 
             std::string snap = saveSnapshot(store, detCh, "A", now);
             g_db.insertEvent(now, "A", "danger", o.j.state, o.j.cause,
@@ -171,6 +173,7 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
                 QtLink_SetTarget(responseForSafe());
                 QtLink_SendActuator(link, Actuator_GetState());
                 StmDisplay_SendClear();
+                SpeakerAlert_Stop(); 
             }                                                              
             const char* resp = o.wasDanger ? "위험 해제" : "경고 해제";     
 
@@ -189,6 +192,7 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
             QtLink_SetTarget(r);   
             QtLink_SendActuator(link, Actuator_GetState());
             StmDisplay_SendAlert(o.j.cause, 1);
+            SpeakerAlert_Start();
 
             std::string snap = saveSnapshot(store, detCh, "A", now);
             // 재실행은 상태가 안 바뀌는 조치라 category를 나눈다 (전환 횟수 집계에 섞이면 안 됨) 
@@ -345,13 +349,14 @@ int main() {
     }
     if (!g_db.open(DB_PATH))
         std::cerr << "[DB] 초기화 실패 — DB 없이 계속 진행\n";
-    if (!Actuator_Init("/dev/stm_actuator))          // STM 액추에이터 보드 (USB) (심볼릭링크)
+    if (!Actuator_Init("/dev/stm_actuator"))          // STM 액추에이터 보드 (USB) (심볼릭링크)
         std::cerr << "[액추에이터] 초기화 실패 — 계속 진행\n";
     Actuator_Apply(responseForSafe(), "자동:초기화");   // 재시작 후 상태를 알 수 없으므로 평상으로 맞춤 
     QtLink_SetTarget(responseForSafe());                                              
     if (!StmDisplay_Open("/dev/stm_display"))        // STM 전광판 보드 (GPIO UART) (심볼릭링크)
         std::cerr << "[전광판] 초기화 실패 — 계속 진행\n";    
     StmDisplay_SendClear();   // 이전 실행이 대피 화면에서 끝났을 수 있으므로 평상 복귀                
+    SpeakerAlert_Stop();      // 이전 실행이 재생 중 종료됐을 수 있으므로 정리   
 
     AlarmState alarm;
     FrameStore store;
