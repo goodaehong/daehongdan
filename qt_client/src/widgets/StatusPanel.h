@@ -38,9 +38,6 @@ public:
     // 특정 액추에이터(fan/valve/siren) 한 줄만 "처리 중.../응답 없음" 등으로 잠깐 덮어쓴다.
     // 다음 실제 actuator_status가 오면(성공 시 명령 직후 자동으로 옴) 정상 값으로 되돌아간다.
     void setActuatorRowStatus(const QString &target, const QString &text, const QString &color);
-    // 서버 sensor 메시지의 evacuation 필드 반영. 전 구역 공통 상태라 zone 전환과 무관하게 항상 최신값.
-    // 버튼 문구를 "대피 모드 발동"/"대피 모드 해제"로 전환한다.
-    void setEvacuationActive(bool active);
 
 signals:
     void demoStateRequested(ZoneState state);
@@ -58,6 +55,8 @@ private:
     // 대피 모드는 전 구역에 영향을 주고 되돌리기 어려워 일반 확인 1번으로는 부족 -> 2단계 확인.
     bool showEvacuationConfirmDialog();
     void updateModeLabel(QLabel *label, const QString &source);
+    // 상태별 버튼 활성/비활성/라벨 갱신 (emergency-mode #6~7). updateZone()에서 매번 호출.
+    void updateEmergencyButtons(ZoneState state, bool responseOk);
 
     QLabel *heroTitleLabel;
     QLabel *heroCircle;
@@ -105,9 +104,9 @@ private:
     QLabel *commandStatusLabel = nullptr;
     QTimer *statusClearTimer = nullptr;
 
-    QPushButton *evacuationButton = nullptr;
-    bool evacuationActive = false;
-
+    QPushButton *emergencyTriggerButton = nullptr;
+    QPushButton *emergencyClearButton = nullptr;
+    
     QList<QPushButton *> demoStateButtons;
 };
 

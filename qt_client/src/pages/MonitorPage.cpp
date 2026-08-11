@@ -96,11 +96,6 @@ void MonitorPage::setActuatorRowStatus(const QString &target, const QString &tex
     statusPanel->setActuatorRowStatus(target, text, color);
 }
 
-void MonitorPage::setEvacuationActive(bool active)
-{
-    statusPanel->setEvacuationActive(active);
-}
-
 void MonitorPage::showEnlargedView(int channel)
 {
     if (mediaMtxHost.isEmpty())

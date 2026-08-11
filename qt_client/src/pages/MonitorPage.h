@@ -34,8 +34,6 @@ public:
     void showControlStatus(const QString &text, const QString &color);
     // 특정 액추에이터(fan/valve/siren) 한 줄만 "처리 중.../응답 없음" 등으로 잠깐 덮어쓴다.
     void setActuatorRowStatus(const QString &target, const QString &text, const QString &color);
-    // 서버 sensor 메시지의 evacuation 필드를 StatusPanel 버튼 문구("발동"/"해제")에 반영.
-    void setEvacuationActive(bool active);
 
 signals:
     void demoStateRequested(ZoneState state);

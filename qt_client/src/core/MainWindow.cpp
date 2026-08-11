@@ -149,11 +149,6 @@ MainWindow::MainWindow(QWidget *parent)
             [this](const QString &zoneId, qint64, double temp, double humidity,
                    double gasPpm, double smokePpm, double flameVal, const QString &state,
                    const QString &cause, int warnRemain, bool evacuationActive, bool responseOk) {
-                if (this->evacuationActive != evacuationActive) {
-                    this->evacuationActive = evacuationActive;
-                    updateEvacuationBanner();
-                    monitorPage->setEvacuationActive(evacuationActive);
-                }
                 for (Zone &zone : zones) {
                     if (!zone.name.startsWith(zoneId))
                         continue;

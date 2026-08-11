@@ -358,23 +358,30 @@ StatusPanel::StatusPanel(QWidget *parent)
     addControlRow("밸브", { "잠금", "개방" }, { "close", "open" }, "valve", valveCtrlButtons);
     addControlRow("사이렌", { "OFF", "ON" }, { "off", "on" }, "siren", sirenCtrlButtons);
 
-    evacuationButton = new QPushButton(controlCardWidget);
-    evacuationButton->setCursor(Qt::PointingHandCursor);
-    evacuationButton->setFixedHeight(36);
-    connect(evacuationButton, &QPushButton::clicked, this, [this]() {
-        if (!evacuationActive) {
-            // 대피 모드는 전 구역에 영향을 주고 되돌리기 어려운 조작이라 1번이 아닌 2단계로 확인한다.
-            if (showConfirmDialog("대피 모드 발동") && showEvacuationConfirmDialog())
-                emit evacuationActionRequested(true);
-        } else {
-            // 해제는 평상으로 되돌리는 조작이라 일반 확인 1단계만 거친다.
-            if (showConfirmDialog("대피 모드 해제"))
-                emit evacuationActionRequested(false);
-        }
+    // 비상 모드 전환/해제는 교체가 아니라 2개 병존 — 상태에 따라 활성/비활성/숨김만 바뀐다 (emergency-mode #6).
+    emergencyTriggerButton = new QPushButton("🚨 비상 모드 전환", controlCardWidget);
+    emergencyTriggerButton->setCursor(Qt::PointingHandCursor);
+    emergencyTriggerButton->setFixedHeight(36);
+    connect(emergencyTriggerButton, &QPushButton::clicked, this, [this]() {
+        // 신규 전환은 전 구역에 영향을 주고 되돌리기 어려운 조작이라 2단계로 확인한다.
+        // (대응 재실행도 지금은 같은 확인창을 씀 — 원인 선택 모달 없이 임시로 동작)
+        if (showConfirmDialog("비상 모드 전환") && showEvacuationConfirmDialog())
+            emit evacuationActionRequested(true);
     });
+
+    emergencyClearButton = new QPushButton("비상 모드 해제", controlCardWidget);
+    emergencyClearButton->setCursor(Qt::PointingHandCursor);
+    emergencyClearButton->setFixedHeight(36);
+    connect(emergencyClearButton, &QPushButton::clicked, this, [this]() {
+        // 해제는 체크리스트 모달(emergency-mode #10~11)에서 확인 후 요청 예정. 지금은 임시로 일반 확인만.
+        if (showConfirmDialog("비상 모드 해제"))
+            emit evacuationActionRequested(false);
+    });
+
     controlLayout->addSpacing(2);
-    controlLayout->addWidget(evacuationButton);
-    setEvacuationActive(false); // 서버 응답 오기 전 초기 표시
+    controlLayout->addWidget(emergencyTriggerButton);
+    controlLayout->addWidget(emergencyClearButton);
+    updateEmergencyButtons(ZoneState::Safe, true); // 서버 응답 오기 전 초기 표시
 
     setActuatorStatus(-1, -1, -1, "", "", "", ""); // 서버 응답 오기 전 초기 표시
 
@@ -448,6 +455,8 @@ void StatusPanel::setCameraChannelStatus(int channel, bool connected)
 
 void StatusPanel::updateZone(const Zone &zone)
 {
+    updateEmergencyButtons(zone.state, zone.responseOk);   // emergency-mode #6~7
+
     const QString color = colorForState(zone.state);
 
     heroTitleLabel->setText(zone.name + " 종합상태");
@@ -626,19 +635,32 @@ void StatusPanel::setActuatorRowStatus(const QString &target, const QString &tex
     label->setStyleSheet(pillStyle(color, true));
 }
 
-void StatusPanel::setEvacuationActive(bool active)
+// 상태별 버튼 표(emergency-mode #6~7): 정상/경고=전환 활성·해제 숨김,
+// 위험·대응중=전환 비활성·해제 활성, 위험·대응실패=전환 활성(주황,"⟳ 대응 재실행")·해제 활성.
+void StatusPanel::updateEmergencyButtons(ZoneState state, bool responseOk)
 {
-    evacuationActive = active;
-    if (!evacuationButton)
+    if (!emergencyTriggerButton || !emergencyClearButton)
         return;
-    if (active) {
-        evacuationButton->setText("대피 모드 해제");
-        evacuationButton->setStyleSheet(
-            "QPushButton { background-color:#f59e0b; color:#241c00; border:none; border-radius:6px; font-size:13px; font-weight:bold; }"
-            "QPushButton:hover { background-color:#d97706; }");
+
+    if (state == ZoneState::Danger) {
+        emergencyClearButton->setVisible(true);
+        if (responseOk) {
+            emergencyTriggerButton->setEnabled(false);
+            emergencyTriggerButton->setText("🚨 비상 모드 전환");
+            emergencyTriggerButton->setStyleSheet(
+                "QPushButton { background-color:#3a3550; color:#8d87a0; border:none; border-radius:6px; font-size:13px; font-weight:bold; }");
+        } else {
+            emergencyTriggerButton->setEnabled(true);
+            emergencyTriggerButton->setText("⟳ 대응 재실행");
+            emergencyTriggerButton->setStyleSheet(
+                "QPushButton { background-color:#f59e0b; color:#241c00; border:none; border-radius:6px; font-size:13px; font-weight:bold; }"
+                "QPushButton:hover { background-color:#d97706; }");
+        }
     } else {
-        evacuationButton->setText("대피 모드 발동");
-        evacuationButton->setStyleSheet(
+        emergencyClearButton->setVisible(false);
+        emergencyTriggerButton->setEnabled(true);
+        emergencyTriggerButton->setText("🚨 비상 모드 전환");
+        emergencyTriggerButton->setStyleSheet(
             "QPushButton { background-color:#ef4444; color:white; border:none; border-radius:6px; font-size:13px; font-weight:bold; }"
             "QPushButton:hover { background-color:#dc2626; }");
     }
