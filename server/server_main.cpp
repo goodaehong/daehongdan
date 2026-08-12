@@ -298,32 +298,39 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
                 QtLink_SendPerson(link, ch, frame.cols, frame.rows, persons);
             }
 
-            // ── 화재 박스 전송 ──
-            if (snap.boxIsFresh) {
-                bool hasFire = false;
+            // ── 화재 + 연기 박스 전송 ──                                 
+            if (snap.boxIsFresh || ssnap.boxIsFresh) {
                 std::vector<DetBox> boxes;
-                for (const auto& b : snap.detection.boxes) {
-                    if (b.type == DetectionType::FIRE) hasFire = true;
-                    boxes.push_back({ b.box.x, b.box.y, b.box.width, b.box.height,
-                                      b.type == DetectionType::FIRE ? "FIRE" : "SMOKE",
-                                      (float)b.score });
+                if (snap.boxIsFresh) {
+                    bool hasFire = false;
+                    for (const auto& b : snap.detection.boxes) {
+                        if (b.type == DetectionType::FIRE) hasFire = true;
+                        boxes.push_back({ b.box.x, b.box.y, b.box.width, b.box.height,
+                                          b.type == DetectionType::FIRE ? "FIRE" : "SMOKE",
+                                          (float)b.score });
+                    }
+                    // 화재 상태는 화재 결과가 왔을 때만 갱신. 연기 결과에 같이 지우면
+                    // 감지 중인 화재가 연기 추론 주기(1초)마다 꺼진다
+                    detState[ch].fire = hasFire && snap.alarm.alarmActive;
+
+                    bool nowFire = detState[ch].fire;   // 화재 로그: 확정/해제 순간만
+                    if (nowFire && !prevFire)
+                        std::cout << "[cam" << ch+1 << "] 화재 감지 (알람 확정)\n";
+                    else if (!nowFire && prevFire)
+                        std::cout << "[cam" << ch+1 << "] 화재 해제\n";
+                    prevFire = nowFire;
                 }
-                // TODO: 연기(NCNN) 박스도 여기 boxes에 push_back (cls="SMOKE")
-
-                detState[ch].fire = hasFire && snap.alarm.alarmActive;
-
-                bool nowFire = detState[ch].fire;   // 화재 로그: 확정/해제 순간만
-                if (nowFire && !prevFire)
-                    std::cout << "[cam" << ch+1 << "] 화재 감지 (알람 확정)\n";
-                else if (!nowFire && prevFire)
-                    std::cout << "[cam" << ch+1 << "] 화재 해제\n";
-                prevFire = nowFire;
+                if (ssnap.boxIsFresh) {
+                    for (const auto& b : ssnap.detection.boxes)
+                        boxes.push_back({ b.box.x, b.box.y, b.box.width, b.box.height,
+                                          "SMOKE", (float)b.score });
+                }
 
                 QtLink_SendDetection(link, ch, (int)snap.resultFrameId,
                                      frame.cols, frame.rows,
                                      snap.alarm.alarmActive, boxes);
                 wasShowingBoxes = true;
-            }
+            }                                                             
             else if (wasShowingBoxes && !snap.alarm.alarmActive) {
                 QtLink_SendDetection(link, ch, 0, frame.cols, frame.rows, false, {});
                 wasShowingBoxes = false;
