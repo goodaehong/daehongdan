@@ -209,11 +209,18 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
             g_db.insertSensor(now, "A", s.temp, s.humidity, s.gasPpm, s.smokePpm, s.flameVal, o.j.state);
         }    
 
-        // 액추에이터 상태 주기 보고: Qt가 새로 접속해도 화면 동기화되게
-        if (++tick % 5 == 0) {                                 
+        // 액추에이터 상태 주기 보고 + Qt 접속 직후 즉시 1회                 
+        // 주기만 있으면 접속~다음 tick 사이(최대 5초)에 Qt가 값을 못 받는다.
+        // 그 사이 끊기면 "확인 중"에서 영영 안 벗어남
+        static bool prevConnected = false;
+        bool nowConnected = link.connected();
+        bool justConnected = nowConnected && !prevConnected;
+        prevConnected = nowConnected;
+
+        if (justConnected || ++tick % 5 == 0) {
             Actuator_Poll();   // STM에 상태 요청(0x40) → linkOk 갱신. 안 하면 끊겨도 모름
             QtLink_SendActuator(link, Actuator_GetState());
-        }                                                    
+        }                                                                                                            
 
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
