@@ -42,7 +42,9 @@ Trend trendFor(const QVector<double> &history)
         return { "▲ 상승", kWarnColor };
     if (diff < -scale * 0.05)
         return { "▼ 하강", kSafeColor };
-    return { "● 안정", kTextSecondary };
+    // 회색은 "정보 없음"으로 읽혀서, 실제로 정상 동작 중임을 보여주려면 초록이 맞다
+    // (액추에이터 카드의 "● 연결됨"과 같은 이유).
+    return { "● 안정", kSafeColor };
 }
 }
 
@@ -209,6 +211,21 @@ StatusPanel::StatusPanel(QWidget *parent)
 
     QVBoxLayout *sensorLayout = makeCard("위험 감지 센서");
     QWidget *sensorCardWidget = sensorLayout->parentWidget();
+
+    // 액추에이터 카드의 "실시간 ● 연결됨"과 대칭 — 정상일 때도 "지금 믿을 수 있는 값인가"가
+    // 항상 보이게 한다. 아래 수치 자리 오류 표시("--- 센서 오류")와는 역할이 다르다: 배지는
+    // "지금 믿을 수 있나", 수치는 "이 값이 옛날 값이다".
+    auto *sensorHeaderRow = new QHBoxLayout;
+    auto *sensorRealtimeLabel = new QLabel("실시간", sensorCardWidget);
+    sensorRealtimeLabel->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kTextSecondary));
+    sensorLinkBadge = new QLabel(sensorCardWidget);
+    sensorLinkBadge->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kTextSecondary));
+    sensorLinkBadge->setText("🟢 연결됨");
+    sensorHeaderRow->addWidget(sensorRealtimeLabel);
+    sensorHeaderRow->addStretch();
+    sensorHeaderRow->addWidget(sensorLinkBadge);
+    sensorLayout->addLayout(sensorHeaderRow);
+
     addGaugeRow(sensorLayout, sensorCardWidget, "가스 농도", "임계 2000ppm", &gasValueLabel, &gasGaugeBar, &gasTrendLabel);
     addSensorDivider(sensorLayout, sensorCardWidget);
     addGaugeRow(sensorLayout, sensorCardWidget, "불꽃 센서", "임계 1.0V", &flameValueLabel, &flameGaugeBar, &flameTrendLabel);
@@ -372,10 +389,12 @@ StatusPanel::StatusPanel(QWidget *parent)
     // 달리 "현재 상태"를 서버가 보내주지 않는다 — 그래서 addControlRow 대신 버튼 하나만 둔다.
     // 안전에 영향 없는 조작(경보 자체를 끄는 게 아니라 지금 시끄러운 소리만 끔)이라
     // 다른 제어처럼 확인 팝업 없이 바로 실행한다. 다음 위험 진입/재실행 때 서버가 다시 튼다.
+    // 문구는 "음성 정지"(대홍님 제안) — action 값은 그대로 "mute"지만 실제로는 지금 재생 중인
+    // 걸 멈추는 것뿐이라 "끄기/음소거"라고 하면 관리자가 다시 안 나올 거라 오해할 수 있다.
     auto *speakerLabel = new QLabel("대피 안내 음성", controlCardWidget);
     speakerLabel->setStyleSheet(QString("color:%1; font-size:13px; border:none;").arg(kTextSecondary));
     controlLayout->addWidget(speakerLabel);
-    auto *speakerMuteBtn = new QPushButton("🔇 지금 끄기", controlCardWidget);
+    auto *speakerMuteBtn = new QPushButton("🔇 음성 정지", controlCardWidget);
     speakerMuteBtn->setCursor(Qt::PointingHandCursor);
     speakerMuteBtn->setFixedHeight(30);
     speakerMuteBtn->setStyleSheet(
@@ -387,8 +406,9 @@ StatusPanel::StatusPanel(QWidget *parent)
     });
     controlLayout->addWidget(speakerMuteBtn);
 
-    // 비상 모드 전환/해제는 교체가 아니라 2개 병존 — 상태에 따라 활성/비활성/숨김만 바뀐다 (emergency-mode #6).
-    emergencyTriggerButton = new QPushButton("🚨 비상 모드 전환", controlCardWidget);
+    // 위험 모드 전환/해제는 교체가 아니라 2개 병존 — 상태에 따라 활성/비활성만 바뀐다 (emergency-mode #6).
+    // 대홍님 요청: 해제 버튼을 숨기지 않고 항상 보이게 해서 "지금은 못 누른다"를 명확히 한다.
+    emergencyTriggerButton = new QPushButton("🚨 위험 모드 전환", controlCardWidget);
     emergencyTriggerButton->setCursor(Qt::PointingHandCursor);
     emergencyTriggerButton->setFixedHeight(36);
     connect(emergencyTriggerButton, &QPushButton::clicked, this, [this]() {
@@ -403,7 +423,7 @@ StatusPanel::StatusPanel(QWidget *parent)
         } else if (lastKnownZoneState == ZoneState::Warning) {
             // 경고: 서버가 이미 원인을 알고 있으므로 재질의 없이 확인만 (emergency-mode #9)
             const QString causePhrase = causeText(lastKnownCause);
-            if (showConfirmDialog(QString("비상 모드 전환 (원인: %1)").arg(causePhrase)))
+            if (showConfirmDialog(QString("위험 모드 전환 (원인: %1)").arg(causePhrase)))
                 emit emergencyTriggerRequested(lastKnownCause);
         } else {
             // 위험·대응실패: 같은 원인으로 대응 재실행
@@ -412,20 +432,22 @@ StatusPanel::StatusPanel(QWidget *parent)
         }
     });
 
-    emergencyClearButton = new QPushButton("비상 모드 해제", controlCardWidget);
+    emergencyClearButton = new QPushButton("위험 모드 해제", controlCardWidget);
     emergencyClearButton->setCursor(Qt::PointingHandCursor);
     emergencyClearButton->setFixedHeight(36);
-    // updateEmergencyButtons()는 visible만 토글하고 스타일은 안 건드려서 시스템 기본(밝은 배경+검정
-    // 글씨)으로 남아있었음 — 다른 버튼들처럼 다크 테마 글씨색을 명시한다.
-    emergencyClearButton->setStyleSheet(QString(
-        "QPushButton { background-color:#232333; color:%1; border:1px solid #3a3550; "
-        "border-radius:6px; font-size:13px; font-weight:bold; font-family:\"hanwhaGothic EL\"; }"
-        "QPushButton:hover { background-color:#2d2d40; border:1px solid #8b7cf6; }").arg(kTextPrimary));
     connect(emergencyClearButton, &QPushButton::clicked, this, [this]() {
         QString admin;
         QStringList checklist;
         if (showEmergencyClearDialog(admin, checklist))
             emit emergencyClearRequested(admin, checklist);
+    });
+
+    // 위험·대응실패 상태에서 전환 버튼을 두 톤으로 번갈아 칠하는 타이머. 매 tick마다 스타일시트를
+    // 새로 세팅하므로 :hover 규칙도 그대로 살아있다(호버 반응 요청 반영).
+    emergencyBlinkTimer = new QTimer(this);
+    connect(emergencyBlinkTimer, &QTimer::timeout, this, [this]() {
+        emergencyBlinkOn = !emergencyBlinkOn;
+        applyRetryButtonBlinkStyle();
     });
 
     controlLayout->addSpacing(2);
@@ -605,6 +627,18 @@ void StatusPanel::updateZone(const Zone &zone)
     // 이므로 수치를 그대로 보여주면 안 된다 (emergency-mode #13). dhtOk와 달리 흔한 일이 아니라 바로 표시.
     const bool sensorStale = zone.hasLiveSensorData && !zone.sensorOk;
 
+    // 우선순위: 센서 오류(빨강) > 온습도만 불안정(노랑) > 정상(초록).
+    if (sensorStale) {
+        sensorLinkBadge->setText("🔴 센서 오류");
+        sensorLinkBadge->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kDangerColor));
+    } else if (dhtStale) {
+        sensorLinkBadge->setText("🟡 온습도 불안정");
+        sensorLinkBadge->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kWarnColor));
+    } else {
+        sensorLinkBadge->setText("🟢 연결됨");
+        sensorLinkBadge->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kSafeColor));
+    }
+
     gasValueLabel->setText(sensorStale ? "--- (센서 오류)" : QString::number(gasVal, 'f', 2) + " ppm");
     const QColor gasColor = sensorStale ? QColor(kWarnColor)
                              : gasVal >= kGasDanger ? QColor(kDangerColor)
@@ -632,8 +666,14 @@ void StatusPanel::updateZone(const Zone &zone)
     int smokeDetectedCount = 0;
     for (bool b : zone.smokeDetectHistory)
         if (b) ++smokeDetectedCount;
-    smokeHistoryLabel->setText(zone.smokeDetectHistory.isEmpty() ? QString()
-        : QString("최근 %1회 판정 · 감지 %2회").arg(zone.smokeDetectHistory.size()).arg(smokeDetectedCount));
+    // gas/flame처럼 추세(●안정/▲상승/▼하강)도 앞에 붙인다 — 이전엔 이 자리에 판정 횟수만 있어서
+    // 가스·불꽃 줄에만 "●안정" 표시가 있는 것처럼 보였다.
+    const Trend smokeTrend = trendFor(zone.smokeHistory);
+    const QString smokeHistoryText = zone.smokeDetectHistory.isEmpty() ? QString()
+        : QString("최근 %1회 판정 · 감지 %2회").arg(zone.smokeDetectHistory.size()).arg(smokeDetectedCount);
+    smokeHistoryLabel->setText(smokeTrend.text.isEmpty() ? smokeHistoryText
+        : QString("%1 · %2").arg(smokeTrend.text, smokeHistoryText));
+    smokeHistoryLabel->setStyleSheet(QString("font-size:12px; border:none; color:%1;").arg(smokeTrend.color));
 
     for (int i = 0; i < demoStateButtons.size(); ++i)
         demoStateButtons[i]->setChecked(i == int(zone.state));
@@ -643,6 +683,10 @@ void StatusPanel::setActuatorStatus(int fan, int valve, int siren, const QString
                                      const QString &fanSrc, const QString &valveSrc, const QString &sirenSrc,
                                      int targetFan, int targetValve, int targetSiren, const QString &linkReason)
 {
+    // "⟳ 대응 재실행" 버튼 문구에도 재사용 — 다음 updateZone()의 updateEmergencyButtons() 호출 때
+    // (매초 오는 sensor 메시지 기준) 반영된다. sensor보다 훨씬 자주 오는 값도 아니라 즉시 갱신은 생략.
+    lastLinkReason = linkReason;
+
     if (link == "ok") {
         actuatorLinkLabel->setText("● 연결됨");
         actuatorLinkLabel->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kSafeColor));
@@ -747,35 +791,65 @@ void StatusPanel::setActuatorRowStatus(const QString &target, const QString &tex
     label->setStyleSheet(pillStyle(color, true));
 }
 
-// 상태별 버튼 표(emergency-mode #6~7): 정상/경고=전환 활성·해제 숨김,
-// 위험·대응중=전환 비활성·해제 활성, 위험·대응실패=전환 활성(주황,"⟳ 대응 재실행")·해제 활성.
+// 상태별 버튼 표(emergency-mode #6~7, 대홍님 요청으로 두 버튼 항상 표시로 변경):
+// 정상/경고 = 전환 빨강 활성 · 해제 회색 비활성
+// 위험·대응중 = 전환 회색 비활성 · 해제 빨강 활성
+// 위험·대응실패 = 전환 주황 깜빡임("⟳ 대응 재실행 (사유)") · 해제 빨강 활성
 void StatusPanel::updateEmergencyButtons(ZoneState state, bool responseOk)
 {
     if (!emergencyTriggerButton || !emergencyClearButton)
         return;
 
     if (state == ZoneState::Danger) {
-        emergencyClearButton->setVisible(true);
         if (responseOk) {
+            emergencyBlinkTimer->stop();
             emergencyTriggerButton->setEnabled(false);
-            emergencyTriggerButton->setText("🚨 비상 모드 전환");
+            emergencyTriggerButton->setText("🚨 위험 모드 전환");
             emergencyTriggerButton->setStyleSheet(
                 "QPushButton { background-color:#3a3550; color:#8d87a0; border:none; border-radius:6px; font-size:13px; font-weight:bold; font-family:\"hanwhaGothic EL\"; }");
+            setClearButtonActive(true);
         } else {
             emergencyTriggerButton->setEnabled(true);
-            emergencyTriggerButton->setText("⟳ 대응 재실행");
-            emergencyTriggerButton->setStyleSheet(
-                "QPushButton { background-color:#f59e0b; color:#241c00; border:none; border-radius:6px; font-size:13px; font-weight:bold; font-family:\"hanwhaGothic EL\"; }"
-                "QPushButton:hover { background-color:#d97706; }");
+            updateRetryButtonText();
+            emergencyBlinkOn = true;
+            applyRetryButtonBlinkStyle();
+            emergencyBlinkTimer->start(600);   // 대응 실패 = "지금 확인해야 할 것" -> 눈에 띄게 깜빡임
+            setClearButtonActive(true);
         }
     } else {
-        emergencyClearButton->setVisible(false);
+        emergencyBlinkTimer->stop();
         emergencyTriggerButton->setEnabled(true);
-        emergencyTriggerButton->setText("🚨 비상 모드 전환");
+        emergencyTriggerButton->setText("🚨 위험 모드 전환");
         emergencyTriggerButton->setStyleSheet(
             "QPushButton { background-color:#ef4444; color:white; border:none; border-radius:6px; font-size:13px; font-weight:bold; font-family:\"hanwhaGothic EL\"; }"
             "QPushButton:hover { background-color:#dc2626; }");
+        setClearButtonActive(false);
     }
+}
+
+void StatusPanel::setClearButtonActive(bool active)
+{
+    emergencyClearButton->setEnabled(active);
+    emergencyClearButton->setStyleSheet(active
+        ? "QPushButton { background-color:#ef4444; color:white; border:none; border-radius:6px; font-size:13px; font-weight:bold; font-family:\"hanwhaGothic EL\"; }"
+          "QPushButton:hover { background-color:#dc2626; }"
+        : "QPushButton { background-color:#3a3550; color:#8d87a0; border:none; border-radius:6px; font-size:13px; font-weight:bold; font-family:\"hanwhaGothic EL\"; }");
+}
+
+void StatusPanel::updateRetryButtonText()
+{
+    QString text = "⟳ 대응 재실행";
+    if (!lastLinkReason.isEmpty())
+        text += QString(" (%1)").arg(lastLinkReason);
+    emergencyTriggerButton->setText(text);
+}
+
+void StatusPanel::applyRetryButtonBlinkStyle()
+{
+    const QString bg = emergencyBlinkOn ? "#f59e0b" : "#7c4a08";
+    emergencyTriggerButton->setStyleSheet(QString(
+        "QPushButton { background-color:%1; color:#241c00; border:none; border-radius:6px; font-size:13px; font-weight:bold; font-family:\"hanwhaGothic EL\"; }"
+        "QPushButton:hover { background-color:#d97706; }").arg(bg));
 }
 
 void StatusPanel::updateControlButtonStyles(QVector<QPushButton *> &buttons, int activeIndex)
@@ -891,14 +965,14 @@ bool StatusPanel::showEvacuationConfirmDialog()
 bool StatusPanel::showEmergencyCauseDialog(QString &outCause)
 {
     QDialog dialog(this);
-    dialog.setWindowTitle("비상 모드 전환");
+    dialog.setWindowTitle("위험 모드 전환");
     dialog.setStyleSheet(QString("background-color:%1;").arg(kCardBg));
     dialog.setMinimumWidth(380);
     auto *layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(32, 28, 32, 28);
     layout->setSpacing(14);
 
-    auto *header = new QLabel("🚨 비상 모드 전환", &dialog);
+    auto *header = new QLabel("🚨 위험 모드 전환", &dialog);
     header->setStyleSheet("color:#ef4444; font-size:18px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;");
     layout->addWidget(header);
 
@@ -968,14 +1042,14 @@ bool StatusPanel::showEmergencyClearDialog(QString &outAdmin, QStringList &outCh
     }
 
     QDialog dialog(this);
-    dialog.setWindowTitle("비상 모드 해제");
+    dialog.setWindowTitle("위험 모드 해제");
     dialog.setStyleSheet(QString("background-color:%1;").arg(kCardBg));
     dialog.setMinimumWidth(420);
     auto *layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(32, 28, 32, 28);
     layout->setSpacing(10);
 
-    auto *header = new QLabel(QString("비상 모드 해제 — 원인: %1").arg(causeText(lastKnownCause)), &dialog);
+    auto *header = new QLabel(QString("위험 모드 해제 — 원인: %1").arg(causeText(lastKnownCause)), &dialog);
     header->setStyleSheet("color:#f59e0b; font-size:17px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;");
     header->setWordWrap(true);
     layout->addWidget(header);

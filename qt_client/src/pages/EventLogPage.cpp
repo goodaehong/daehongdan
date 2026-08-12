@@ -19,6 +19,7 @@
 #include <QAbstractSpinBox>
 #include <QTextCharFormat>
 #include <QTimer>
+#include <QMap>
 
 namespace {
 const QString kCardBg = "#14141f";
@@ -61,6 +62,30 @@ QColor responseTextColor(const QString &response)
     if (response.contains("확인") || response.contains("완료") || response.contains("클릭"))
         return QColor("#34d399");
     return QColor(kTextPrimary);
+}
+
+// server/server_main.cpp respToText()가 만드는 "siren_on,valve_close,fan_off" 형식의 원문을
+// 한글로 옮긴다. DB엔 이 원문 그대로 저장돼야 나중에 LIKE 검색/집계가 문구 변경에 안 깨지므로,
+// 화면 표시 단계인 여기서만 변환한다 — cause/category를 이미 같은 방식으로 처리 중.
+QString translateResponseToken(const QString &token)
+{
+    static const QMap<QString, QString> kTokenText = {
+        { "siren_on", "사이렌 ON" }, { "siren_off", "사이렌 OFF" },
+        { "valve_open", "밸브 열림" }, { "valve_close", "밸브 잠금" },
+        { "fan_off", "팬 정지" }, { "fan_low", "팬 약" }, { "fan_mid", "팬 중" }, { "fan_high", "팬 강" },
+    };
+    // 매핑에 없는 토큰(구버전/새 필드 등)은 원문 그대로 둬서 정보가 사라지지 않게 한다.
+    return kTokenText.value(token, token);
+}
+
+QString translateResponse(const QString &raw)
+{
+    if (raw.isEmpty())
+        return raw;
+    QStringList parts;
+    for (const QString &token : raw.split(',', Qt::SkipEmptyParts))
+        parts << translateResponseToken(token.trimmed());
+    return parts.join(" · ");
 }
 }
 
@@ -336,7 +361,7 @@ void EventLogPage::loadEntriesFromServer(const QJsonArray &rows)
         if (!causePhrase.isEmpty()) {
             // emergency/emergency_reapply는 원인은 자동 위험과 같은 값이라 원인 문구만으론 구분이 안 됨 —
             // 수동 조작이었다는 걸 라벨로 명시한다 (emergency-mode #18). 실제 자동/수동 구분은 "관리자" 칸도 참고.
-            entry.detection = category == "emergency" ? "[비상 전환] " + causePhrase
+            entry.detection = category == "emergency" ? "[위험 전환] " + causePhrase
                              : category == "emergency_reapply" ? "[대응 재실행] " + causePhrase
                              : causePhrase;
         } else {
@@ -345,10 +370,10 @@ void EventLogPage::loadEntriesFromServer(const QJsonArray &rows)
                              : category == "manual_control" ? "관리자 수동 제어"
                              : category == "warning" ? "경고 상태 감지"
                              : category == "danger" ? "위험 상태 감지"
-                             : category == "emergency_clear" ? "비상 모드 해제"
+                             : category == "emergency_clear" ? "위험 모드 해제"
                              : category.isEmpty() ? "-" : category;
         }
-        entry.response = row.value("response").toString();
+        entry.response = translateResponse(row.value("response").toString());
         const QString admin = row.value("admin").toString();
         entry.admin = admin.isEmpty() ? "시스템(자동)" : admin;
 

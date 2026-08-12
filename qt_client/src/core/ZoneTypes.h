@@ -41,6 +41,9 @@ struct Zone {
     QVector<QString> gasHistoryLabels; // "HH:mm:ss", gasHistory와 1:1 대응
     // 불꽃센서 전압 추이(최대 30개). StatusPanel 추세(상승/하강/안정) 계산용.
     QVector<double> flameHistory;
+    // 연기(ppm) 추이(최대 30개). gas/flame과 동일하게 추세(상승/하강/안정) 계산용 — 아래
+    // smokeDetectHistory(임계값 통과 여부)와는 별개다.
+    QVector<double> smokeHistory;
     // 최근 연기 판정 이력(최대 8개, true=검지). StatusPanel "최근 N회 판정 · 감지 M회" 표시용.
     QVector<bool> smokeDetectHistory;
 };

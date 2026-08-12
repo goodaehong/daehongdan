@@ -105,19 +105,19 @@ MainWindow::MainWindow(QWidget *parent)
             [this](const QString &cause) {
                 const QString zoneId = zones[currentZone].name.left(1);
                 serverLink->sendEmergencyTrigger(zoneId, cause, "admin");
-                monitorPage->showControlStatus("처리 중... (비상 모드 전환)", "#8d87a0");
+                monitorPage->showControlStatus("처리 중... (위험 모드 전환)", "#8d87a0");
             });
     connect(monitorPage, &MonitorPage::emergencyClearRequested, this,
             [this](const QString &admin, const QStringList &checklist) {
                 const QString zoneId = zones[currentZone].name.left(1);
                 serverLink->sendEmergencyClear(zoneId, admin, checklist);
-                monitorPage->showControlStatus("처리 중... (비상 모드 해제)", "#8d87a0");
+                monitorPage->showControlStatus("처리 중... (위험 모드 해제)", "#8d87a0");
             });
 
     connect(serverLink, &ServerLink::emergencyResult, this,
             [this](const QString &, const QString &, const QString &mode, const QString &result) {
                 Q_UNUSED(result);   // 거절 없음 — 항상 "accepted"
-                const QString label = mode == "trigger" ? "비상 모드 전환" : "비상 모드 해제";
+                const QString label = mode == "trigger" ? "위험 모드 전환" : "위험 모드 해제";
                 monitorPage->showControlStatus(QString("완료: %1").arg(label), "#34d399");
                 // 버튼/배너 상태는 여기서 낙관적으로 바꾸지 않는다 -> sensor 메시지의
                 // state/dangerSource가 실제 상태를 확정해서 알려준다 (updateDangerIndicators에서 반영).
@@ -217,6 +217,10 @@ MainWindow::MainWindow(QWidget *parent)
                     zone.flameHistory.append(flameVal);
                     if (zone.flameHistory.size() > kMaxGasHistory)
                         zone.flameHistory.removeFirst();
+
+                    zone.smokeHistory.append(smokePpm);
+                    if (zone.smokeHistory.size() > kMaxGasHistory)
+                        zone.smokeHistory.removeFirst();
 
                     zone.smokeDetectHistory.append(smokePpm > 150);
                     constexpr int kMaxSmokeHistory = 8;
