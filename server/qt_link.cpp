@@ -1,5 +1,6 @@
 #include "qt_link.h"
 #include "db/query_handler.h"
+#include "audio/speaker_alert.h" 
 #include <sstream>
 #include <iomanip>
 #include <iostream>
@@ -137,12 +138,21 @@ static void handleControl(Link& link, Database& db, const std::string& line) {
     std::string action = jsonStr(line, "action");
 
     std::string reason;                                       // 실패 사유 (STM쪽에서 채움)
-    bool ok = Actuator_Execute(target, action, "수동", &reason);
-    if (!ok) {                                                  
-        std::cerr << "[제어] 수동 실패 — " << target << ":" << action
-                  << " (" << reason << ")\n";
-        Actuator_Poll();   // 링크가 죽은 건지 이 명령만 실패한 건지 즉시 확인
-    }                                                           
+    bool ok;                                                            
+    if (target == "speaker") {
+        // 대피 안내 음성은 STM이 아니라 서버가 직접 트는 WAV라 별도 경로.
+        // 지금 재생 중인 것만 끈다 — 다음 위험 진입/재실행 때 sensorWorker가
+        // SpeakerAlert_Start()를 다시 부르면 자연스럽게 재생된다
+        SpeakerAlert_Stop();
+        ok = true;
+    } else {
+        ok = Actuator_Execute(target, action, "수동", &reason);
+        if (!ok) {                                                  
+            std::cerr << "[제어] 수동 실패 — " << target << ":" << action
+                      << " (" << reason << ")\n";
+            Actuator_Poll();   // 링크가 죽은 건지 이 명령만 실패한 건지 즉시 확인
+        }
+    }                                                                                                  
     QtLink_SendActuator(link, Actuator_GetState());   // 실행 결과 → Qt 화면 갱신
 
     // 실패한 명령도 남긴다. 성공으로만 기록하면 나중에 추적이 안 됨
