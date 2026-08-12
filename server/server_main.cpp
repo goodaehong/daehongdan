@@ -205,6 +205,14 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
 
         QtLink_SendSensor(link, s, o,st);
         StmDisplay_SendUpdate(s, o.j.state);
+        // 전광판 ACK(0xB0)로 통신 상태 확인. 매초 찍으면 시끄러우니 바뀌는 순간만 
+        // (SendUpdate 안에서 매초 갱신되므로 별도 폴링 불필요)
+        static bool prevDisplayOk = true;
+        bool displayOk = StmDisplay_GetLinkOk();
+        if (displayOk != prevDisplayOk) {
+            std::cerr << "[전광판] 통신 " << (displayOk ? "복구됨" : "불량 (ACK 없음)") << "\n";
+            prevDisplayOk = displayOk;
+        }                                                                
         if (sensorOk) {   // 고장 중 0값을 이력에 남기면 통계가 망가진다     
             g_db.insertSensor(now, "A", s.temp, s.humidity, s.gasPpm, s.smokePpm, s.flameVal, o.j.state);
         }    
