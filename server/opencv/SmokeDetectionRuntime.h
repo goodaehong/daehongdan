@@ -9,6 +9,7 @@
 #include <opencv2/opencv.hpp>
 
 #include "DetectionTypes.h"
+#include "IgnoreRegionFilter.h"
 
 struct SmokeRuntimeSnapshot
 {
@@ -57,6 +58,11 @@ public:
         std::uint64_t frameId,
         TimePoint sourceTime = Clock::now()
     );
+
+    // 스레드 안전. 채널별 UI 설정이 비어 있으면 기존 연기 감지와 동일하다.
+    bool setIgnoreRegionConfig(
+        std::size_t channelIndex,
+        const IgnoreRegionConfig& config);
 
     // 해당 채널의 프레임 이력, 움직임 이력, hits와 알람을 모두 초기화한다.
     void resetChannel(std::size_t channelIndex);

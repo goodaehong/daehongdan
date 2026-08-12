@@ -22,9 +22,20 @@ struct PersonBox {
     float score;
 };
 
+// 서버 관측값. sensor 메시지에 함께 나감                             
+// 인자로 하나씩 넘기면 개수가 늘어 순서를 헷갈리므로 묶는다
+struct ServerStatus {
+    bool sensorOk;        // 센서 값을 믿을 수 있는가
+    bool visionOk[4];     // 채널별 서버 영상 감지가 살아있는가
+    bool responseOk;      // 목표 대응이 실제 액추에이터에 반영됐는가
+    bool clearSensor;     // 해제 체크 — 센서 수치 정상
+    bool clearVision;     // 해제 체크 — 영상 감지 정상
+    bool clearActuator;   // 해제 체크 — 액추에이터 정상
+};  
+
 // ── 서버 → Qt ──
 // 명세서 "센서 정보" 스키마
-void QtLink_SendSensor(Link& link, const SensorReading& s, const AlarmOutcome& o, bool sensorOk);
+void QtLink_SendSensor(Link& link, const SensorReading& s, const AlarmOutcome& o, const ServerStatus& st);
 
 // 명세서 "카메라 정보" 스키마. 박스 0개여도 전송 (Qt가 오버레이 지움)
 void QtLink_SendDetection(Link& link, int ch, int frameId, int srcW, int srcH,
@@ -36,6 +47,11 @@ void QtLink_SendPerson(Link& link, int ch, int srcW, int srcH,
 
 // 명세서 "액추에이터 상태 응답"
 void QtLink_SendActuator(Link& link, const ActuatorSnapshot& st);
+
+// 서버가 내린 목표 대응. actuator_status의 target 전송과 responseOk 판정에 쓴다 
+// 센서 스레드와 수신 스레드가 같이 보므로 여기서 잠금까지 처리
+void QtLink_SetTarget(const Response& r);
+Response QtLink_GetTarget();          
 
 // ── Qt → 서버 ──
 // 수신 스레드. control / warning_ack 라우팅. 나중에 query도 여기로

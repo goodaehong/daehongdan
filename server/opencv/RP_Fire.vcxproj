@@ -23,6 +23,7 @@
     <ClCompile Include="ConsoleFireApplication.cpp" />
     <ClCompile Include="FireAlarmController.cpp" />
     <ClCompile Include="FireDetectionRuntime.cpp" />
+    <ClCompile Include="IgnoreRegionFilter.cpp" />
     <ClCompile Include="FlameDetector.cpp" />
     <ClCompile Include="FireView.cpp" />
     <ClCompile Include="PersonMetadataReceiver.cpp" />
@@ -37,6 +38,7 @@
     <ClInclude Include="DetectionTypes.h" />
     <ClInclude Include="FireAlarmController.h" />
     <ClInclude Include="FireDetectionRuntime.h" />
+    <ClInclude Include="IgnoreRegionFilter.h" />
     <ClInclude Include="FlameDetector.h" />
     <ClInclude Include="FireView.h" />
     <ClInclude Include="PersonMetadataReceiver.h" />

@@ -6,6 +6,12 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QFrame>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QDateTime>
+#include <QCalendarWidget>
+#include <QTextCharFormat>
+#include <QTimer>
 
 namespace {
 const QString kTextPrimary = "#f5f5fa";
@@ -25,7 +31,7 @@ GraphPage::GraphPage(QWidget *parent)
     rootLayout->addWidget(createControlBar());
 
     auto *chartsRow = new QHBoxLayout;
-    chartsRow->setSpacing(16);
+    chartsRow->setSpacing(10);
 
     auto *gasCol = new QVBoxLayout;
     gasTitleLabel = new QLabel(this);
@@ -69,7 +75,7 @@ QWidget *GraphPage::createControlBar()
 
     static const QStringList kPeriodNames = { "10분", "1시간", "6시간", "하루" };
     const QString periodBtnStyle = QString(
-        "QPushButton { color:%1; background:transparent; border:1px solid %2; border-radius:6px; padding:5px 12px; }"
+        "QPushButton { color:%1; background:transparent; border:1px solid %2; border-radius:6px; padding:6px 14px; font-size:14px; }"
         "QPushButton:checked { background-color:%3; color:white; border:1px solid %3; }")
         .arg(kTextSecondary, kCardBorder, kAccent);
 
@@ -86,14 +92,15 @@ QWidget *GraphPage::createControlBar()
     row->addSpacing(12);
 
     const QString navBtnStyle = QString(
-        "QPushButton { color:%1; background:transparent; border:1px solid %2; border-radius:6px; padding:5px 10px; }"
+        "QPushButton { color:%1; background:transparent; border:1px solid %2; border-radius:6px; padding:6px 12px; font-size:14px; }"
         "QPushButton:hover { border:1px solid %3; color:%3; }"
         "QPushButton:disabled { color:#4a4658; border:1px solid #2a2a38; }")
         .arg(kTextSecondary, kCardBorder, kAccent);
 
     dateButton = new QPushButton(bar);
     dateButton->setStyleSheet(navBtnStyle);
-    dateButton->setToolTip("날짜 선택 (DB 연동 후 달력 팝업 예정)");
+    dateButton->setToolTip("클릭하면 달력에서 날짜를 직접 고를 수 있습니다");
+    connect(dateButton, &QPushButton::clicked, this, &GraphPage::showDatePicker);
     row->addWidget(dateButton);
 
     prevButton = new QPushButton("◀️ 이전", bar);
@@ -107,33 +114,35 @@ QWidget *GraphPage::createControlBar()
         currentDate = currentDate.addDays(-1);
         dateButton->setText("📅 " + currentDate.toString("yyyy-MM-dd"));
         updateNavButtons();
-        // TODO: 서버 query 연동되면 currentDate 기준으로 sendQuery("sensor_log", {...}) 재요청
+        requestCurrentPeriod();
     });
     connect(nextButton, &QPushButton::clicked, this, [this]() {
         currentDate = currentDate.addDays(1);
         dateButton->setText("📅 " + currentDate.toString("yyyy-MM-dd"));
         updateNavButtons();
+        requestCurrentPeriod();
     });
     connect(todayButton, &QPushButton::clicked, this, [this]() {
         currentDate = QDate::currentDate();
         dateButton->setText("📅 " + currentDate.toString("yyyy-MM-dd"));
         updateNavButtons();
+        requestCurrentPeriod();
     });
 
     row->addStretch();
     outer->addLayout(row);
 
     legendLabel = new QLabel(bar);
-    legendLabel->setStyleSheet(QString("color:%1; font-size:11px;").arg(kTextSecondary));
-    legendLabel->setText("● AVG: 1분 평균값   ▬ MAX: 1분 내 최댓값   ⓘ");
+    legendLabel->setStyleSheet("color:#d8d4e8; font-size:13px;");
+    legendLabel->setText("● AVG: 구간 평균값   ▬ MAX: 구간 내 최댓값 (그래프 안 우측 상단에도 표시)   ⓘ");
     legendLabel->setToolTip("구간이 넓어지면 데이터가 많아 평균으로 묶어 표시합니다.\n"
-                             "평균만 보면 짧은 급상승이 묻히기 때문에, 그 구간의 최댓값도 함께 표시합니다.");
+                             "평균만 보면 짧은 급상승이 묻히기 때문에, 그 구간의 최댓값도 함께 표시합니다.\n"
+                             "그래프 위에 마우스를 올리면 해당 시각의 값을 볼 수 있습니다.");
     outer->addWidget(legendLabel);
 
-    noteLabel = new QLabel(
-        "※ 서버 DB 조회(query) 연동 전이라 기간/날짜 선택은 화면만 준비된 상태입니다. "
-        "실제 연동되면 이 화면 그대로 데이터만 서버 조회 결과로 바뀝니다.", bar);
-    noteLabel->setStyleSheet(QString("color:%1; font-size:10px;").arg(kTextSecondary));
+    noteLabel = new QLabel(bar);
+    noteLabel->setStyleSheet(QString("color:%1; font-size:12px;").arg(kTextSecondary));
+    noteLabel->setVisible(false); // 조회 실패했을 때만 showQueryFailed()가 채워서 보여줌
     noteLabel->setWordWrap(true);
     outer->addWidget(noteLabel);
 
@@ -152,7 +161,7 @@ void GraphPage::selectPeriod(int index)
         periodButtons[i]->setChecked(i == index);
     // 10분/1시간은 원본 그대로(선 1개), 6시간/하루는 구간 집계(AVG+MAX 두 선)라 범례를 켠다.
     legendLabel->setVisible(index >= 2);
-    // TODO: 서버 query/query_result 붙으면 여기서 sendQuery("sensor_log", {zone, from, to})로 교체.
+    requestCurrentPeriod();
 }
 
 void GraphPage::updateNavButtons()
@@ -162,20 +171,122 @@ void GraphPage::updateNavButtons()
     todayButton->setEnabled(!isToday);
 }
 
+void GraphPage::showDatePicker()
+{
+    // Qt::Popup: 테두리 없는 드롭다운처럼 동작 — 바깥을 클릭하거나 포커스를 잃으면 자동으로 닫힘.
+    // 콤보박스 팝업 느낌으로 날짜 버튼 바로 아래에 띄운다(화면 가운데 모달 대신).
+    auto *popup = new QFrame(this, Qt::Popup);
+    popup->setAttribute(Qt::WA_DeleteOnClose);
+    popup->setStyleSheet("background-color:#14141f; border:1px solid #333344; border-radius:8px;");
+
+    auto *layout = new QVBoxLayout(popup);
+    layout->setContentsMargins(8, 8, 8, 8);
+
+    auto *calendar = new QCalendarWidget(popup);
+    calendar->setGridVisible(true);
+    calendar->setMaximumDate(QDate::currentDate()); // 미래 날짜는 데이터가 없으니 선택 불가
+    calendar->setSelectedDate(currentDate);
+    calendar->setStyleSheet(
+        "QCalendarWidget { background-color:#14141f; color:#f5f5fa; }"
+        "QCalendarWidget QToolButton { color:#f5f5fa; background-color:transparent; font-size:14px; icon-size:20px; padding:6px; }"
+        "QCalendarWidget QToolButton:hover { background-color:#232333; border-radius:6px; }"
+        "QCalendarWidget QMenu { background-color:#1a1a26; color:#f5f5fa; }"
+        "QCalendarWidget QSpinBox { background-color:#1a1a26; color:#f5f5fa; }"
+        "QCalendarWidget QAbstractItemView:enabled { background-color:#14141f; color:#f5f5fa; }"
+        // 클릭해서 선택한 칸에 직접 테두리를 그린다 (배경색만으로는 잘 안 띄었음).
+        "QCalendarWidget QAbstractItemView::item:selected { border:2px solid #a78bfa; "
+        "background-color:#8b7cf6; color:white; border-radius:4px; }"
+        "QCalendarWidget QAbstractItemView:disabled { color:#4a4658; }"
+        "QCalendarWidget QWidget#qt_calendar_navigationbar { background-color:#1a1a26; }");
+
+    // 오늘 날짜를 굵게 + 강조색으로 표시(선택은 안 돼도 눈에 띄게).
+    QTextCharFormat todayFormat;
+    todayFormat.setFontWeight(QFont::Bold);
+    todayFormat.setForeground(QColor(kAccent));
+    calendar->setDateTextFormat(QDate::currentDate(), todayFormat);
+
+    layout->addWidget(calendar);
+
+    auto pickDate = [this, popup](const QDate &date) {
+        currentDate = date;
+        dateButton->setText("📅 " + currentDate.toString("yyyy-MM-dd"));
+        updateNavButtons();
+        requestCurrentPeriod();
+        // 클릭한 칸이 보라색으로 바뀌는 게 눈에 보일 시간을 살짝 준 뒤 닫는다.
+        // (바로 닫아버리면 선택 표시가 뜨는 걸 볼 틈이 없었다.)
+        QTimer::singleShot(150, popup, [popup]() { popup->close(); });
+    };
+    connect(calendar, &QCalendarWidget::clicked, popup, pickDate);
+    connect(calendar, &QCalendarWidget::activated, popup, pickDate);
+
+    popup->move(dateButton->mapToGlobal(QPoint(0, dateButton->height() + 4)));
+    popup->show();
+}
+
+void GraphPage::requestCurrentPeriod()
+{
+    if (currentZoneId.isEmpty())
+        return; // 아직 구역 정보를 한 번도 못 받음(초기 생성 시점 등)
+
+    // 기간 버튼 4개 = 10분/1시간/6시간/하루 (명세서 3-2 기간 버튼 표와 동일)
+    static const qint64 kPeriodSeconds[] = { 600, 3600, 21600, 86400 };
+    const qint64 span = kPeriodSeconds[currentPeriodIndex];
+
+    // 오늘이면 "지금"까지, 과거 날짜면 그 날 23:59:59까지를 끝점으로 삼아 거기서 기간만큼 거슬러 올라간다.
+    const bool isToday = currentDate == QDate::currentDate();
+    const qint64 to = isToday
+        ? QDateTime::currentSecsSinceEpoch()
+        : QDateTime(currentDate, QTime(23, 59, 59)).toSecsSinceEpoch();
+    const qint64 from = to - span;
+
+    emit sensorLogRequested(currentZoneId, from, to);
+}
+
+void GraphPage::loadSensorLogFromServer(const QJsonArray &rows)
+{
+    if (rows.isEmpty())
+        return; // 빈 결과 -> 기존 화면 유지 (아무것도 없다고 빈 그래프로 덮어쓰지 않음)
+
+    QVector<double> gasAvg, gasMax, smokeAvg, smokeMax;
+    QStringList timeLabels;
+    gasAvg.reserve(rows.size());
+    gasMax.reserve(rows.size());
+    smokeAvg.reserve(rows.size());
+    smokeMax.reserve(rows.size());
+    timeLabels.reserve(rows.size());
+
+    for (const QJsonValue &v : rows) {
+        const QJsonObject row = v.toObject();
+        gasAvg.append(row.value("gasAvg").toDouble());
+        gasMax.append(row.value("gasMax").toDouble());
+        smokeAvg.append(row.value("smokeAvg").toDouble());
+        smokeMax.append(row.value("smokeMax").toDouble());
+        timeLabels.append(QDateTime::fromSecsSinceEpoch(qint64(row.value("t").toDouble())).toString("HH:mm"));
+    }
+
+    // 포인트별로 다 넘겨야(끝점 2개만이 아니라) 그래프에 마우스오버 시 정확한 시각이 뜬다.
+    // bucketSec==1(원본)이면 서버가 avg==max로 그대로 보내므로(명세서 3-2), 그때만 단일 선으로 그린다.
+    const bool dual = gasAvg != gasMax;
+    gasGraph->setSeries(gasAvg, dual ? gasMax : QVector<double>{}, timeLabels);
+    smokeGraph->setSeries(smokeAvg, dual ? smokeMax : QVector<double>{}, timeLabels);
+    noteLabel->setVisible(false);
+}
+
+void GraphPage::showQueryFailed(const QString &reason)
+{
+    noteLabel->setText("⚠ 조회 실패: " + (reason.isEmpty() ? "알 수 없는 오류" : reason));
+    noteLabel->setStyleSheet("color:#f87171; font-size:10px;");
+    noteLabel->setVisible(true);
+}
+
 void GraphPage::updateZone(const Zone &zone)
 {
-    // 값 범위는 judgement.cpp 실측 임계값(가스 경고200/위험2000ppm, 연기 경고75/위험150ppm)에 맞춰 조정.
-    const QVector<double> gasSeries =
-        zone.state == ZoneState::Safe ? QVector<double>{ 30, 35, 32, 38, 34, 36 }
-        : zone.state == ZoneState::Warning ? QVector<double>{ 60, 120, 180, 220, 190, 150 }
-                                            : QVector<double>{ 300, 900, 1800, 2500, 2200, 1900 };
-    const QVector<double> smokeSeries =
-        zone.state == ZoneState::Safe ? QVector<double>{ 10, 15, 12, 18, 14, 16 }
-        : zone.state == ZoneState::Warning ? QVector<double>{ 30, 55, 70, 90, 80, 60 }
-                                            : QVector<double>{ 60, 110, 160, 220, 190, 150 };
-
-    gasGraph->setData(gasSeries, { "12:00", "23:00" });
     gasTitleLabel->setText("가스 농도 추이 — " + zone.name + " (ppm)");
-    smokeGraph->setData(smokeSeries, { "12:00", "23:00" });
     smokeTitleLabel->setText("연기 농도 추이 — " + zone.name + " (ppm)");
+
+    const QString zoneId = zone.name.left(1);
+    if (zoneId != currentZoneId) {
+        currentZoneId = zoneId;
+        requestCurrentPeriod(); // 구역이 실제로 바뀌었을 때만 재조회 (매초 오는 sensor 메시지마다 X)
+    }
 }
