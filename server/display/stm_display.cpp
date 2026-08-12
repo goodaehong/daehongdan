@@ -36,17 +36,13 @@ void StmDisplay_Close()
     s_fd = -1;
 }
 
-// state 문자열 -> face/gasColor 공통 숫자값 (0=정상/웃음, 1=주의/무표정, 2=위험/찡그림)
-static uint8_t StateToFaceGasColor(const std::string& state)
-{
-    if (state == "danger")  return STM_DISPLAY_STATE_DANGER;
-    if (state == "warning") return STM_DISPLAY_STATE_WARNING;
-    return STM_DISPLAY_STATE_SAFE;
-}
-
 bool StmDisplay_SendUpdate(const SensorReading& s, const std::string& state)
 {
-    uint8_t faceGasColor = StateToFaceGasColor(state);
+    (void)state;   // 표정/가스 그래프 둘 다 이제 종합 판정이 아니라 가스 농도로만 결정됨
+    // 화재/연기만 감지되고 가스는 정상이어도 표정·그래프가 빨갛게 뜨던 문제 수정
+    // (judgement.cpp의 gasLevel 참고 - 화재/연기 경보는 SendAlert의 전용 화면으로 따로 처리됨)
+    uint8_t face = (uint8_t)gasLevel(s.gasPpm);
+    uint8_t gasColor = face;
 
     // gas: 0~9999로 클램프 (전광판이 4자리까지만 표시 가능)
     float gasClamped = s.gasPpm < 0.0f ? 0.0f : (s.gasPpm > 9999.0f ? 9999.0f : s.gasPpm);
@@ -59,7 +55,7 @@ bool StmDisplay_SendUpdate(const SensorReading& s, const std::string& state)
     time_t now = time(nullptr);
     tm* lt = localtime(&now);
 
-    bool sent = StmDisplayProtocol_SendUpdate(s_fd, faceGasColor, faceGasColor, gas,
+    bool sent = StmDisplayProtocol_SendUpdate(s_fd, face, gasColor, gas,
                                                temp, humidity,
                                                (uint8_t)lt->tm_hour, (uint8_t)lt->tm_min,
                                                (uint8_t)(lt->tm_year % 100),
