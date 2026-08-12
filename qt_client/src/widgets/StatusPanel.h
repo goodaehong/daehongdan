@@ -114,7 +114,10 @@ private:
     QLabel *actuatorLinkLabel; // "● 연결됨"/"● 연결 끊김"/"확인 중" (STM보드(1) 공통)
     QLabel *actuatorLinkInfoIcon; // 위 상태에 마우스 올리면 이유를 툴팁으로 보여주는 "ⓘ" 아이콘
     QString lastLinkReason;   // STM 링크 끊김 사유 캐시 — "⟳ 대응 재실행" 버튼 문구에도 재사용
-    QLabel *sensorLinkBadge;  // 센서 카드 헤더 "🟢 연결됨"/"🔴 센서 오류"/"🟡 온습도 불안정"
+    // 위험 감지 센서(가스/불꽃/연기, ADS1115)와 환경(온습도, DHT22)은 서로 다른 센서라 배지도
+    // 카드별로 분리한다 — 예전엔 하나로 합쳐서 온습도 문제가 엉뚱한 카드(위험 감지 센서)에 떴었다.
+    QLabel *sensorLinkBadge;  // "위험 감지 센서" 카드 헤더 "🟢 연결됨"/"🔴 센서 오류"
+    QLabel *envLinkBadge;     // "환경" 카드 헤더 "🟢 연결됨"/"🟡 온습도 불안정"
     // "자동(평상시)" vs "자동(위험 대응)" 구분에 쓰는 구역 상태 캐시.
     ZoneState lastKnownZoneState = ZoneState::Safe;
     QString lastKnownCause;   // 위험 모드 전환 시 경고/재실행 상태에서 원인 재사용 (emergency-mode #9)

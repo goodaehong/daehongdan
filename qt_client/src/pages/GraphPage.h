@@ -10,6 +10,7 @@ class QLabel;
 class QPushButton;
 class GasGraphWidget;
 class QJsonArray;
+class QTimer;
 
 // 그래프 화면: 가스농도/연기농도 추이 + 기간·날짜 선택 UI.
 // 기간/날짜 버튼을 누르면 sensorLogRequested를 emit하고, MainWindow가 ServerLink::sendQuery("sensor_log",...)로
@@ -55,6 +56,8 @@ private:
     int currentPeriodIndex = 0;
     QDate currentDate;
     QString currentZoneId; // "A"~"D". updateZone()에서 바뀔 때만 재조회한다(매초 오는 sensor 메시지마다 X).
+    // 그래프를 보는 동안 시간이 흘러도 화면이 그 자리에 멈춰있지 않도록 주기적으로 다시 조회한다.
+    QTimer *liveRefreshTimer = nullptr;
 };
 
 #endif // GRAPHPAGE_H

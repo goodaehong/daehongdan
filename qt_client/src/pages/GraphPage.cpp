@@ -60,6 +60,12 @@ GraphPage::GraphPage(QWidget *parent)
     chartsRow->addLayout(smokeCol);
 
     rootLayout->addLayout(chartsRow, 1);
+
+    // 그래프 화면에 머무는 동안 시간 축이 실시간으로 앞으로 움직이도록 주기적으로 재조회한다.
+    // 예전엔 기간 버튼을 누른 그 순간에만 조회하고 끝이라, 계속 보고 있어도 그래프가 멈춰있었다.
+    liveRefreshTimer = new QTimer(this);
+    connect(liveRefreshTimer, &QTimer::timeout, this, &GraphPage::requestCurrentPeriod);
+    liveRefreshTimer->start(30000);
 }
 
 QWidget *GraphPage::createControlBar()
@@ -230,14 +236,22 @@ void GraphPage::requestCurrentPeriod()
 
     // 기간 버튼 4개 = 10분/1시간/6시간/하루 (명세서 3-2 기간 버튼 표와 동일)
     static const qint64 kPeriodSeconds[] = { 600, 3600, 21600, 86400 };
-    const qint64 span = kPeriodSeconds[currentPeriodIndex];
-
-    // 오늘이면 "지금"까지, 과거 날짜면 그 날 23:59:59까지를 끝점으로 삼아 거기서 기간만큼 거슬러 올라간다.
     const bool isToday = currentDate == QDate::currentDate();
-    const qint64 to = isToday
-        ? QDateTime::currentSecsSinceEpoch()
-        : QDateTime(currentDate, QTime(23, 59, 59)).toSecsSinceEpoch();
-    const qint64 from = to - span;
+
+    qint64 from, to;
+    if (currentPeriodIndex == 3 && isToday) {
+        // "하루"는 롤링 24시간이 아니라 달력 날짜 기준 — 오늘이면 자정부터 지금까지.
+        // (과거 날짜는 아래 else에서 그 날 00:00~23:59로 이미 처리됨)
+        from = QDateTime(currentDate, QTime(0, 0)).toSecsSinceEpoch();
+        to = QDateTime::currentSecsSinceEpoch();
+    } else {
+        // 10분/1시간/6시간은 "지금 기준 최근 N": 과거 날짜를 조회 중이면 그 날 23:59:59를
+        // 끝점으로 삼아 거기서 기간만큼 거슬러 올라간다.
+        to = isToday
+            ? QDateTime::currentSecsSinceEpoch()
+            : QDateTime(currentDate, QTime(23, 59, 59)).toSecsSinceEpoch();
+        from = to - kPeriodSeconds[currentPeriodIndex];
+    }
 
     emit sensorLogRequested(currentZoneId, from, to);
 }

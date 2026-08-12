@@ -279,12 +279,18 @@ void DetectionOverlay::paintEvent(QPaintEvent *)
             painter.drawRect(roiDragCurrentScreen);
         }
         if (roiEditMode) {
+            // 영상 위쪽(제일 눈길이 먼저 가는 자리)을 가리지 않도록 하단으로 옮겼다. 영상 내용과
+            // 무관하게 잘 읽히도록 얇은 반투명 바탕을 깔아준다.
+            const QRect hintRect(0, height() - 26, width(), 26);
+            painter.setPen(Qt::NoPen);
+            painter.setBrush(QColor(0, 0, 0, 140));
+            painter.drawRect(hintRect);
             painter.setBrush(Qt::NoBrush);
             painter.setPen(Qt::white);
             QFont hintFont = painter.font();
             hintFont.setPixelSize(12);
             painter.setFont(hintFont);
-            painter.drawText(QRect(8, 8, width() - 16, 20), Qt::AlignLeft | Qt::AlignVCenter,
+            painter.drawText(hintRect.adjusted(8, 0, -8, 0), Qt::AlignLeft | Qt::AlignVCenter,
                               "드래그: 제외 영역 추가 · × 클릭(또는 우클릭): 영역 삭제");
         }
     }

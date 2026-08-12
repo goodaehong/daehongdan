@@ -142,15 +142,19 @@ StatusPanel::StatusPanel(QWidget *parent)
     heroStateLabel->setStyleSheet("border:none;");
     heroLayout->addWidget(heroStateLabel);
 
+    // 원인 문구와 경과 시간을 같은 줄에 둔다 — 세로로 떨어져 있으면 "화재 감지 확정"과
+    // "02:12 경과"가 서로 이어진 정보로 안 읽혀서 알아보기 어렵다는 피드백 반영.
+    auto *causeRow = new QHBoxLayout;
+    causeRow->setSpacing(6);
+    causeRow->addStretch();
     heroCauseLabel = new QLabel(contentWidget);
-    heroCauseLabel->setAlignment(Qt::AlignCenter);
     heroCauseLabel->setStyleSheet(QString("color:%1; font-size:13px; border:none;").arg(kTextSecondary));
-    heroLayout->addWidget(heroCauseLabel);
-
+    causeRow->addWidget(heroCauseLabel);
     heroElapsedLabel = new QLabel(contentWidget);
-    heroElapsedLabel->setAlignment(Qt::AlignCenter);
     heroElapsedLabel->setStyleSheet(QString("color:%1; font-size:13px; border:none;").arg(kTextSecondary));
-    heroLayout->addWidget(heroElapsedLabel);
+    causeRow->addWidget(heroElapsedLabel);
+    causeRow->addStretch();
+    heroLayout->addLayout(causeRow);
 
     elapsedTimer = new QTimer(this);
     connect(elapsedTimer, &QTimer::timeout, this, &StatusPanel::updateElapsedLabel);
@@ -257,6 +261,18 @@ StatusPanel::StatusPanel(QWidget *parent)
 
     QVBoxLayout *envLayout = makeCard("환경");
     QWidget *envCardWidget = envLayout->parentWidget();
+
+    auto *envHeaderRow = new QHBoxLayout;
+    auto *envRealtimeLabel = new QLabel("실시간", envCardWidget);
+    envRealtimeLabel->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kTextSecondary));
+    envLinkBadge = new QLabel(envCardWidget);
+    envLinkBadge->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kTextSecondary));
+    envLinkBadge->setText("🟢 연결됨");
+    envHeaderRow->addWidget(envRealtimeLabel);
+    envHeaderRow->addStretch();
+    envHeaderRow->addWidget(envLinkBadge);
+    envLayout->addLayout(envHeaderRow);
+
     auto *envRow = new QHBoxLayout;
     envRow->setSpacing(6);
     auto *tempNameLabel = new QLabel("온도", envCardWidget);
@@ -408,7 +424,10 @@ StatusPanel::StatusPanel(QWidget *parent)
 
     // 위험 모드 전환/해제는 교체가 아니라 2개 병존 — 상태에 따라 활성/비활성만 바뀐다 (emergency-mode #6).
     // 대홍님 요청: 해제 버튼을 숨기지 않고 항상 보이게 해서 "지금은 못 누른다"를 명확히 한다.
-    emergencyTriggerButton = new QPushButton("🚨 위험 모드 전환", controlCardWidget);
+    // 빨간 배경 버튼에 🚨 이모지를 얹으면 이모지 자체의 빨강 톤이 배경과 겹쳐 잘 안 보였다 —
+    // 굵은 흰 글씨만으로도 대비는 충분해서 아이콘 없이 문구만 둔다(다이얼로그 헤더는 어두운 배경
+    // 위라 문제없어서 그대로 유지).
+    emergencyTriggerButton = new QPushButton("위험 모드 전환", controlCardWidget);
     emergencyTriggerButton->setCursor(Qt::PointingHandCursor);
     emergencyTriggerButton->setFixedHeight(36);
     connect(emergencyTriggerButton, &QPushButton::clicked, this, [this]() {
@@ -501,7 +520,8 @@ void StatusPanel::updateElapsedLabel()
     }
     const qint64 m = secs / 60;
     const qint64 s = secs % 60;
-    heroElapsedLabel->setText(QString("%1:%2 경과")
+    // 원인 문구 옆에 이어 붙는 자리라 " · "로 구분해준다(세로 배치였을 땐 줄바꿈으로 구분됐음).
+    heroElapsedLabel->setText(QString("· %1:%2 경과")
         .arg(m, 2, 10, QChar('0')).arg(s, 2, 10, QChar('0')));
 }
 
@@ -592,14 +612,24 @@ void StatusPanel::updateZone(const Zone &zone)
 
     // 배경 알약이 아니라 글자 색만 눈에 띄게 칠한다.
     // dhtOk=false는 "이번 틱에 DHT22를 못 읽어 직전 값을 재사용 중"이라는 뜻 — DHT22 특성상 흔한 일이라
-    // 값을 지우진 않고(마지막 정상값이라 여전히 유효) 작은 표시만 붙인다 (emergency-mode #13).
+    // 값을 지우진 않고(마지막 정상값이라 여전히 유효) 색만 바꾼다 (emergency-mode #13).
+    // 인라인 ⚠ 아이콘은 빼고 카드 헤더의 envLinkBadge 하나로만 알린다(신호가 두 군데로 갈라지면
+    // 오히려 더 헷갈림).
     const bool dhtStale = zone.hasLiveSensorData && !zone.dhtOk;
-    tempValueLabel->setText(QString("%1℃%2").arg(QString::number(zone.temp, 'f', 1), dhtStale ? " ⚠" : ""));
+    tempValueLabel->setText(QString("%1℃").arg(QString::number(zone.temp, 'f', 1)));
     tempValueLabel->setStyleSheet(QString("color:%1; font-size:16px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;").arg(dhtStale ? kWarnColor : "#60a5fa"));
     tempValueLabel->setToolTip(dhtStale ? "온습도 센서 읽기 실패 — 마지막 정상값 표시 중" : "");
-    humidityValueLabel->setText(QString("%1%%2").arg(QString::number(zone.humidity, 'f', 1), dhtStale ? " ⚠" : ""));
+    humidityValueLabel->setText(QString("%1%").arg(QString::number(zone.humidity, 'f', 1)));
     humidityValueLabel->setStyleSheet(QString("color:%1; font-size:16px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;").arg(dhtStale ? kWarnColor : "#22d3ee"));
     humidityValueLabel->setToolTip(dhtStale ? "온습도 센서 읽기 실패 — 마지막 정상값 표시 중" : "");
+
+    if (dhtStale) {
+        envLinkBadge->setText("🟡 온습도 불안정");
+        envLinkBadge->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kWarnColor));
+    } else {
+        envLinkBadge->setText("🟢 연결됨");
+        envLinkBadge->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kSafeColor));
+    }
 
     // 서버 임계값: 가스 경고 200ppm / 위험 2000ppm (server/judgement.cpp GAS_WARN_THRESHOLD/GAS_DANGER_THRESHOLD)
     constexpr double kGasWarn = 200, kGasDanger = 2000, kGasScale = 2000;
@@ -627,13 +657,11 @@ void StatusPanel::updateZone(const Zone &zone)
     // 이므로 수치를 그대로 보여주면 안 된다 (emergency-mode #13). dhtOk와 달리 흔한 일이 아니라 바로 표시.
     const bool sensorStale = zone.hasLiveSensorData && !zone.sensorOk;
 
-    // 우선순위: 센서 오류(빨강) > 온습도만 불안정(노랑) > 정상(초록).
+    // 이 카드는 가스/불꽃/연기(ADS1115) 전용이라 sensorOk만 본다 — 온습도(DHT22)는 별개
+    // 센서라 위의 envLinkBadge("환경" 카드)가 따로 담당한다.
     if (sensorStale) {
         sensorLinkBadge->setText("🔴 센서 오류");
         sensorLinkBadge->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kDangerColor));
-    } else if (dhtStale) {
-        sensorLinkBadge->setText("🟡 온습도 불안정");
-        sensorLinkBadge->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kWarnColor));
     } else {
         sensorLinkBadge->setText("🟢 연결됨");
         sensorLinkBadge->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(kSafeColor));
@@ -721,10 +749,14 @@ void StatusPanel::setActuatorStatus(int fan, int valve, int siren, const QString
     static const QStringList kFanLabels = { "OFF", "약", "중", "강" };
     // 세기별로 색을 다르게(약=파랑 → 중=노랑 → 강=빨강), OFF만 회색 아웃라인.
     static const QStringList kFanColors = { kTextSecondary, "#60a5fa", kWarnColor, kDangerColor };
+    // 미반영(mismatch) 표시는 예전엔 kWarnColor(노랑) 배경에 노란 ⚠ 이모지를 얹어서 노랑-on-노랑으로
+    // 거의 안 보였다(밸브 "개방" 등 원래도 노란 배지인 상태와 겹치면 특히 심함). 두 가지로 고친다:
+    // ① 미반영 색은 평상시 상태색과 절대 안 겹치는 kDangerColor(빨강)로 분리
+    // ② 이모지 대신 굵은 "!"— pillStyle이 지정한 진한 글씨색을 그대로 물려받아 배경과 무관하게 잘 보임
     const bool fanMismatch = fan >= 0 && fanSrc != "manual" && fan != targetFan;
     if (fan >= 0 && fan < kFanLabels.size()) {
-        fanValueLabel->setText(kFanLabels[fan] + (fanMismatch ? " ⚠" : ""));
-        fanValueLabel->setStyleSheet(pillStyle(fanMismatch ? kWarnColor : kFanColors[fan], fan != 0 || fanMismatch));
+        fanValueLabel->setText(kFanLabels[fan] + (fanMismatch ? " !" : ""));
+        fanValueLabel->setStyleSheet(pillStyle(fanMismatch ? kDangerColor : kFanColors[fan], fan != 0 || fanMismatch));
         fanValueLabel->setToolTip(fanMismatch
             ? QString("⚠ 대응 미반영 — 목표: %1 → 실제: %2").arg(kFanLabels.value(targetFan, "?"), kFanLabels[fan]) : "");
     } else {
@@ -735,8 +767,8 @@ void StatusPanel::setActuatorStatus(int fan, int valve, int siren, const QString
 
     const bool valveMismatch = (valve == 0 || valve == 1) && valveSrc != "manual" && valve != targetValve;
     if (valve == 0 || valve == 1) {
-        valveValueLabel->setText((valve == 1 ? "개방" : "잠금") + QString(valveMismatch ? " ⚠" : ""));
-        valveValueLabel->setStyleSheet(pillStyle(valveMismatch ? kWarnColor : (valve == 1 ? kWarnColor : kSafeColor), true));
+        valveValueLabel->setText((valve == 1 ? "개방" : "잠금") + QString(valveMismatch ? " !" : ""));
+        valveValueLabel->setStyleSheet(pillStyle(valveMismatch ? kDangerColor : (valve == 1 ? kWarnColor : kSafeColor), true));
         valveValueLabel->setToolTip(valveMismatch
             ? QString("⚠ 대응 미반영 — 목표: %1 → 실제: %2").arg(targetValve == 1 ? "개방" : "잠금", valve == 1 ? "개방" : "잠금") : "");
     } else {
@@ -747,8 +779,8 @@ void StatusPanel::setActuatorStatus(int fan, int valve, int siren, const QString
 
     const bool sirenMismatch = (siren == 0 || siren == 1) && sirenSrc != "manual" && siren != targetSiren;
     if (siren == 0 || siren == 1) {
-        sirenValueLabel->setText((siren == 1 ? "ON" : "OFF") + QString(sirenMismatch ? " ⚠" : ""));
-        sirenValueLabel->setStyleSheet(pillStyle(sirenMismatch ? kWarnColor : (siren == 1 ? kDangerColor : kTextSecondary), siren == 1 || sirenMismatch));
+        sirenValueLabel->setText((siren == 1 ? "ON" : "OFF") + QString(sirenMismatch ? " !" : ""));
+        sirenValueLabel->setStyleSheet(pillStyle(sirenMismatch ? kDangerColor : (siren == 1 ? kDangerColor : kTextSecondary), siren == 1 || sirenMismatch));
         sirenValueLabel->setToolTip(sirenMismatch
             ? QString("⚠ 대응 미반영 — 목표: %1 → 실제: %2").arg(targetSiren == 1 ? "ON" : "OFF", siren == 1 ? "ON" : "OFF") : "");
     } else {
@@ -804,7 +836,7 @@ void StatusPanel::updateEmergencyButtons(ZoneState state, bool responseOk)
         if (responseOk) {
             emergencyBlinkTimer->stop();
             emergencyTriggerButton->setEnabled(false);
-            emergencyTriggerButton->setText("🚨 위험 모드 전환");
+            emergencyTriggerButton->setText("위험 모드 전환");
             emergencyTriggerButton->setStyleSheet(
                 "QPushButton { background-color:#3a3550; color:#8d87a0; border:none; border-radius:6px; font-size:13px; font-weight:bold; font-family:\"hanwhaGothic EL\"; }");
             setClearButtonActive(true);
@@ -819,7 +851,7 @@ void StatusPanel::updateEmergencyButtons(ZoneState state, bool responseOk)
     } else {
         emergencyBlinkTimer->stop();
         emergencyTriggerButton->setEnabled(true);
-        emergencyTriggerButton->setText("🚨 위험 모드 전환");
+        emergencyTriggerButton->setText("위험 모드 전환");
         emergencyTriggerButton->setStyleSheet(
             "QPushButton { background-color:#ef4444; color:white; border:none; border-radius:6px; font-size:13px; font-weight:bold; font-family:\"hanwhaGothic EL\"; }"
             "QPushButton:hover { background-color:#dc2626; }");

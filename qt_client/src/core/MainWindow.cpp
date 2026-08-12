@@ -121,6 +121,7 @@ MainWindow::MainWindow(QWidget *parent)
                 monitorPage->showControlStatus(QString("완료: %1").arg(label), "#34d399");
                 // 버튼/배너 상태는 여기서 낙관적으로 바꾸지 않는다 -> sensor 메시지의
                 // state/dangerSource가 실제 상태를 확정해서 알려준다 (updateDangerIndicators에서 반영).
+                eventLogPage->requestRefresh(); // 서버가 이 응답 전에 이미 event_log를 남겨둔 상태
             });
     connect(serverLink, &ServerLink::emergencyTimedOut, this,
             [this](const QString &, const QString &, const QString &) {
@@ -142,6 +143,8 @@ MainWindow::MainWindow(QWidget *parent)
                         QString("실패: %1 (%2)").arg(title.isEmpty() ? "명령" : title, reasonText), "#f87171");
                     monitorPage->setActuatorRowStatus(target, "실패", "#f87171");
                 }
+                // 서버는 성공/실패 상관없이 매 수동 제어를 event_log에 남긴다 — 즉시 반영.
+                eventLogPage->requestRefresh();
             });
     connect(serverLink, &ServerLink::controlTimedOut, this,
             [this](const QString &cmdId, const QString &, const QString &target) {
@@ -203,8 +206,12 @@ MainWindow::MainWindow(QWidget *parent)
                     zone.dangerSource = dangerSource;
                     zone.admin = admin;
                     zone.hasLiveSensorData = true;
-                    if (oldState != zone.state)
+                    if (oldState != zone.state) {
                         zone.stateEnteredAt = QDateTime::currentDateTime();
+                        // 경고/위험 진입, 해제 등 상태가 바뀐 시점 = 서버가 이번 tick에 event_log를
+                        // 남겼을 시점이라 바로 재조회한다 (이벤트로그 "실시간" 반영, 30초 안 기다림).
+                        eventLogPage->requestRefresh();
+                    }
 
                     zone.gasHistory.append(gasPpm);
                     zone.gasHistoryLabels.append(QDateTime::currentDateTime().toString("HH:mm:ss"));
@@ -321,6 +328,17 @@ MainWindow::MainWindow(QWidget *parent)
 
         graphPage->requestCurrentPeriod(); // 그래프 탭도 현재 선택된 기간/날짜로 최초 조회
     });
+
+    // 이벤트로그 "조회" 버튼/30초 자동 갱신 — 응답은 위 queryResult 핸들러가 그대로 받아서
+    // eventLogPage->loadEntriesFromServer()로 넘겨준다.
+    connect(eventLogPage, &EventLogPage::eventLogRequested, this,
+            [this](qint64 from, qint64 to) {
+                QJsonObject params;
+                params["from"] = from;
+                params["to"] = to;
+                params["limit"] = 500;
+                serverLink->sendQuery("event_log", params);
+            });
 
     // sensor 메시지 흐름 감시(emergency-mode #19). 소켓은 붙어있어도 서버 내부(센서 스레드)가 멎으면
     // sensor가 안 오는데, connectionStateChanged만 보면 이 상태를 "연결됨"으로 잘못 표시하게 된다.
@@ -620,7 +638,7 @@ void MainWindow::updateDangerIndicators()
         // 수동 발령은 발령자만 아는 근거(육안 확인, 냄새 등)가 있을 수 있어, 자동 감지와 구분해서
         // 발령자 이름을 같이 보여준다 — 다른 사람이 근거 없이 함부로 해제하면 안 되기 때문 (emergency-mode #17).
         const QString sourceText = dz.dangerSource == "manual"
-            ? QString("수동 발령%1").arg(dz.admin.isEmpty() ? "" : QString(" (%1)").arg(dz.admin))
+            ? QString("수동 발령%1").arg(dz.admin.isEmpty() ? "" : QString(" (관리자: %1)").arg(dz.admin))
             : "자동 감지";
         dangerBanner->setText(QString("🚨 %1 %2 · %3 (클릭 시 모니터링으로 이동)").arg(dz.name, situation, sourceText));
         dangerBanner->setVisible(true);
