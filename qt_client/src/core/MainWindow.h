@@ -15,6 +15,7 @@ class MonitorPage;
 class EventLogPage;
 class GraphPage;
 class HelpPage;
+class FloorMapPage;
 class ServerLink;
 class QTimer;
 class QVBoxLayout;
@@ -55,6 +56,9 @@ private:
     // 소켓 연결 여부 + sensor 메시지 수신 흐름(5초 이상 끊기면 정지로 판단)을 합쳐 connBadge 3단계로 표시.
     // (emergency-mode #19 — TCP는 붙어있어도 서버 내부가 멎으면 "연결됨"으로 잘못 보이는 문제 보완)
     void refreshConnBadge();
+    // 평면도가 아직 등록 안 됐으면 "평면도" 탭에 배지 표시(모니터링 탭의 위험 🔴 점과 같은 패턴).
+    // 지금 그 탭을 보고 있을 때는 안 띄운다 — 이미 보고 있는 화면을 또 알릴 필요는 없어서.
+    void refreshFloorMapTabBadge();
 
     QStackedWidget *stack;
     QList<QPushButton *> tabButtons;
@@ -84,6 +88,9 @@ private:
     EventLogPage *eventLogPage;
     GraphPage *graphPage;
     HelpPage *helpPage;
+    FloorMapPage *floorMapPage;
+    // 평면도 탭에 아직 지도가 등록 안 됐을 때 탭 배지("🔶 평면도")를 갱신하는 데 쓰는 인덱스.
+    int floorMapTabIndex = -1;
 
     ServerLink *serverLink;
     // cmdId -> 표시용 제목("환기팬 가동" 등). control_ack/타임아웃 왔을 때 로그 문구에 씀.

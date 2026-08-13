@@ -50,6 +50,7 @@ qt_add_executable(qt_dashboard
     src/core/ZoneTypes.cpp
     src/core/ZoneTypes.h
     src/core/DetectionTypes.h
+    src/core/FloorMapTypes.h
     src/pages/LoginPage.cpp
     src/pages/LoginPage.h
     src/pages/MonitorPage.cpp
@@ -60,6 +61,10 @@ qt_add_executable(qt_dashboard
     src/pages/GraphPage.h
     src/pages/HelpPage.cpp
     src/pages/HelpPage.h
+    src/pages/FloorMapPage.cpp
+    src/pages/FloorMapPage.h
+    src/widgets/FloorMapGridWidget.cpp
+    src/widgets/FloorMapGridWidget.h
     src/widgets/VideoWidget.cpp
     src/widgets/VideoWidget.h
     src/widgets/DetectionOverlay.cpp

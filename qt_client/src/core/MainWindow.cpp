@@ -3,6 +3,7 @@
 #include "../pages/EventLogPage.h"
 #include "../pages/GraphPage.h"
 #include "../pages/HelpPage.h"
+#include "../pages/FloorMapPage.h"
 #include "../network/ServerLink.h"
 #include "../widgets/WarningAlertDialog.h"
 #include "../widgets/DangerGlowOverlay.h"
@@ -24,11 +25,11 @@
 #include <QColor>
 
 namespace {
-const QString kMediaMtxHost = "172.20.35.230"; // MediaMTX가 도는 라즈베리파이 주소 (카메라 IP 아님)
-const QString kServerHost = "172.20.35.230";   // 감지/센서/제어 JSON 소켓도 같은 라즈베리파이
+const QString kMediaMtxHost = "172.20.32.41"; // MediaMTX가 도는 라즈베리파이 주소 (카메라 IP 아님)
+const QString kServerHost = "172.20.32.41";   // 감지/센서/제어 JSON 소켓도 같은 라즈베리파이
 const quint16 kServerPort = 9999;             // TODO: 실제 서버 리슨 포트로 맞추기
 
-const QStringList kTabNames = { "모니터링", "이벤트로그", "그래프", "도움말" };
+const QStringList kTabNames = { "모니터링", "이벤트로그", "그래프", "평면도", "도움말" };
 
 const QString kBg = "#0a0a12";
 const QString kCardBorder = "#232333";
@@ -67,6 +68,7 @@ MainWindow::MainWindow(QWidget *parent)
     monitorPage = new MonitorPage(centralArea);
     eventLogPage = new EventLogPage(centralArea);
     graphPage = new GraphPage(centralArea);
+    floorMapPage = new FloorMapPage(centralArea);
     helpPage = new HelpPage(centralArea);
 
     connect(monitorPage, &MonitorPage::demoStateRequested, this, [this](ZoneState state) {
@@ -259,8 +261,14 @@ MainWindow::MainWindow(QWidget *parent)
     stack->addWidget(monitorPage);
     stack->addWidget(eventLogPage);
     stack->addWidget(graphPage);
+    floorMapTabIndex = stack->addWidget(floorMapPage);
     stack->addWidget(helpPage);
     rootLayout->addWidget(stack);
+
+    connect(floorMapPage, &FloorMapPage::configuredChanged, this, [this](bool) {
+        refreshFloorMapTabBadge();
+    });
+    refreshFloorMapTabBadge();
 
     setCentralWidget(centralArea);
 
@@ -510,6 +518,17 @@ void MainWindow::switchTab(int index)
     for (int i = 0; i < tabButtons.size(); ++i)
         tabButtons[i]->setChecked(i == index);
     updateDangerIndicators(); // 모니터링 탭 강조는 현재 탭에 따라 달라짐
+    refreshFloorMapTabBadge(); // 평면도 탭 배지도 마찬가지 — 그 탭을 보고 있으면 숨김
+}
+
+void MainWindow::refreshFloorMapTabBadge()
+{
+    if (floorMapTabIndex < 0 || floorMapTabIndex >= tabButtons.size())
+        return;
+    const bool showBadge = !floorMapPage->isConfigured() && stack->currentIndex() != floorMapTabIndex;
+    tabButtons[floorMapTabIndex]->setText(showBadge
+        ? QString("🔶 %1").arg(kTabNames[floorMapTabIndex])
+        : kTabNames[floorMapTabIndex]);
 }
 
 void MainWindow::switchZone(int index)
