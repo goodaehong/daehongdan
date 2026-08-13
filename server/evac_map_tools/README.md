@@ -81,6 +81,10 @@ std::vector<std::vector<Point>> processFloorPlan(const std::string& imagePath);
 
 // 비트맵만 필요할 때 (파일 저장 없음)
 std::vector<std::vector<int>> getEvacBitmap(const std::string& imagePath);
+
+// 전광판 / 출구 좌표만 필요할 때 (Qt 등, 파일 저장 없음)
+std::vector<Point> getEvacDisplays(const std::string& imagePath);
+std::vector<Point> getEvacExits(const std::string& imagePath);
 ```
 
 ### `processFloorPlan()` 리턴값
@@ -95,6 +99,15 @@ std::vector<std::vector<int>> getEvacBitmap(const std::string& imagePath);
 - `bitmap[y][x]` = 0(통행 가능) / 1(장애물), 62x62 고정.
 - 이미지 로드 실패 시 빈 vector.
 - 바깥 테두리는 출구 좌표를 제외하고 전부 벽(1)으로 막혀 있음.
+
+### `getEvacDisplays()` / `getEvacExits()` 리턴값
+
+- 전광판/출구 좌표 목록. `Point{y, x}`.
+- **순서가 `processFloorPlan()`의 경로 순서와 같음.** 전광판 수를 D, 출구 수를 E라 하면
+  `routes[i * E + j]`가 `displays[i] → exits[j]` 경로임. Qt에서 특정 전광판·출구를 골라 그릴 때 이 규칙으로 인덱싱하면 됨.
+- 이미지 로드 실패 시 빈 vector.
+
+> 네 함수 모두 호출할 때마다 이미지를 다시 읽고 OpenCV 처리를 새로 함. 같은 이미지로 여러 개가 필요하면 한 번씩만 호출해 결과를 들고 있는 게 좋음.
 
 ## 5. 좌표계 / STM32 측 처리
 

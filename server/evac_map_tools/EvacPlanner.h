@@ -21,3 +21,11 @@ std::vector<std::vector<Point>> processFloorPlan(const std::string& imagePath);
 // 평면도 이미지에서 장애물 비트맵(1=벽, 0=통로)만 계산해 반환.
 // 실패 시 빈 vector 반환.
 std::vector<std::vector<int>> getEvacBitmap(const std::string& imagePath);
+
+// 전광판 좌표들. 벽에 인접한 통행 가능한 칸으로 스냅된 값.
+// 순서는 processFloorPlan()의 경로 순서와 동일 (전광판 i = displays[i]).
+std::vector<Point> getEvacDisplays(const std::string& imagePath);
+
+// 출구 좌표들. 항상 바깥 경계선 위(y==0 || y==GRID_SIZE-1 || x==0 || x==GRID_SIZE-1).
+// 순서는 processFloorPlan()의 경로 순서와 동일 (출구 j = exits[j]).
+std::vector<Point> getEvacExits(const std::string& imagePath);
