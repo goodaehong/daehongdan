@@ -68,6 +68,28 @@ FloorMapPage::FloorMapPage(QWidget *parent)
     headerRow->addWidget(resetButton);
     layout->addLayout(headerRow);
 
+    // 지도 미등록 상태를 탭 배지("❗ 평면도")뿐 아니라 탭에 들어오는 즉시도 알 수 있도록
+    // 페이지 최상단에 배너로 한 번 더 표시한다.
+    notConfiguredBanner = new QWidget(this);
+    notConfiguredBanner->setStyleSheet(
+        "background-color:#3a2e12; border:1px solid #6b5416; border-radius:8px;");
+    auto *bannerLayout = new QHBoxLayout(notConfiguredBanner);
+    bannerLayout->setContentsMargins(14, 10, 14, 10);
+    auto *bannerLabel = new QLabel(
+        "❗ 아직 평면도가 등록되지 않았습니다. \"지도 재설정\"에서 원본 이미지를 등록해주세요.",
+        notConfiguredBanner);
+    bannerLabel->setStyleSheet("color:#fbbf24; font-size:14px; border:none;");
+    bannerLayout->addWidget(bannerLabel);
+    bannerLayout->addStretch();
+    auto *bannerButton = new QPushButton("지금 등록", notConfiguredBanner);
+    bannerButton->setCursor(Qt::PointingHandCursor);
+    bannerButton->setStyleSheet(
+        "QPushButton { background-color:#fbbf24; color:#1a1400; border:none; border-radius:6px; padding:6px 14px; font-weight:bold; }"
+        "QPushButton:hover { background-color:#fcd34d; }");
+    connect(bannerButton, &QPushButton::clicked, this, &FloorMapPage::openSetupPanel);
+    bannerLayout->addWidget(bannerButton);
+    layout->addWidget(notConfiguredBanner);
+
     auto *card = new QFrame(this);
     card->setStyleSheet(QString("background-color:%1; border:1px solid %2; border-radius:10px;").arg(kCardBg, kCardBorder));
     auto *cardLayout = new QVBoxLayout(card);
@@ -98,6 +120,7 @@ void FloorMapPage::updateEmptyState()
 {
     gridWidget->setVisible(hasData);
     emptyStateLabel->setVisible(!hasData);
+    notConfiguredBanner->setVisible(!hasData);
 }
 
 void FloorMapPage::openSetupPanel()

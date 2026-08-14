@@ -37,6 +37,8 @@ private:
     FloorMapGridWidget *gridWidget = nullptr;
     QLabel *emptyStateLabel = nullptr;
     QPushButton *resetButton = nullptr;
+    // 지도 미등록 시 탭 진입 즉시 눈에 띄도록 페이지 상단에 표시하는 안내 배너.
+    QWidget *notConfiguredBanner = nullptr;
 
     QDialog *setupDialog = nullptr;
     QLabel *originalPreviewLabel = nullptr;

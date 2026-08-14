@@ -527,7 +527,7 @@ void MainWindow::refreshFloorMapTabBadge()
         return;
     const bool showBadge = !floorMapPage->isConfigured() && stack->currentIndex() != floorMapTabIndex;
     tabButtons[floorMapTabIndex]->setText(showBadge
-        ? QString("🔶 %1").arg(kTabNames[floorMapTabIndex])
+        ? QString("❗ %1").arg(kTabNames[floorMapTabIndex])
         : kTabNames[floorMapTabIndex]);
 }
 
