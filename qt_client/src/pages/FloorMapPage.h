@@ -30,8 +30,11 @@ signals:
 
 private:
     void openSetupPanel();
-    // 서버 연동 전까지 UI 확인용 예시 데이터를 만든다 — 실제 변환은 아님(버튼 문구로도 명시).
-    void applyPlaceholderConversion(const QImage &originalImage);
+    // evac_map_tools가 실제 우리 평면도(map.png)를 변환해 낸 결과(비트맵+전광판+출구+경로)를
+    // 그대로 미리 넣어둔 것 — 손으로 지어낸 예시가 아니라 진짜 계산 결과다. 다만 서버 query/push
+    // 프로토콜이 아직 없어서 "지금 고른 이미지"에 반응하는 게 아니라 이 고정된 결과만 보여준다.
+    // 서버 연동되면 이 함수 몸통이 서버 응답 파싱으로 통째로 교체된다.
+    void applyPrecomputedConversion(const QImage &originalImage);
     void updateEmptyState();
 
     FloorMapGridWidget *gridWidget = nullptr;
