@@ -31,6 +31,14 @@ int main() {
 
     std::vector<std::vector<Point>> calculatedRoutes = processFloorPlan("map.png");
     std::vector<std::vector<int>> bitmap = getEvacBitmap("map.png");
+    std::vector<Point> displays = getEvacDisplays("map.png");
+    std::vector<Point> exits = getEvacExits("map.png");
+
+    std::cout << "[전광판 " << displays.size() << "개] ";
+    for (const auto& d : displays) std::cout << "(" << d.y << "," << d.x << ") ";
+    std::cout << "\n[출구 " << exits.size() << "개] ";
+    for (const auto& e : exits) std::cout << "(" << e.y << "," << e.x << ") ";
+    std::cout << "\n";
 
     if (!calculatedRoutes.empty()) {
         std::cout << "완료\n";

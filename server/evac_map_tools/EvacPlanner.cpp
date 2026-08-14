@@ -308,3 +308,23 @@ std::vector<std::vector<int>> getEvacBitmap(const std::string& imagePath) {
     if (!analyzeFloorPlan(imagePath, fp)) return {};
     return fp.grid;
 }
+
+// --- 전광판 좌표만 반환 (Qt 전송용) ---
+std::vector<Point> getEvacDisplays(const std::string& imagePath) {
+    FloorPlan fp;
+    if (!analyzeFloorPlan(imagePath, fp)) return {};
+    std::vector<Point> points;
+    points.reserve(fp.starts.size());
+    for (const auto& s : fp.starts) points.push_back(s.p);
+    return points;
+}
+
+// --- 출구 좌표만 반환 (Qt 전송용) ---
+std::vector<Point> getEvacExits(const std::string& imagePath) {
+    FloorPlan fp;
+    if (!analyzeFloorPlan(imagePath, fp)) return {};
+    std::vector<Point> points;
+    points.reserve(fp.exits.size());
+    for (const auto& e : fp.exits) points.push_back(e.p);
+    return points;
+}
