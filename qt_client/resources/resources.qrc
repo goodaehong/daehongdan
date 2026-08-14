@@ -1,6 +1,7 @@
 <RCC>
     <qresource prefix="/">
         <file>login_bg.jpg</file>
-        <file>fonts/HanwhaGothicL.ttf</file>
+        <file>fonts/06HanwhaGothicL.ttf</file>
+        <file>fonts/07HanwhaGothicEL.ttf</file>
     </qresource>
 </RCC>

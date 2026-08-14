@@ -19,10 +19,14 @@
 #include <QAbstractSpinBox>
 #include <QTextCharFormat>
 #include <QTimer>
+#include <QMap>
 
 namespace {
 const QString kCardBg = "#14141f";
 const QString kCardBorder = "#232333";
+// 표 안 셀 구분선 전용 색 — kCardBorder는 배경(kCardBg)과 명도差가 거의 없어서 특히 위험도
+// 강조색(빨강/노랑)이 깔린 행 위에서는 구분선이 사실상 안 보였다. 확실히 밝은 회색으로 분리.
+const QString kGridLine = "#454158";
 const QString kTextPrimary = "#f5f5fa";
 const QString kTextSecondary = "#8d87a0";
 const QString kAccent = "#8b7cf6";
@@ -61,6 +65,73 @@ QColor responseTextColor(const QString &response)
     if (response.contains("확인") || response.contains("완료") || response.contains("클릭"))
         return QColor("#34d399");
     return QColor(kTextPrimary);
+}
+
+// server/server_main.cpp respToText()가 만드는 "siren_on,valve_close,fan_off" 형식의 원문을
+// 한글로 옮긴다. DB엔 이 원문 그대로 저장돼야 나중에 LIKE 검색/집계가 문구 변경에 안 깨지므로,
+// 화면 표시 단계인 여기서만 변환한다 — cause/category를 이미 같은 방식으로 처리 중.
+QString translateResponseToken(const QString &token)
+{
+    static const QMap<QString, QString> kTokenText = {
+        { "siren_on", "사이렌 ON" }, { "siren_off", "사이렌 OFF" },
+        { "valve_open", "밸브 열림" }, { "valve_close", "밸브 잠금" },
+        { "fan_off", "팬 정지" }, { "fan_low", "팬 약" }, { "fan_mid", "팬 중" }, { "fan_high", "팬 강" },
+    };
+    // 매핑에 없는 토큰(구버전/새 필드 등)은 원문 그대로 둬서 정보가 사라지지 않게 한다.
+    return kTokenText.value(token, token);
+}
+
+// server/qt_link.cpp handleControl()이 만드는 "speaker:mute"/"fan:off" 같은 "target:action"
+// 단일 토큰(수동 제어 1건) 형식을 한글로 옮긴다. 위 콤마 구분 형식(자동 대응, 여러 장치 한 번에)과는
+// 구분자가 달라서 별도 매핑이 필요하다.
+QString translateManualControlResponse(const QString &raw)
+{
+    const int colonIdx = raw.indexOf(':');
+    if (colonIdx < 0)
+        return raw;
+    const QString target = raw.left(colonIdx);
+    const QString action = raw.mid(colonIdx + 1);
+
+    static const QMap<QString, QString> kTargetText = {
+        { "fan", "환기팬" }, { "valve", "밸브" }, { "siren", "사이렌" }, { "speaker", "대피 안내 음성" },
+    };
+    // 매핑에 없는 target(구버전/새 장치 등)은 원문 그대로 둬서 정보가 안 사라지게 한다.
+    if (!kTargetText.contains(target))
+        return raw;
+
+    static const QMap<QString, QString> kActionText = {
+        { "off", "OFF" }, { "on", "ON" }, { "low", "약" }, { "mid", "중" }, { "high", "강" },
+        { "open", "열림" }, { "close", "잠금" }, { "mute", "정지" },
+    };
+    return QString("%1 %2").arg(kTargetText.value(target), kActionText.value(action, action));
+}
+
+QString translateResponse(const QString &raw)
+{
+    if (raw.isEmpty())
+        return raw;
+    // 수동 제어 1건은 콤마 없는 "target:action" 단일 토큰(예: "speaker:mute"), 자동 대응은
+    // 콤마로 묶인 여러 "target_action" 토큰(예: "siren_on,valve_close,fan_off") — 형식으로 구분한다.
+    if (!raw.contains(',') && raw.contains(':'))
+        return translateManualControlResponse(raw);
+
+    QStringList parts;
+    for (const QString &token : raw.split(',', Qt::SkipEmptyParts))
+        parts << translateResponseToken(token.trimmed());
+    return parts.join(" · ");
+}
+
+// 지속 시간을 HH:MM:SS로. "1209초"처럼 초만 적혀 있으면 몇 분인지 암산해야 해서 시:분:초로 바꾼다.
+// QTime은 24시간을 넘기면 무효값이 되므로(장시간 미해결 사건) 직접 계산한다.
+QString formatDuration(qint64 totalSeconds)
+{
+    const qint64 h = totalSeconds / 3600;
+    const qint64 m = (totalSeconds % 3600) / 60;
+    const qint64 s = totalSeconds % 60;
+    return QString("%1:%2:%3")
+        .arg(h, 2, 10, QChar('0'))
+        .arg(m, 2, 10, QChar('0'))
+        .arg(s, 2, 10, QChar('0'));
 }
 }
 
@@ -168,8 +239,9 @@ EventLogPage::EventLogPage(QWidget *parent)
     eventTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     // 스크롤바도 다른 화면들과 동일한 다크/퍼플 accent 테마로 맞춤.
     eventTable->setStyleSheet(QString(
-        "QTableWidget { background-color:%1; color:%2; border:1px solid %3; gridline-color:%3; }"
-        "QHeaderView::section { background-color:#1a1a26; color:%4; border:none; padding:6px; }"
+        "QTableWidget { background-color:%1; color:%2; border:1px solid %3; gridline-color:%5; }"
+        "QHeaderView::section { background-color:#1a1a26; color:%4; border:none; padding:6px; "
+        "border-right:1px solid %5; }"
         "QScrollBar:vertical { background:#14141f; width:10px; margin:0; border-radius:5px; }"
         "QScrollBar::handle:vertical { background:#3a3550; min-height:24px; border-radius:5px; }"
         "QScrollBar::handle:vertical:hover { background:#8b7cf6; }"
@@ -180,11 +252,11 @@ EventLogPage::EventLogPage(QWidget *parent)
         "QScrollBar::handle:horizontal:hover { background:#8b7cf6; }"
         "QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width:0; border:none; background:none; }"
         "QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background:none; }")
-        .arg(kCardBg, kTextPrimary, kCardBorder, kTextSecondary));
+        .arg(kCardBg, kTextPrimary, kCardBorder, kTextSecondary, kGridLine));
     leftCol->addWidget(eventTable, 3);
 
     auto *graphLabel = new QLabel("가스 농도 추이", this);
-    graphLabel->setStyleSheet(QString("color:%1; font-size:13px; font-weight:bold;").arg(kTextPrimary));
+    graphLabel->setStyleSheet(QString("color:%1; font-size:13px; font-weight:bold; font-family:\"hanwhaGothic EL\";").arg(kTextPrimary));
     leftCol->addSpacing(8);
     leftCol->addWidget(graphLabel);
     gasGraph = new GasGraphWidget(this);
@@ -214,7 +286,7 @@ EventLogPage::EventLogPage(QWidget *parent)
         nameLabel->setStyleSheet(QString("color:%1;").arg(kTextSecondary));
         nameLabel->setFixedWidth(90);
         auto *valueLabel = new QLabel(detailContent);
-        valueLabel->setStyleSheet(QString("color:%1; font-weight:bold;").arg(kTextPrimary));
+        valueLabel->setStyleSheet(QString("color:%1; font-weight:bold; font-family:\"hanwhaGothic EL\";").arg(kTextPrimary));
         valueLabel->setWordWrap(true);
         row->addWidget(nameLabel);
         row->addWidget(valueLabel, 1);
@@ -261,7 +333,12 @@ EventLogPage::EventLogPage(QWidget *parent)
 
     mainLayout->addWidget(detailFrame, 1);
 
+    // "조회"는 지금까지 이미 불러온 목록을 필터링만 했다 — 서버에 새로 물어보는 게 아니라서
+    // 최초 접속 이후 발생한 이벤트(비상 전환/해제 등)가 화면에 계속 안 보이는 원인이었다.
+    // requestRefresh()로 서버 재조회를 같이 트리거한다(응답 오면 loadEntriesFromServer가 끝에서
+    // applyFilter()를 다시 불러줌).
     connect(searchBtn, &QPushButton::clicked, this, &EventLogPage::applyFilter);
+    connect(searchBtn, &QPushButton::clicked, this, &EventLogPage::requestRefresh);
     connect(zoneFilterCombo, &QComboBox::currentIndexChanged, this, &EventLogPage::applyFilter);
     connect(severityFilterCombo, &QComboBox::currentIndexChanged, this, &EventLogPage::applyFilter);
     connect(periodFilterCombo, &QComboBox::currentIndexChanged, this, &EventLogPage::applyFilter);
@@ -272,6 +349,14 @@ EventLogPage::EventLogPage(QWidget *parent)
     connect(clearDateBtn, &QPushButton::clicked, this, &EventLogPage::clearDateFilter);
     connect(startTimeEdit, &QTimeEdit::timeChanged, this, &EventLogPage::applyFilter);
     connect(endTimeEdit, &QTimeEdit::timeChanged, this, &EventLogPage::applyFilter);
+
+    // MainWindow가 실제 이벤트(상태 전환/제어 성공/비상 전환·해제 등) 발생 시점마다 requestRefresh()를
+    // 바로 호출해줘서 사실상 실시간으로 갱신된다. 이 타이머는 그걸로 못 잡는 경우(같은 상태에서
+    // 반복 감지, 다른 클라이언트의 조작 등)를 위한 안전망 — "조회를 눌러야만 보인다"는 체감을
+    // 줄이려고 60초에서 15초로 줄였다.
+    refreshTimer = new QTimer(this);
+    connect(refreshTimer, &QTimer::timeout, this, &EventLogPage::requestRefresh);
+    refreshTimer->start(15000);
 }
 
 void EventLogPage::updateZone(const Zone &zone)
@@ -336,7 +421,7 @@ void EventLogPage::loadEntriesFromServer(const QJsonArray &rows)
         if (!causePhrase.isEmpty()) {
             // emergency/emergency_reapply는 원인은 자동 위험과 같은 값이라 원인 문구만으론 구분이 안 됨 —
             // 수동 조작이었다는 걸 라벨로 명시한다 (emergency-mode #18). 실제 자동/수동 구분은 "관리자" 칸도 참고.
-            entry.detection = category == "emergency" ? "[비상 전환] " + causePhrase
+            entry.detection = category == "emergency" ? "[위험 전환] " + causePhrase
                              : category == "emergency_reapply" ? "[대응 재실행] " + causePhrase
                              : causePhrase;
         } else {
@@ -345,10 +430,10 @@ void EventLogPage::loadEntriesFromServer(const QJsonArray &rows)
                              : category == "manual_control" ? "관리자 수동 제어"
                              : category == "warning" ? "경고 상태 감지"
                              : category == "danger" ? "위험 상태 감지"
-                             : category == "emergency_clear" ? "비상 모드 해제"
+                             : category == "emergency_clear" ? "위험 모드 해제"
                              : category.isEmpty() ? "-" : category;
         }
-        entry.response = row.value("response").toString();
+        entry.response = translateResponse(row.value("response").toString());
         const QString admin = row.value("admin").toString();
         entry.admin = admin.isEmpty() ? "시스템(자동)" : admin;
 
@@ -367,14 +452,19 @@ void EventLogPage::loadEntriesFromServer(const QJsonArray &rows)
             entry.status = "해결됨";
 
         const double durationMs = row.value("durationMs").toDouble();
-        entry.duration = durationMs > 0 ? QString::number(durationMs / 1000.0, 'f', 0) + "초" : "-";
+        entry.duration = durationMs > 0 ? formatDuration(qint64(durationMs / 1000.0 + 0.5)) : "-";
 
         appendRow(entry);
     }
 
     // 처음 로드될 때만 내용에 맞춰 컬럼 폭을 잡아준다. 이후엔 사용자가 드래그로 조절한 폭이
-    // 유지되도록 매 행마다 다시 호출하지 않는다(Interactive resize mode).
-    eventTable->resizeColumnsToContents();
+    // 유지되도록 다시 호출하지 않는다(Interactive resize mode) — 예전엔 매번 재조회할 때마다
+    // 여기가 다시 불려서, 그때그때 로드된 내용 길이에 따라 폭이 계속 바뀌어 버렸다(최초 진입 시와
+    // "조회" 이후 테이블 크기가 달라 보이던 원인).
+    if (!columnsAutoSized) {
+        eventTable->resizeColumnsToContents();
+        columnsAutoSized = true;
+    }
     applyFilter();
 }
 
@@ -491,6 +581,21 @@ void EventLogPage::clearDateFilter()
     filterDate = QDate();
     dateButton->setText("전체 날짜");
     applyFilter();
+}
+
+void EventLogPage::requestRefresh()
+{
+    qint64 from, to;
+    if (filterDate.isValid()) {
+        // 특정 날짜를 골라뒀으면 그 하루 전체를 다시 조회한다.
+        from = QDateTime(filterDate, QTime(0, 0)).toSecsSinceEpoch();
+        to = QDateTime(filterDate, QTime(23, 59, 59)).toSecsSinceEpoch();
+    } else {
+        const qint64 now = QDateTime::currentSecsSinceEpoch();
+        from = now - 24 * 3600;
+        to = now;
+    }
+    emit eventLogRequested(from, to);
 }
 
 void EventLogPage::applyFilter()

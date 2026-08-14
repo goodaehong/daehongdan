@@ -26,23 +26,23 @@ WarningAlertDialog::WarningAlertDialog(const QString &zoneName, const QString &c
     layout->setSpacing(14);
 
     auto *header = new QLabel("⚠ 경고", this);
-    header->setStyleSheet("color:#fbbf24; font-size:17px; font-weight:bold;");
+    header->setStyleSheet("color:#fbbf24; font-size:17px; font-weight:bold; font-family:\"hanwhaGothic EL\";");
     layout->addWidget(header);
 
     const QString detail = cause.isEmpty()
         ? QString("%1에서 경고 상태가 감지되었습니다.").arg(zoneName)
         : QString("%1 · %2!").arg(zoneName, cause);
     auto *message = new QLabel(detail, this);
-    message->setStyleSheet(QString("color:%1; font-size:15px; font-weight:bold;").arg(kTextPrimary));
+    message->setStyleSheet(QString("color:%1; font-size:15px; font-weight:bold; font-family:\"hanwhaGothic EL\";").arg(kTextPrimary));
     layout->addWidget(message, 1);
 
     auto *countdownRow = new QHBoxLayout;
     countdownRow->setSpacing(6);
     countdownNumberLabel = new QLabel(this);
-    countdownNumberLabel->setStyleSheet("color:#f87171; font-size:22px; font-weight:bold;");
+    countdownNumberLabel->setStyleSheet("color:#f87171; font-size:22px; font-weight:bold; font-family:\"hanwhaGothic EL\";");
     countdownRow->addWidget(countdownNumberLabel);
     countdownLabel = new QLabel(this);
-    countdownLabel->setStyleSheet(QString("color:%1; font-size:12px;").arg(kTextSecondary));
+    countdownLabel->setStyleSheet(QString("color:%1; font-size:13px;").arg(kTextSecondary));
     countdownRow->addWidget(countdownLabel);
     layout->addLayout(countdownRow);
     setRemainingSeconds(initialRemainSeconds);
@@ -50,7 +50,7 @@ WarningAlertDialog::WarningAlertDialog(const QString &zoneName, const QString &c
     auto *ackBtn = new QPushButton("확인", this);
     ackBtn->setCursor(Qt::PointingHandCursor);
     ackBtn->setStyleSheet(
-        "QPushButton { background-color:#fbbf24; color:#241c00; font-weight:bold; "
+        "QPushButton { background-color:#fbbf24; color:#241c00; font-weight:bold; font-family:\"hanwhaGothic EL\"; "
         "font-size:13px; border:none; border-radius:6px; padding:8px 18px; }"
         "QPushButton:hover { background-color:#fde68a; }");
     layout->addWidget(ackBtn);

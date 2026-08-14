@@ -4,10 +4,12 @@
 #include <QWidget>
 #include <QVector>
 #include <QPoint>
+#include <QRectF>
 #include "../core/DetectionTypes.h"
 
 class QLabel;
 class QTimer;
+class QPushButton;
 class DetectionOverlay;
 
 // 채널 1개 영상 + 라벨/LIVE 오버레이 + 감지 박스 오버레이. MonitorPage에서 4개 재사용.
@@ -49,6 +51,10 @@ private:
     void updateIndicators();
     void changeZoom(int direction);
     void applyPanDelta(const QPoint &delta);
+    // ROI(감시 제외 영역) 편집 모드 토글. 켜면 줌/이동을 1.0/0으로 리셋하고 줌 버튼을 잠근다 —
+    // 편집 중 좌표 기준(zoom=1.0/pan=0)이 바뀌면 이미 그린 영역이 화면과 안 맞게 되기 때문.
+    // 오늘 범위: 서버 전송 없이 세션 동안만(재실행하면 초기화) 채널별로 로컬에 들고 있는다.
+    void toggleRoiEdit();
     // zoomFactor/panX/panY 상태를 실제 video 위젯의 크기/위치로 반영한다. 확대 배율이 바뀌거나
     // videoViewport가 리사이즈될 때(창 크기 조절, 확대 다이얼로그 전환 등) 호출된다.
     // libvlc 크롭 API는 전혀 쓰지 않는다 — 원본 프레임은 그대로 디코딩시키고, video 네이티브
@@ -75,9 +81,15 @@ private:
     bool personInDanger = false;
     bool voiceActive = false;
     QLabel *zoomLabel;
+    QPushButton *zoomOutBtn;
+    QPushButton *zoomInBtn;
     double zoomFactor = 1.0;
     double panX = 0.0;
     double panY = 0.0;
+
+    QPushButton *roiButton;
+    bool roiEditActive = false;
+    QVector<QRectF> savedRoiRegions; // 0~1 정규화, zoom=1.0/pan=0 기준
 };
 
 #endif // VIDEOWIDGET_H

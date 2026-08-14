@@ -3,9 +3,11 @@
 #include "../pages/EventLogPage.h"
 #include "../pages/GraphPage.h"
 #include "../pages/HelpPage.h"
+#include "../pages/FloorMapPage.h"
 #include "../network/ServerLink.h"
 #include "../widgets/WarningAlertDialog.h"
 #include "../widgets/DangerGlowOverlay.h"
+#include "ServerConfig.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -24,11 +26,12 @@
 #include <QColor>
 
 namespace {
-const QString kMediaMtxHost = "172.20.35.230"; // MediaMTX가 도는 라즈베리파이 주소 (카메라 IP 아님)
-const QString kServerHost = "172.20.35.230";   // 감지/센서/제어 JSON 소켓도 같은 라즈베리파이
-const quint16 kServerPort = 9999;             // TODO: 실제 서버 리슨 포트로 맞추기
+const QString kMediaMtxHost = "172.20.32.41"; // MediaMTX가 도는 라즈베리파이 주소 (카메라 IP 아님)
+// 감지/센서/제어 JSON 소켓 주소는 ServerConfig.h(ServerConfig::kServerHost/kServerPort)로 옮김 —
+// LoginPage.cpp가 따로 들고 있던 사본과 어긋나면서 "서버 켜져 있는데 로그인 화면에서 연결 실패로
+// 뜨는" 버그가 났던 적이 있어, 두 파일이 같은 상수를 참조하도록 단일화한다.
 
-const QStringList kTabNames = { "모니터링", "이벤트로그", "그래프", "도움말" };
+const QStringList kTabNames = { "모니터링", "이벤트로그", "그래프", "평면도", "도움말" };
 
 const QString kBg = "#0a0a12";
 const QString kCardBorder = "#232333";
@@ -41,7 +44,7 @@ const QString kAccentDark = "#6a5cd6";
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
-    setWindowTitle("공장 가스·화재 조기감지 및 자동대응 시스템");
+    setWindowTitle("SafeVision - 지능형 통합 화재 관제 시스템");
     resize(1400, 860);
 
     // "구역" 명칭이 "공장"으로 바뀌고 A~D 4개 공장 체제가 됨. 실제 센서/카메라 하드웨어는 A공장에만
@@ -67,6 +70,7 @@ MainWindow::MainWindow(QWidget *parent)
     monitorPage = new MonitorPage(centralArea);
     eventLogPage = new EventLogPage(centralArea);
     graphPage = new GraphPage(centralArea);
+    floorMapPage = new FloorMapPage(centralArea);
     helpPage = new HelpPage(centralArea);
 
     connect(monitorPage, &MonitorPage::demoStateRequested, this, [this](ZoneState state) {
@@ -105,22 +109,23 @@ MainWindow::MainWindow(QWidget *parent)
             [this](const QString &cause) {
                 const QString zoneId = zones[currentZone].name.left(1);
                 serverLink->sendEmergencyTrigger(zoneId, cause, "admin");
-                monitorPage->showControlStatus("처리 중... (비상 모드 전환)", "#8d87a0");
+                monitorPage->showControlStatus("처리 중... (위험 모드 전환)", "#8d87a0");
             });
     connect(monitorPage, &MonitorPage::emergencyClearRequested, this,
             [this](const QString &admin, const QStringList &checklist) {
                 const QString zoneId = zones[currentZone].name.left(1);
                 serverLink->sendEmergencyClear(zoneId, admin, checklist);
-                monitorPage->showControlStatus("처리 중... (비상 모드 해제)", "#8d87a0");
+                monitorPage->showControlStatus("처리 중... (위험 모드 해제)", "#8d87a0");
             });
 
     connect(serverLink, &ServerLink::emergencyResult, this,
             [this](const QString &, const QString &, const QString &mode, const QString &result) {
                 Q_UNUSED(result);   // 거절 없음 — 항상 "accepted"
-                const QString label = mode == "trigger" ? "비상 모드 전환" : "비상 모드 해제";
+                const QString label = mode == "trigger" ? "위험 모드 전환" : "위험 모드 해제";
                 monitorPage->showControlStatus(QString("완료: %1").arg(label), "#34d399");
                 // 버튼/배너 상태는 여기서 낙관적으로 바꾸지 않는다 -> sensor 메시지의
                 // state/dangerSource가 실제 상태를 확정해서 알려준다 (updateDangerIndicators에서 반영).
+                eventLogPage->requestRefresh(); // 서버가 이 응답 전에 이미 event_log를 남겨둔 상태
             });
     connect(serverLink, &ServerLink::emergencyTimedOut, this,
             [this](const QString &, const QString &, const QString &) {
@@ -142,6 +147,8 @@ MainWindow::MainWindow(QWidget *parent)
                         QString("실패: %1 (%2)").arg(title.isEmpty() ? "명령" : title, reasonText), "#f87171");
                     monitorPage->setActuatorRowStatus(target, "실패", "#f87171");
                 }
+                // 서버는 성공/실패 상관없이 매 수동 제어를 event_log에 남긴다 — 즉시 반영.
+                eventLogPage->requestRefresh();
             });
     connect(serverLink, &ServerLink::controlTimedOut, this,
             [this](const QString &cmdId, const QString &, const QString &target) {
@@ -203,8 +210,12 @@ MainWindow::MainWindow(QWidget *parent)
                     zone.dangerSource = dangerSource;
                     zone.admin = admin;
                     zone.hasLiveSensorData = true;
-                    if (oldState != zone.state)
+                    if (oldState != zone.state) {
                         zone.stateEnteredAt = QDateTime::currentDateTime();
+                        // 경고/위험 진입, 해제 등 상태가 바뀐 시점 = 서버가 이번 tick에 event_log를
+                        // 남겼을 시점이라 바로 재조회한다 (이벤트로그 "실시간" 반영, 30초 안 기다림).
+                        eventLogPage->requestRefresh();
+                    }
 
                     zone.gasHistory.append(gasPpm);
                     zone.gasHistoryLabels.append(QDateTime::currentDateTime().toString("HH:mm:ss"));
@@ -217,6 +228,10 @@ MainWindow::MainWindow(QWidget *parent)
                     zone.flameHistory.append(flameVal);
                     if (zone.flameHistory.size() > kMaxGasHistory)
                         zone.flameHistory.removeFirst();
+
+                    zone.smokeHistory.append(smokePpm);
+                    if (zone.smokeHistory.size() > kMaxGasHistory)
+                        zone.smokeHistory.removeFirst();
 
                     zone.smokeDetectHistory.append(smokePpm > 150);
                     constexpr int kMaxSmokeHistory = 8;
@@ -248,8 +263,14 @@ MainWindow::MainWindow(QWidget *parent)
     stack->addWidget(monitorPage);
     stack->addWidget(eventLogPage);
     stack->addWidget(graphPage);
+    floorMapTabIndex = stack->addWidget(floorMapPage);
     stack->addWidget(helpPage);
     rootLayout->addWidget(stack);
+
+    connect(floorMapPage, &FloorMapPage::configuredChanged, this, [this](bool) {
+        refreshFloorMapTabBadge();
+    });
+    refreshFloorMapTabBadge();
 
     setCentralWidget(centralArea);
 
@@ -262,6 +283,9 @@ MainWindow::MainWindow(QWidget *parent)
             [this](const QString &reqId, const QString &target, const QJsonArray &rows) {
                 if (target == "event_log") {
                     eventLogPage->loadEntriesFromServer(rows);
+                    // 같은 응답을 그래프에도 넘겨서 경고/위험 시점을 그래프 위 마커로 표시한다
+                    // (이벤트로그가 이미 주기적으로 조회하고 있어서 별도 조회를 안 늘려도 된다).
+                    graphPage->setEventMarkersFromServer(rows);
                 } else if (target == "sensor_log") {
                     // 그래프 탭이 요청한 응답이면 그쪽으로, 아니면(초기 프리필) 기존대로 A구역 실시간
                     // 미니그래프 이력에 채운다. target이 같아서 reqId로 구분해야 한다.
@@ -318,13 +342,24 @@ MainWindow::MainWindow(QWidget *parent)
         graphPage->requestCurrentPeriod(); // 그래프 탭도 현재 선택된 기간/날짜로 최초 조회
     });
 
+    // 이벤트로그 "조회" 버튼/30초 자동 갱신 — 응답은 위 queryResult 핸들러가 그대로 받아서
+    // eventLogPage->loadEntriesFromServer()로 넘겨준다.
+    connect(eventLogPage, &EventLogPage::eventLogRequested, this,
+            [this](qint64 from, qint64 to) {
+                QJsonObject params;
+                params["from"] = from;
+                params["to"] = to;
+                params["limit"] = 500;
+                serverLink->sendQuery("event_log", params);
+            });
+
     // sensor 메시지 흐름 감시(emergency-mode #19). 소켓은 붙어있어도 서버 내부(센서 스레드)가 멎으면
     // sensor가 안 오는데, connectionStateChanged만 보면 이 상태를 "연결됨"으로 잘못 표시하게 된다.
     sensorWatchdogTimer = new QTimer(this);
     connect(sensorWatchdogTimer, &QTimer::timeout, this, &MainWindow::refreshConnBadge);
     sensorWatchdogTimer->start(1000);
 
-    serverLink->connectToServer(kServerHost, kServerPort);
+    serverLink->connectToServer(ServerConfig::kServerHost, ServerConfig::kServerPort);
 }
 
 void MainWindow::refreshConnBadge()
@@ -349,7 +384,7 @@ QWidget *MainWindow::createDangerBanner()
     dangerBanner = new QPushButton(this);
     dangerBanner->setCursor(Qt::PointingHandCursor);
     dangerBanner->setStyleSheet(
-        "QPushButton { background-color:#7f1d1d; color:white; font-size:22px; font-weight:bold; "
+        "QPushButton { background-color:#7f1d1d; color:white; font-size:22px; font-weight:bold; font-family:\"hanwhaGothic EL\"; "
         "border:none; padding:20px 16px; text-align:center; }"
         "QPushButton:hover { background-color:#991b1b; }");
     dangerBanner->setVisible(false);
@@ -417,8 +452,8 @@ QWidget *MainWindow::createTopBar()
     layout->setContentsMargins(24, 16, 24, 16);
     layout->setSpacing(16);
 
-    auto *title = new QLabel("통합 관제 플랫폼", bar);
-    title->setStyleSheet(QString("color:%1; font-size:20px; font-weight:bold;").arg(kTextPrimary));
+    auto *title = new QLabel("SafeVision", bar);
+    title->setStyleSheet(QString("color:%1; font-size:20px; font-weight:bold; font-family:\"hanwhaGothic EL\";").arg(kTextPrimary));
     layout->addWidget(title);
 
     const QString zoneBtnStyle = QString(
@@ -438,7 +473,7 @@ QWidget *MainWindow::createTopBar()
     layout->addStretch();
 
     topStatusLabel = new QLabel(bar);
-    topStatusLabel->setStyleSheet(QString("border:1px solid %1; border-radius:12px; padding:6px 14px; font-size:14px; font-weight:bold;").arg(kCardBorder));
+    topStatusLabel->setStyleSheet(QString("border:1px solid %1; border-radius:12px; padding:6px 14px; font-size:14px; font-weight:bold; font-family:\"hanwhaGothic EL\";").arg(kCardBorder));
     layout->addWidget(topStatusLabel);
 
     connBadge = new QLabel("<span style='color:#6b7280;'>●</span> 서버 연결 확인 중...", bar);
@@ -488,6 +523,17 @@ void MainWindow::switchTab(int index)
     for (int i = 0; i < tabButtons.size(); ++i)
         tabButtons[i]->setChecked(i == index);
     updateDangerIndicators(); // 모니터링 탭 강조는 현재 탭에 따라 달라짐
+    refreshFloorMapTabBadge(); // 평면도 탭 배지도 마찬가지 — 그 탭을 보고 있으면 숨김
+}
+
+void MainWindow::refreshFloorMapTabBadge()
+{
+    if (floorMapTabIndex < 0 || floorMapTabIndex >= tabButtons.size())
+        return;
+    const bool showBadge = !floorMapPage->isConfigured() && stack->currentIndex() != floorMapTabIndex;
+    tabButtons[floorMapTabIndex]->setText(showBadge
+        ? QString("❗ %1").arg(kTabNames[floorMapTabIndex])
+        : kTabNames[floorMapTabIndex]);
 }
 
 void MainWindow::switchZone(int index)
@@ -534,7 +580,7 @@ void MainWindow::refreshZoneUi()
 
     const QString color = colorForState(zone.state);
     topStatusLabel->setText(QString("● %1 %2").arg(zone.name, textForState(zone.state)));
-    topStatusLabel->setStyleSheet(QString("color:%1; border:1px solid %1; border-radius:12px; padding:6px 14px; font-size:14px; font-weight:bold;").arg(color));
+    topStatusLabel->setStyleSheet(QString("color:%1; border:1px solid %1; border-radius:12px; padding:6px 14px; font-size:14px; font-weight:bold; font-family:\"hanwhaGothic EL\";").arg(color));
 }
 
 void MainWindow::showWarningAlert(const QString &zoneName, const QString &zoneId, const QString &cause, int warnRemain)
@@ -616,7 +662,7 @@ void MainWindow::updateDangerIndicators()
         // 수동 발령은 발령자만 아는 근거(육안 확인, 냄새 등)가 있을 수 있어, 자동 감지와 구분해서
         // 발령자 이름을 같이 보여준다 — 다른 사람이 근거 없이 함부로 해제하면 안 되기 때문 (emergency-mode #17).
         const QString sourceText = dz.dangerSource == "manual"
-            ? QString("수동 발령%1").arg(dz.admin.isEmpty() ? "" : QString(" (%1)").arg(dz.admin))
+            ? QString("수동 발령%1").arg(dz.admin.isEmpty() ? "" : QString(" (관리자: %1)").arg(dz.admin))
             : "자동 감지";
         dangerBanner->setText(QString("🚨 %1 %2 · %3 (클릭 시 모니터링으로 이동)").arg(dz.name, situation, sourceText));
         dangerBanner->setVisible(true);
