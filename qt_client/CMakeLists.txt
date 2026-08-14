@@ -5,6 +5,10 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Multimedia MultimediaWidge
 
 qt_standard_project_setup()
 
+# qt_standard_project_setup()이 AUTOMOC/AUTOUIC는 기본 켜주지만 AUTORCC는 켜주지 않아서
+# resources.qrc가 빌드에서 그냥 무시되고 있었음 -> 명시적으로 켜야 리소스가 실행파일에 포함됨.
+set(CMAKE_AUTORCC ON)
+
 # --- libvlc (RTSP 저지연 재생용) ---------------------------------------------
 # 공식 SDK 없이, 설치된 libvlc.dll에서 필요한 함수만 뽑아 MinGW 임포트 라이브러리를
 # 빌드 시점에 직접 생성한다 (dlltool). VLC 설치 경로가 다르면 -DVLC_DIR=... 로 지정.
@@ -72,6 +76,7 @@ qt_add_executable(qt_dashboard
     src/network/StreamReceiver.h
     src/network/ServerLink.cpp
     src/network/ServerLink.h
+    resources/resources.qrc
 )
 
 add_dependencies(qt_dashboard libvlc_implib)

@@ -723,6 +723,38 @@ static void UpdateDynamicDisplay(void)
   DrawBitmap8(23, 53, HUB75_Shape9, 8, HUB75_WHITE);          // . - 일 십의 자리와 겹치는 부분 다시 그림
 }
 
+/* ===================== IWDG (하드웨어 워치독) ===================== */
+/* HardFault 등으로 while(1) 루프가 멈추면 예전엔 전원을 다시 넣기 전까지 영원히
+   안 돌아왔음 (stm32f4xx_it.c의 fault 핸들러들이 전부 빈 while(1)이라 복구 로직이 없음).
+   이 프로젝트엔 HAL IWDG 드라이버(stm32f4xx_hal_iwdg.c)가 아예 없어서(hal_conf.h에서도
+   비활성 상태) HAL 안 거치고 레지스터 직접 제어 - IWDG는 CMSIS 레벨이라 문제 없음.
+   LSI(~32kHz, 메인 클럭과 무관하게 항상 도는 내부 저속 오실레이터)로 카운트다운하다가
+   Kick 없이 0에 도달하면 하드웨어 리셋됨. PR=3(32분주)+RLR=2000 -> 약 2초
+   (LSI 오차가 커서 실제로는 1.4~2.6초 사이일 수 있음, 그래도 몇 초 안에 복구된다는
+   목적엔 충분) */
+#define IWDG_RELOAD_VALUE 2000U   /* 약 2초 - LSI/32 기준 */
+
+static void IWDG_Init(void)
+{
+  IWDG->KR = 0x5555;                 /* PR/RLR 쓰기 허용 */
+  IWDG->PR = 3;                      /* 32분주: LSI/32 카운트 */
+  IWDG->RLR = IWDG_RELOAD_VALUE;
+
+  /* PVU/RVU 클리어는 정상이면 LSI 기준 수십~수백us 안에 끝남. 근데 여기가 무한루프면
+     워치독을 켜기도 전에(=HUB75_RefreshOnce 루프에 영영 못 들어가서) 화면이 계속
+     꺼진 채로 굳어버리는, "멈추면 자동 복구"라는 워치독의 목적과 정반대인 최악의
+     상황이 됨 - 그래서 못 끝나도 그냥 넘어가도록 반드시 타임아웃을 둠 */
+  for (volatile uint32_t i = 0; (IWDG->SR != 0) && (i < 100000U); i++) { }
+
+  IWDG->KR = 0xAAAA;                 /* 리로드값 반영 */
+  IWDG->KR = 0xCCCC;                 /* 워치독 시작 - 이 시점부터 Kick 없으면 리셋됨 */
+}
+
+static inline void IWDG_Kick(void)
+{
+  IWDG->KR = 0xAAAA;
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -761,12 +793,15 @@ int main(void)
   HUB75_Clear(HUB75_BLACK);
   DrawStaticScene();
   HAL_UART_Receive_IT(&huart2, &rxByte, 1);   // UART 1바이트 수신 대기 시작
+  IWDG_Init();   // 이 아래(while문)부터 계속 Kick 안 하면 STM32가 스스로 리셋됨
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    IWDG_Kick();   // 매 반복마다 갱신 - 여기 안 오면(어딘가 멈추면) 몇 초 뒤 자동 리셋
+
     // 매트릭스는 계속 스캔해줘야 화면이 유지됨 (blocking delay로 막으면 안 됨)
     HUB75_RefreshOnce();
 

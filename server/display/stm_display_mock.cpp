@@ -10,3 +10,4 @@ bool StmDisplay_SendAlert(const std::string& cause, int zoneId) {
     (void)cause; (void)zoneId; return true;
 }
 bool StmDisplay_SendClear() { return true; }
+bool StmDisplay_GetLinkOk() { return true; }   // Mock은 항상 응답함 취급

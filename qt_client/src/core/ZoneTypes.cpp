@@ -48,7 +48,7 @@ QString causeText(const QString &causeCode)
 
 QString channelTargetName(int channel1Based)
 {
-    static const QStringList kTargets = { "화재감지", "가스배관", "환기팬", "사이렌" };
+    static const QStringList kTargets = { "화재감지", "환기팬", "가스 밸브", "사이렌&스피커" };
     if (channel1Based >= 1 && channel1Based <= kTargets.size())
         return kTargets[channel1Based - 1];
     return QString("Ch.%1").arg(channel1Based);

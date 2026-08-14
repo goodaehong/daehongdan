@@ -3,6 +3,7 @@
 
 #include <QWidget>
 #include <QVector>
+#include <QPoint>
 #include "../core/DetectionTypes.h"
 
 class QLabel;
@@ -46,10 +47,20 @@ protected:
 
 private:
     void updateIndicators();
+    void changeZoom(int direction);
+    void applyPanDelta(const QPoint &delta);
+    // zoomFactor/panX/panY 상태를 실제 video 위젯의 크기/위치로 반영한다. 확대 배율이 바뀌거나
+    // videoViewport가 리사이즈될 때(창 크기 조절, 확대 다이얼로그 전환 등) 호출된다.
+    // libvlc 크롭 API는 전혀 쓰지 않는다 — 원본 프레임은 그대로 디코딩시키고, video 네이티브
+    // 창 자체를 확대/이동시켜서 videoViewport 밖으로 나간 부분은 OS가 자동으로 잘라준다.
+    // 이렇게 하면 드래그할 때마다 영상 디코드 파이프라인을 건드릴 일이 없어 깜빡임이 없다.
+    void updateVideoTransform();
 
     int channelNumber;
     QString channelTarget;
     QLabel *titleLabel;
+    // 화면에 보이는 고정 크기 영역(클리핑 뷰포트). 실제 video는 이 안에서 확대/이동한다.
+    QWidget *videoViewport;
     QWidget *video;
     QLabel *placeholderLabel;
     DetectionOverlay *overlay;
@@ -63,6 +74,10 @@ private:
     int personCount = 0;
     bool personInDanger = false;
     bool voiceActive = false;
+    QLabel *zoomLabel;
+    double zoomFactor = 1.0;
+    double panX = 0.0;
+    double panY = 0.0;
 };
 
 #endif // VIDEOWIDGET_H

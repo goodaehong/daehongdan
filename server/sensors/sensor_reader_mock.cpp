@@ -14,6 +14,7 @@ bool SensorReader_Read(SensorReading& out) {
     out.gasPpm   = 45.0f  + jitter(rng) * 10.0f;
     out.smokePpm = 8.0f   + jitter(rng) * 3.0f;
     out.flameVal = 0.1f + jitter(rng) * 0.05f;   // 평상시 ~0.1V, 임계 1.0V 미만
+    out.dhtOk = true;   // mock은 항상 정상
 
     // 데모 스파이크: 60초 주기 중 45~60초 구간은 가스 급상승 (Qt 경고 UI 테스트용)
     if (tick % 60 >= 45) {

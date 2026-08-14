@@ -1,4 +1,5 @@
 #include "StatusPanel.h"
+#include "../core/ZoneTypes.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -11,6 +12,9 @@
 #include <QTimer>
 #include <QScrollArea>
 #include <QDialog>
+#include <QRadioButton>
+#include <QCheckBox>
+#include <QLineEdit>
 
 namespace {
 const QString kTextPrimary = "#f5f5fa";
@@ -94,7 +98,14 @@ StatusPanel::StatusPanel(QWidget *parent)
     scrollArea->setWidgetResizable(true);
     scrollArea->setFrameShape(QFrame::NoFrame);
     scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    scrollArea->setStyleSheet("background:transparent; border:none;");
+    // 기본 스크롤바가 시스템 밝은 회색으로 떠서 다크 테마와 안 어울려 앱 accent 컬러로 맞춤.
+    scrollArea->setStyleSheet(
+        "QScrollArea { background:transparent; border:none; }"
+        "QScrollBar:vertical { background:#14141f; width:10px; margin:0; border-radius:5px; }"
+        "QScrollBar::handle:vertical { background:#3a3550; min-height:24px; border-radius:5px; }"
+        "QScrollBar::handle:vertical:hover { background:#8b7cf6; }"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0; border:none; background:none; }"
+        "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background:none; }");
     outerLayout->addWidget(scrollArea);
 
     auto *contentWidget = new QWidget(scrollArea);
@@ -187,27 +198,45 @@ StatusPanel::StatusPanel(QWidget *parent)
         if (trendOut) *trendOut = trendLabel;
     };
 
+    // 가스/불꽃/연기 세 센서 줄을 눈으로 구분하기 쉽게 얇은 구분선을 사이사이에 넣는다.
+    auto addSensorDivider = [&](QVBoxLayout *cardLayout, QWidget *cardWidget) {
+        auto *divider = new QFrame(cardWidget);
+        divider->setFrameShape(QFrame::HLine);
+        divider->setFixedHeight(1);
+        divider->setStyleSheet(QString("background-color:%1; border:none;").arg(kCardBorder));
+        cardLayout->addWidget(divider);
+    };
+
     QVBoxLayout *sensorLayout = makeCard("위험 감지 센서");
     QWidget *sensorCardWidget = sensorLayout->parentWidget();
     addGaugeRow(sensorLayout, sensorCardWidget, "가스 농도", "임계 2000ppm", &gasValueLabel, &gasGaugeBar, &gasTrendLabel);
+    addSensorDivider(sensorLayout, sensorCardWidget);
     addGaugeRow(sensorLayout, sensorCardWidget, "불꽃 센서", "임계 1.0V", &flameValueLabel, &flameGaugeBar, &flameTrendLabel);
+    addSensorDivider(sensorLayout, sensorCardWidget);
 
     auto *smokeRow = new QHBoxLayout;
-    auto *smokeName = new QLabel("연기 감지", sensorCardWidget);
+    auto *smokeName = new QLabel("연기 농도", sensorCardWidget);
     smokeName->setStyleSheet(QString("color:%1; font-size:14px; border:none;").arg(kTextSecondary));
-    smokeBadgeLabel = new QLabel(sensorCardWidget);
+    smokeValueLabel = new QLabel(sensorCardWidget);
     smokeRow->addWidget(smokeName);
     smokeRow->addStretch();
-    smokeRow->addWidget(smokeBadgeLabel);
+    smokeRow->addWidget(smokeValueLabel);
     sensorLayout->addLayout(smokeRow);
 
     smokeGaugeBar = new GaugeBar(sensorCardWidget);
     sensorLayout->addWidget(smokeGaugeBar);
 
+    // 가스/불꽃과 똑같이 하단 줄 오른쪽에 임계값을 보여준다 — 이전엔 여기 없어서 위험 판단 기준을
+    // 알기 어려웠다. 왼쪽엔 기존 "최근 N회 판정" 이력을 그대로 유지.
+    auto *smokeBottomRow = new QHBoxLayout;
     smokeHistoryLabel = new QLabel(sensorCardWidget);
     smokeHistoryLabel->setStyleSheet(QString("color:%1; font-size:11px; border:none;").arg(kTextSecondary));
-    smokeHistoryLabel->setAlignment(Qt::AlignRight);
-    sensorLayout->addWidget(smokeHistoryLabel);
+    auto *smokeThresholdLabel = new QLabel("임계 150ppm", sensorCardWidget);
+    smokeThresholdLabel->setStyleSheet(QString("color:%1; font-size:11px; border:none;").arg(kTextSecondary));
+    smokeBottomRow->addWidget(smokeHistoryLabel);
+    smokeBottomRow->addStretch();
+    smokeBottomRow->addWidget(smokeThresholdLabel);
+    sensorLayout->addLayout(smokeBottomRow);
 
     QVBoxLayout *envLayout = makeCard("환경");
     QWidget *envCardWidget = envLayout->parentWidget();
@@ -340,23 +369,45 @@ StatusPanel::StatusPanel(QWidget *parent)
     addControlRow("밸브", { "잠금", "개방" }, { "close", "open" }, "valve", valveCtrlButtons);
     addControlRow("사이렌", { "OFF", "ON" }, { "off", "on" }, "siren", sirenCtrlButtons);
 
-    evacuationButton = new QPushButton(controlCardWidget);
-    evacuationButton->setCursor(Qt::PointingHandCursor);
-    evacuationButton->setFixedHeight(36);
-    connect(evacuationButton, &QPushButton::clicked, this, [this]() {
-        if (!evacuationActive) {
-            // 대피 모드는 전 구역에 영향을 주고 되돌리기 어려운 조작이라 1번이 아닌 2단계로 확인한다.
-            if (showConfirmDialog("대피 모드 발동") && showEvacuationConfirmDialog())
-                emit evacuationActionRequested(true);
+    // 비상 모드 전환/해제는 교체가 아니라 2개 병존 — 상태에 따라 활성/비활성/숨김만 바뀐다 (emergency-mode #6).
+    emergencyTriggerButton = new QPushButton("🚨 비상 모드 전환", controlCardWidget);
+    emergencyTriggerButton->setCursor(Qt::PointingHandCursor);
+    emergencyTriggerButton->setFixedHeight(36);
+    connect(emergencyTriggerButton, &QPushButton::clicked, this, [this]() {
+        if (lastKnownZoneState == ZoneState::Safe) {
+            // 정상: 서버가 원인을 모르므로 관리자가 직접 선택 (emergency-mode #8)
+            QString cause;
+            if (!showEmergencyCauseDialog(cause))
+                return;
+            // 신규 전환은 전 공장에 영향을 주고 되돌리기 어려운 조작이라 2단계로 확인한다.
+            if (showEvacuationConfirmDialog())
+                emit emergencyTriggerRequested(cause);
+        } else if (lastKnownZoneState == ZoneState::Warning) {
+            // 경고: 서버가 이미 원인을 알고 있으므로 재질의 없이 확인만 (emergency-mode #9)
+            const QString causePhrase = causeText(lastKnownCause);
+            if (showConfirmDialog(QString("비상 모드 전환 (원인: %1)").arg(causePhrase)))
+                emit emergencyTriggerRequested(lastKnownCause);
         } else {
-            // 해제는 평상으로 되돌리는 조작이라 일반 확인 1단계만 거친다.
-            if (showConfirmDialog("대피 모드 해제"))
-                emit evacuationActionRequested(false);
+            // 위험·대응실패: 같은 원인으로 대응 재실행
+            if (showConfirmDialog("대응 재실행"))
+                emit emergencyTriggerRequested(lastKnownCause);
         }
     });
+
+    emergencyClearButton = new QPushButton("비상 모드 해제", controlCardWidget);
+    emergencyClearButton->setCursor(Qt::PointingHandCursor);
+    emergencyClearButton->setFixedHeight(36);
+    connect(emergencyClearButton, &QPushButton::clicked, this, [this]() {
+        QString admin;
+        QStringList checklist;
+        if (showEmergencyClearDialog(admin, checklist))
+            emit emergencyClearRequested(admin, checklist);
+    });
+
     controlLayout->addSpacing(2);
-    controlLayout->addWidget(evacuationButton);
-    setEvacuationActive(false); // 서버 응답 오기 전 초기 표시
+    controlLayout->addWidget(emergencyTriggerButton);
+    controlLayout->addWidget(emergencyClearButton);
+    updateEmergencyButtons(ZoneState::Safe, true); // 서버 응답 오기 전 초기 표시
 
     setActuatorStatus(-1, -1, -1, "", "", "", ""); // 서버 응답 오기 전 초기 표시
 
@@ -422,14 +473,45 @@ void StatusPanel::setCameraChannelStatus(int channel, bool connected)
     if (index < 0 || index >= 4)
         return;
     channelConnected[index] = connected;
-    const QString dotColor = connected ? kSafeColor : kDangerColor;
+    refreshChannelColor(index);
+    refreshCameraHeader();
+}
+
+void StatusPanel::setCameraVisionStatus(bool ch1, bool ch2, bool ch3, bool ch4)
+{
+    const bool values[4] = { ch1, ch2, ch3, ch4 };
+    for (int i = 0; i < 4; ++i) {
+        channelVisionOk[i] = values[i];
+        refreshChannelColor(i);
+    }
+}
+
+// Qt 자체 영상 수신(channelConnected)과 서버 감지 생존(channelVisionOk) 조합 4색 (emergency-mode #14):
+//   정상(둘 다 O) / 🟠 화면은 나오는데 서버가 못 잡음(최위험, 불 나도 자동 대응 안 됨) /
+//   회색 화면만 안 나옴(감지는 정상) / 위험(둘 다 X, 카메라·MediaMTX 자체 문제)
+void StatusPanel::refreshChannelColor(int index)
+{
+    if (index < 0 || index >= 4)
+        return;
+    const bool connected = channelConnected[index];
+    const bool visionOk = channelVisionOk[index];
+    const QString dotColor = (connected && visionOk)   ? kSafeColor
+                            : (connected && !visionOk)  ? kWarnColor
+                            : (!connected && visionOk)  ? kTextSecondary
+                                                         : kDangerColor;
     channelDotLabels[index]->setStyleSheet(QString("color:%1; font-size:12px; border:none;").arg(dotColor));
     channelFrames[index]->setStyleSheet(QString("QFrame { border:1px solid %1; border-radius:6px; }").arg(dotColor));
-    refreshCameraHeader();
+    channelFrames[index]->setToolTip(
+        (connected && visionOk)  ? "정상" :
+        (connected && !visionOk) ? "⚠ 화면은 보이지만 서버 자동 감지가 안 되고 있습니다 (최우선 확인 필요)" :
+        (!connected && visionOk) ? "화면만 안 나옴 (서버 자동 감지는 정상)" :
+                                    "카메라/스트리밍 연결 끊김");
 }
 
 void StatusPanel::updateZone(const Zone &zone)
 {
+    updateEmergencyButtons(zone.state, zone.responseOk);   // emergency-mode #6~7
+
     const QString color = colorForState(zone.state);
 
     heroTitleLabel->setText(zone.name + " 종합상태");
@@ -450,15 +532,24 @@ void StatusPanel::updateZone(const Zone &zone)
 
     // "자동(평상시)" vs "자동(위험)" 구분 기준이 바뀔 수 있으니 구역 상태가 갱신될 때마다 다시 그린다.
     lastKnownZoneState = zone.state;
+    lastKnownCause = zone.cause;
+    lastClearSensor = zone.clearSensor;
+    lastClearVision = zone.clearVision;
+    lastClearActuator = zone.clearActuator;
     updateModeLabel(fanModeLabel, lastFanSrc);
     updateModeLabel(valveModeLabel, lastValveSrc);
     updateModeLabel(sirenModeLabel, lastSirenSrc);
 
     // 배경 알약이 아니라 글자 색만 눈에 띄게 칠한다.
-    tempValueLabel->setText(QString("%1℃").arg(QString::number(zone.temp, 'f', 1)));
-    tempValueLabel->setStyleSheet("color:#60a5fa; font-size:16px; font-weight:bold; border:none;");
-    humidityValueLabel->setText(QString("%1%").arg(QString::number(zone.humidity, 'f', 1)));
-    humidityValueLabel->setStyleSheet("color:#22d3ee; font-size:16px; font-weight:bold; border:none;");
+    // dhtOk=false는 "이번 틱에 DHT22를 못 읽어 직전 값을 재사용 중"이라는 뜻 — DHT22 특성상 흔한 일이라
+    // 값을 지우진 않고(마지막 정상값이라 여전히 유효) 작은 표시만 붙인다 (emergency-mode #13).
+    const bool dhtStale = zone.hasLiveSensorData && !zone.dhtOk;
+    tempValueLabel->setText(QString("%1℃%2").arg(QString::number(zone.temp, 'f', 1), dhtStale ? " ⚠" : ""));
+    tempValueLabel->setStyleSheet(QString("color:%1; font-size:16px; font-weight:bold; border:none;").arg(dhtStale ? kWarnColor : "#60a5fa"));
+    tempValueLabel->setToolTip(dhtStale ? "온습도 센서 읽기 실패 — 마지막 정상값 표시 중" : "");
+    humidityValueLabel->setText(QString("%1%%2").arg(QString::number(zone.humidity, 'f', 1), dhtStale ? " ⚠" : ""));
+    humidityValueLabel->setStyleSheet(QString("color:%1; font-size:16px; font-weight:bold; border:none;").arg(dhtStale ? kWarnColor : "#22d3ee"));
+    humidityValueLabel->setToolTip(dhtStale ? "온습도 센서 읽기 실패 — 마지막 정상값 표시 중" : "");
 
     // 서버 임계값: 가스 경고 200ppm / 위험 2000ppm (server/judgement.cpp GAS_WARN_THRESHOLD/GAS_DANGER_THRESHOLD)
     constexpr double kGasWarn = 200, kGasDanger = 2000, kGasScale = 2000;
@@ -482,26 +573,34 @@ void StatusPanel::updateZone(const Zone &zone)
         smokeDetected = zone.state == ZoneState::Danger;
     }
 
-    gasValueLabel->setText(QString::number(gasVal, 'f', 0) + " ppm");
-    const QColor gasColor = gasVal >= kGasDanger ? QColor(kDangerColor)
+    // sensorOk=false는 10초 이상 ADS1115(가스/연기/불꽃)를 못 읽었다는 뜻 — "안전"이 아니라 "판정 근거 없음"
+    // 이므로 수치를 그대로 보여주면 안 된다 (emergency-mode #13). dhtOk와 달리 흔한 일이 아니라 바로 표시.
+    const bool sensorStale = zone.hasLiveSensorData && !zone.sensorOk;
+
+    gasValueLabel->setText(sensorStale ? "--- (센서 오류)" : QString::number(gasVal, 'f', 2) + " ppm");
+    const QColor gasColor = sensorStale ? QColor(kWarnColor)
+                             : gasVal >= kGasDanger ? QColor(kDangerColor)
                              : gasVal >= kGasWarn ? QColor(kWarnColor) : QColor(kSafeColor);
-    gasGaugeBar->setRatio(gasVal / kGasScale, gasColor);
+    gasValueLabel->setStyleSheet(QString("color:%1; font-size:15px; font-weight:bold; border:none;").arg(sensorStale ? kWarnColor : kTextPrimary));
+    gasGaugeBar->setRatio(sensorStale ? 0 : gasVal / kGasScale, gasColor);
     const Trend gasTrend = trendFor(zone.gasHistory);
     gasTrendLabel->setText(gasTrend.text);
     gasTrendLabel->setStyleSheet(QString("font-size:11px; border:none; color:%1;").arg(gasTrend.color));
 
-    flameValueLabel->setText(QString::number(flameVal, 'f', 2) + " V");
+    flameValueLabel->setText(sensorStale ? "--- (센서 오류)" : QString::number(flameVal, 'f', 2) + " V");
     flameValueLabel->setStyleSheet(QString("color:%1; font-size:15px; font-weight:bold; border:none;")
-        .arg(flameVal > kFlameThreshold ? kDangerColor : kTextPrimary));
-    const QColor flameColor = flameVal > kFlameThreshold ? QColor(kDangerColor) : QColor(kSafeColor);
-    flameGaugeBar->setRatio(flameVal / kFlameScale, flameColor);
+        .arg(sensorStale ? kWarnColor : flameVal > kFlameThreshold ? kDangerColor : kTextPrimary));
+    const QColor flameColor = sensorStale ? QColor(kWarnColor) : flameVal > kFlameThreshold ? QColor(kDangerColor) : QColor(kSafeColor);
+    flameGaugeBar->setRatio(sensorStale ? 0 : flameVal / kFlameScale, flameColor);
     const Trend flameTrend = trendFor(zone.flameHistory);
     flameTrendLabel->setText(flameTrend.text);
     flameTrendLabel->setStyleSheet(QString("font-size:11px; border:none; color:%1;").arg(flameTrend.color));
 
-    smokeBadgeLabel->setText(smokeDetected ? "감지됨" : "미검지");
-    smokeBadgeLabel->setStyleSheet(pillStyle(smokeDetected ? kDangerColor : kSafeColor, true));
-    smokeGaugeBar->setRatio(smokeVal / kSmokeScale, smokeDetected ? QColor(kDangerColor) : QColor(kSafeColor));
+    // 그래프 화면처럼 감지 여부 배지 대신 실제 ppm 수치를 그대로 보여준다.
+    smokeValueLabel->setText(sensorStale ? "--- (센서 오류)" : QString::number(smokeVal, 'f', 2) + " ppm");
+    smokeValueLabel->setStyleSheet(QString("color:%1; font-size:15px; font-weight:bold; border:none;")
+        .arg(sensorStale ? kWarnColor : smokeDetected ? kDangerColor : kTextPrimary));
+    smokeGaugeBar->setRatio(sensorStale ? 0 : smokeVal / kSmokeScale, sensorStale ? QColor(kWarnColor) : smokeDetected ? QColor(kDangerColor) : QColor(kSafeColor));
     int smokeDetectedCount = 0;
     for (bool b : zone.smokeDetectHistory)
         if (b) ++smokeDetectedCount;
@@ -513,7 +612,8 @@ void StatusPanel::updateZone(const Zone &zone)
 }
 
 void StatusPanel::setActuatorStatus(int fan, int valve, int siren, const QString &link,
-                                     const QString &fanSrc, const QString &valveSrc, const QString &sirenSrc)
+                                     const QString &fanSrc, const QString &valveSrc, const QString &sirenSrc,
+                                     int targetFan, int targetValve, int targetSiren, const QString &linkReason)
 {
     if (link == "ok") {
         actuatorLinkLabel->setText("● 연결됨");
@@ -522,14 +622,15 @@ void StatusPanel::setActuatorStatus(int fan, int valve, int siren, const QString
     } else if (link == "down") {
         actuatorLinkLabel->setText("● 연결 끊김");
         actuatorLinkLabel->setStyleSheet(QString("color:%1; font-size:11px; border:none;").arg(kDangerColor));
-        // 서버는 "끊김" 여부만 알려주고 구체적인 원인은 안 내려주므로, 실제 이유가 아니라
-        // 일반적으로 확인해볼 것들을 안내한다(허위로 원인을 지어내지 않음).
-        actuatorLinkInfoIcon->setToolTip(
-            "STM 보드(환기팬·밸브·사이렌)와 통신이 끊겼습니다.\n"
-            "서버가 끊김 여부만 알려줄 뿐 구체적인 원인은 전달하지 않아, 아래 항목을 직접 확인해야 합니다.\n"
-            "· UART 케이블이 제대로 꽂혀 있는지\n"
-            "· STM 보드에 전원이 들어와 있는지\n"
-            "· 서버(server_main)가 정상적으로 실행 중인지");
+        // linkReason이 오면(emergency-mode #16) 실제 사유를 그대로 보여준다. 없는 구버전 서버는
+        // 기존처럼 원인을 지어내지 않고 일반적으로 확인해볼 것들만 안내한다.
+        actuatorLinkInfoIcon->setToolTip(linkReason.isEmpty()
+            ? "STM 보드(환기팬·밸브·사이렌)와 통신이 끊겼습니다.\n"
+              "서버가 끊김 여부만 알려줄 뿐 구체적인 원인은 전달하지 않아, 아래 항목을 직접 확인해야 합니다.\n"
+              "· UART 케이블이 제대로 꽂혀 있는지\n"
+              "· STM 보드에 전원이 들어와 있는지\n"
+              "· 서버(server_main)가 정상적으로 실행 중인지"
+            : QString("STM 보드(환기팬·밸브·사이렌)와 통신이 끊겼습니다.\n사유: %1").arg(linkReason));
     } else {
         actuatorLinkLabel->setText("● 확인 중");
         actuatorLinkLabel->setStyleSheet(QString("color:%1; font-size:11px; border:none;").arg(kTextSecondary));
@@ -543,31 +644,45 @@ void StatusPanel::setActuatorStatus(int fan, int valve, int siren, const QString
     updateModeLabel(valveModeLabel, lastValveSrc);
     updateModeLabel(sirenModeLabel, lastSirenSrc);
 
+    // 목표(target)와 실제값이 다르면 명령이 STM에 반영 안 된 것 — 단, 관리자가 일부러 수동 조작한
+    // 장치는 목표와 달라도 정상이므로 비교에서 뺀다 (emergency-mode #15, server의 responseApplied와 동일 기준).
     static const QStringList kFanLabels = { "OFF", "약", "중", "강" };
     // 세기별로 색을 다르게(약=파랑 → 중=노랑 → 강=빨강), OFF만 회색 아웃라인.
     static const QStringList kFanColors = { kTextSecondary, "#60a5fa", kWarnColor, kDangerColor };
+    const bool fanMismatch = fan >= 0 && fanSrc != "manual" && fan != targetFan;
     if (fan >= 0 && fan < kFanLabels.size()) {
-        fanValueLabel->setText(kFanLabels[fan]);
-        fanValueLabel->setStyleSheet(pillStyle(kFanColors[fan], fan != 0));
+        fanValueLabel->setText(kFanLabels[fan] + (fanMismatch ? " ⚠" : ""));
+        fanValueLabel->setStyleSheet(pillStyle(fanMismatch ? kWarnColor : kFanColors[fan], fan != 0 || fanMismatch));
+        fanValueLabel->setToolTip(fanMismatch
+            ? QString("⚠ 대응 미반영 — 목표: %1 → 실제: %2").arg(kFanLabels.value(targetFan, "?"), kFanLabels[fan]) : "");
     } else {
         fanValueLabel->setText("확인 중");
         fanValueLabel->setStyleSheet(pillStyle(kTextSecondary, false));
+        fanValueLabel->setToolTip("");
     }
 
+    const bool valveMismatch = (valve == 0 || valve == 1) && valveSrc != "manual" && valve != targetValve;
     if (valve == 0 || valve == 1) {
-        valveValueLabel->setText(valve == 1 ? "개방" : "잠금");
-        valveValueLabel->setStyleSheet(pillStyle(valve == 1 ? kWarnColor : kSafeColor, true));
+        valveValueLabel->setText((valve == 1 ? "개방" : "잠금") + QString(valveMismatch ? " ⚠" : ""));
+        valveValueLabel->setStyleSheet(pillStyle(valveMismatch ? kWarnColor : (valve == 1 ? kWarnColor : kSafeColor), true));
+        valveValueLabel->setToolTip(valveMismatch
+            ? QString("⚠ 대응 미반영 — 목표: %1 → 실제: %2").arg(targetValve == 1 ? "개방" : "잠금", valve == 1 ? "개방" : "잠금") : "");
     } else {
         valveValueLabel->setText("확인 중");
         valveValueLabel->setStyleSheet(pillStyle(kTextSecondary, false));
+        valveValueLabel->setToolTip("");
     }
 
+    const bool sirenMismatch = (siren == 0 || siren == 1) && sirenSrc != "manual" && siren != targetSiren;
     if (siren == 0 || siren == 1) {
-        sirenValueLabel->setText(siren == 1 ? "ON" : "OFF");
-        sirenValueLabel->setStyleSheet(pillStyle(siren == 1 ? kDangerColor : kTextSecondary, siren == 1));
+        sirenValueLabel->setText((siren == 1 ? "ON" : "OFF") + QString(sirenMismatch ? " ⚠" : ""));
+        sirenValueLabel->setStyleSheet(pillStyle(sirenMismatch ? kWarnColor : (siren == 1 ? kDangerColor : kTextSecondary), siren == 1 || sirenMismatch));
+        sirenValueLabel->setToolTip(sirenMismatch
+            ? QString("⚠ 대응 미반영 — 목표: %1 → 실제: %2").arg(targetSiren == 1 ? "ON" : "OFF", siren == 1 ? "ON" : "OFF") : "");
     } else {
         sirenValueLabel->setText("확인 중");
         sirenValueLabel->setStyleSheet(pillStyle(kTextSecondary, false));
+        sirenValueLabel->setToolTip("");
     }
 
     updateControlButtonStyles(fanCtrlButtons, fan);
@@ -606,19 +721,32 @@ void StatusPanel::setActuatorRowStatus(const QString &target, const QString &tex
     label->setStyleSheet(pillStyle(color, true));
 }
 
-void StatusPanel::setEvacuationActive(bool active)
+// 상태별 버튼 표(emergency-mode #6~7): 정상/경고=전환 활성·해제 숨김,
+// 위험·대응중=전환 비활성·해제 활성, 위험·대응실패=전환 활성(주황,"⟳ 대응 재실행")·해제 활성.
+void StatusPanel::updateEmergencyButtons(ZoneState state, bool responseOk)
 {
-    evacuationActive = active;
-    if (!evacuationButton)
+    if (!emergencyTriggerButton || !emergencyClearButton)
         return;
-    if (active) {
-        evacuationButton->setText("대피 모드 해제");
-        evacuationButton->setStyleSheet(
-            "QPushButton { background-color:#f59e0b; color:#241c00; border:none; border-radius:6px; font-size:13px; font-weight:bold; }"
-            "QPushButton:hover { background-color:#d97706; }");
+
+    if (state == ZoneState::Danger) {
+        emergencyClearButton->setVisible(true);
+        if (responseOk) {
+            emergencyTriggerButton->setEnabled(false);
+            emergencyTriggerButton->setText("🚨 비상 모드 전환");
+            emergencyTriggerButton->setStyleSheet(
+                "QPushButton { background-color:#3a3550; color:#8d87a0; border:none; border-radius:6px; font-size:13px; font-weight:bold; }");
+        } else {
+            emergencyTriggerButton->setEnabled(true);
+            emergencyTriggerButton->setText("⟳ 대응 재실행");
+            emergencyTriggerButton->setStyleSheet(
+                "QPushButton { background-color:#f59e0b; color:#241c00; border:none; border-radius:6px; font-size:13px; font-weight:bold; }"
+                "QPushButton:hover { background-color:#d97706; }");
+        }
     } else {
-        evacuationButton->setText("대피 모드 발동");
-        evacuationButton->setStyleSheet(
+        emergencyClearButton->setVisible(false);
+        emergencyTriggerButton->setEnabled(true);
+        emergencyTriggerButton->setText("🚨 비상 모드 전환");
+        emergencyTriggerButton->setStyleSheet(
             "QPushButton { background-color:#ef4444; color:white; border:none; border-radius:6px; font-size:13px; font-weight:bold; }"
             "QPushButton:hover { background-color:#dc2626; }");
     }
@@ -706,12 +834,12 @@ bool StatusPanel::showEvacuationConfirmDialog()
     header->setStyleSheet("color:#ef4444; font-size:19px; font-weight:bold; border:none;");
     layout->addWidget(header);
 
-    auto *question = new QLabel("정말 전 구역 대피 모드를 발동하시겠습니까?", &dialog);
+    auto *question = new QLabel("정말 전 공장 대피 모드를 발동하시겠습니까?", &dialog);
     question->setStyleSheet(QString("color:%1; font-size:17px; font-weight:bold; border:none;").arg(kTextPrimary));
     question->setWordWrap(true);
     layout->addWidget(question);
 
-    auto *sub = new QLabel("전 구역에 즉시 영향을 미치며, 발동 후에는 되돌리기 어렵습니다.", &dialog);
+    auto *sub = new QLabel("전 공장에 즉시 영향을 미치며, 발동 후에는 되돌리기 어렵습니다.", &dialog);
     sub->setStyleSheet("color:#f87171; font-size:14px; font-weight:bold; border:none;");
     sub->setWordWrap(true);
     layout->addWidget(sub);
@@ -731,4 +859,174 @@ bool StatusPanel::showEvacuationConfirmDialog()
     connect(execBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
 
     return dialog.exec() == QDialog::Accepted;
+}
+
+
+bool StatusPanel::showEmergencyCauseDialog(QString &outCause)
+{
+    QDialog dialog(this);
+    dialog.setWindowTitle("비상 모드 전환");
+    dialog.setStyleSheet(QString("background-color:%1;").arg(kCardBg));
+    dialog.setMinimumWidth(380);
+    auto *layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(32, 28, 32, 28);
+    layout->setSpacing(14);
+
+    auto *header = new QLabel("🚨 비상 모드 전환", &dialog);
+    header->setStyleSheet("color:#ef4444; font-size:18px; font-weight:bold; border:none;");
+    layout->addWidget(header);
+
+    auto *question = new QLabel("원인을 선택하세요.", &dialog);
+    question->setStyleSheet(QString("color:%1; font-size:15px; border:none;").arg(kTextPrimary));
+    layout->addWidget(question);
+
+    // 기본값 화재 — 오판 시 피해가 작은 쪽 (가스로 오판하면 팬이 강풍으로 돌아 화재를 키움)
+    auto *fireRadio = new QRadioButton("화재", &dialog);
+    auto *gasRadio = new QRadioButton("가스 누출", &dialog);
+    auto *smokeRadio = new QRadioButton("연기", &dialog);
+    fireRadio->setChecked(true);
+    // 선택된 항목이 눈에 띄게: 텍스트는 흰색+굵게, 원 표시는 빨간 테두리+채움으로 구분.
+    // 선택 안 된 항목은 어두운 회색으로 낮춰서 대비를 준다.
+    const QString radioStyle = QString(
+        "QRadioButton { color:%1; font-size:15px; border:none; padding:6px 0; }"
+        "QRadioButton:checked { color:%2; font-weight:bold; }"
+        "QRadioButton::indicator { width:18px; height:18px; border-radius:9px; border:2px solid %1; background:transparent; }"
+        "QRadioButton::indicator:checked { border:2px solid #ef4444; background:#ef4444; }"
+    ).arg(kTextSecondary, kTextPrimary);
+    for (QRadioButton *r : { fireRadio, gasRadio, smokeRadio })
+        r->setStyleSheet(radioStyle);
+    layout->addWidget(fireRadio);
+    layout->addWidget(gasRadio);
+    layout->addWidget(smokeRadio);
+
+    layout->addSpacing(10);
+    auto *btnRow = new QHBoxLayout;
+    btnRow->setSpacing(10);
+    auto *cancelBtn = new QPushButton("취소", &dialog);
+    cancelBtn->setStyleSheet(QString("QPushButton { background-color:#232333; color:%1; font-size:15px; border-radius:8px; padding:14px; }").arg(kTextPrimary));
+    auto *nextBtn = new QPushButton("다음", &dialog);
+    nextBtn->setStyleSheet("QPushButton { background-color:#ef4444; color:white; font-weight:bold; font-size:15px; border-radius:8px; padding:14px; }");
+    btnRow->addWidget(cancelBtn);
+    btnRow->addWidget(nextBtn);
+    layout->addLayout(btnRow);
+
+    connect(cancelBtn, &QPushButton::clicked, &dialog, &QDialog::reject);
+    connect(nextBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+    if (dialog.exec() != QDialog::Accepted)
+        return false;
+
+    if (gasRadio->isChecked())
+        outCause = "gas";
+    else if (smokeRadio->isChecked())
+        outCause = "smoke_confirmed";
+    else
+        outCause = "fire_confirmed";
+    return true;
+}
+
+bool StatusPanel::showEmergencyClearDialog(QString &outAdmin, QStringList &outChecklist)
+{
+    // 원인별 현장 확인 문구 + 서버로 보낼 키. 관련 없는 항목까지 나열하면 형식적 체크를 유발하므로
+    // 원인 카테고리(화재/가스/연기)당 2개씩만 보여준다. "대피 인원 복귀 확인"은 원인 무관 공통.
+    QString field1Text, field1Key, field2Text, field2Key;
+    if (lastKnownCause.contains("gas")) {
+        field1Text = "가스 냄새 없음 확인";       field1Key = "gas_smell";
+        field2Text = "밸브 잠금 및 누출 지점 조치"; field2Key = "valve_closed";
+    } else if (lastKnownCause.contains("smoke")) {
+        field1Text = "연기 발생원 확인";           field1Key = "smoke_source_confirmed";
+        field2Text = "연기 발생원 제거 및 환기 완료"; field2Key = "smoke_source_removed";
+    } else {
+        field1Text = "화염·잔불 없음 확인";        field1Key = "flame_confirmed_clear";
+        field2Text = "발화원 제거 및 소화 완료";    field2Key = "ignition_source_removed";
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle("비상 모드 해제");
+    dialog.setStyleSheet(QString("background-color:%1;").arg(kCardBg));
+    dialog.setMinimumWidth(420);
+    auto *layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(32, 28, 32, 28);
+    layout->setSpacing(10);
+
+    auto *header = new QLabel(QString("비상 모드 해제 — 원인: %1").arg(causeText(lastKnownCause)), &dialog);
+    header->setStyleSheet("color:#f59e0b; font-size:17px; font-weight:bold; border:none;");
+    header->setWordWrap(true);
+    layout->addWidget(header);
+
+    auto *sysLabel = new QLabel("시스템 확인 (자동 판정)", &dialog);
+    sysLabel->setStyleSheet(QString("color:%1; font-size:13px; font-weight:bold; border:none;").arg(kTextSecondary));
+    layout->addWidget(sysLabel);
+
+    // 서버가 판정하는 3항목 — 그대로 보여주기만, 사용자가 못 누르게 disabled.
+    auto *sysSensorBox = new QCheckBox("센서 수치 정상 복귀", &dialog);
+    auto *sysVisionBox = new QCheckBox("영상 감지 정상", &dialog);
+    auto *sysActuatorBox = new QCheckBox("액추에이터 정상", &dialog);
+    sysSensorBox->setChecked(lastClearSensor);
+    sysVisionBox->setChecked(lastClearVision);
+    sysActuatorBox->setChecked(lastClearActuator);
+    for (QCheckBox *c : { sysSensorBox, sysVisionBox, sysActuatorBox }) {
+        c->setEnabled(false);
+        c->setStyleSheet(QString("color:%1; font-size:14px; padding:2px 0;").arg(kTextSecondary));
+        layout->addWidget(c);
+    }
+
+    layout->addSpacing(6);
+    auto *fieldLabel = new QLabel("현장 확인 (직접 확인 후 체크)", &dialog);
+    fieldLabel->setStyleSheet(QString("color:%1; font-size:13px; font-weight:bold; border:none;").arg(kTextSecondary));
+    layout->addWidget(fieldLabel);
+
+    auto *field1Box = new QCheckBox(field1Text, &dialog);
+    auto *field2Box = new QCheckBox(field2Text, &dialog);
+    auto *personnelBox = new QCheckBox("대피 인원 복귀 확인", &dialog);
+    for (QCheckBox *c : { field1Box, field2Box, personnelBox }) {
+        c->setStyleSheet(QString("color:%1; font-size:14px; padding:2px 0;").arg(kTextPrimary));
+        layout->addWidget(c);
+    }
+
+    layout->addSpacing(6);
+    auto *nameLabel = new QLabel("확인자", &dialog);
+    nameLabel->setStyleSheet(QString("color:%1; font-size:13px; border:none;").arg(kTextSecondary));
+    layout->addWidget(nameLabel);
+    auto *nameEdit = new QLineEdit(&dialog);
+    nameEdit->setPlaceholderText("이름 입력");
+    nameEdit->setStyleSheet(QString("QLineEdit { background-color:#14141f; color:%1; border:1px solid %2; border-radius:6px; padding:8px; font-size:14px; }").arg(kTextPrimary, kCardBorder));
+    layout->addWidget(nameEdit);
+
+    layout->addSpacing(10);
+    auto *btnRow = new QHBoxLayout;
+    btnRow->setSpacing(10);
+    auto *cancelBtn = new QPushButton("취소", &dialog);
+    cancelBtn->setStyleSheet(QString("QPushButton { background-color:#232333; color:%1; font-size:15px; border-radius:8px; padding:14px; }").arg(kTextPrimary));
+    auto *confirmBtn = new QPushButton("해제 확정", &dialog);
+    confirmBtn->setEnabled(false);
+    btnRow->addWidget(cancelBtn);
+    btnRow->addWidget(confirmBtn);
+    layout->addLayout(btnRow);
+
+    // 시스템 확인 3개(고정값) + 현장 확인 2개 + 대피 확인 + 이름 입력, 전부 충족해야 활성화.
+    const bool systemChecksPass = lastClearSensor && lastClearVision && lastClearActuator;
+    auto refreshConfirmEnabled = [=]() {
+        const bool ready = systemChecksPass && field1Box->isChecked() && field2Box->isChecked()
+                            && personnelBox->isChecked() && !nameEdit->text().trimmed().isEmpty();
+        confirmBtn->setEnabled(ready);
+        confirmBtn->setStyleSheet(ready
+            ? "QPushButton { background-color:#f59e0b; color:#241c00; font-weight:bold; font-size:15px; border-radius:8px; padding:14px; }"
+            : "QPushButton { background-color:#3a3550; color:#8d87a0; font-size:15px; border-radius:8px; padding:14px; }");
+    };
+    connect(field1Box, &QCheckBox::toggled, &dialog, refreshConfirmEnabled);
+    connect(field2Box, &QCheckBox::toggled, &dialog, refreshConfirmEnabled);
+    connect(personnelBox, &QCheckBox::toggled, &dialog, refreshConfirmEnabled);
+    connect(nameEdit, &QLineEdit::textChanged, &dialog, refreshConfirmEnabled);
+    refreshConfirmEnabled();
+
+    connect(cancelBtn, &QPushButton::clicked, &dialog, &QDialog::reject);
+    connect(confirmBtn, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+    if (dialog.exec() != QDialog::Accepted)
+        return false;
+
+    outAdmin = nameEdit->text().trimmed();
+    outChecklist = { field1Key, field2Key, "personnel_returned" };
+    return true;
 }

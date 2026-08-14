@@ -3,6 +3,7 @@
 
 #include <QWidget>
 #include <QVector>
+#include <QPoint>
 #include "../core/DetectionTypes.h"
 
 // video 위젯(native HWND) 위에 감지 박스를 그리는 별도의 always-on-top 투명 창.
@@ -14,18 +15,31 @@ class DetectionOverlay : public QWidget
 
 public:
     explicit DetectionOverlay(QWidget *followTarget);
+    ~DetectionOverlay() override;
 
     void setBoxes(const QVector<DetectionBox> &boxes, int srcW, int srcH);
+    void setViewTransform(double factor, double panX, double panY);
     void syncGeometry();
+
+signals:
+    void dragDelta(const QPoint &delta);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     QWidget *target;
+    QWidget *inputSurface;
     QVector<DetectionBox> boxes;
     int srcWidth = 0;
     int srcHeight = 0;
+    double zoomFactor = 1.0;
+    double panX = 0.0;
+    double panY = 0.0;
+    bool interactionEnabled = false;
+    bool dragging = false;
+    QPoint lastDragPosition;
 };
 
 #endif // DETECTIONOVERLAY_H
