@@ -1,7 +1,13 @@
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #include <iostream>
 #include "EvacPlanner.h"
 
 int main() {
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);   // 윈도우 콘솔이 UTF-8 출력을 CP949로 잘못 읽어서 한글 깨지는 것 방지
+#endif
     std::cout << "=== 대피 경로 파이프라인 서버 시작 ===\n";
 
     // 1. 단일 함수 호출로 파이프라인 전체 실행
