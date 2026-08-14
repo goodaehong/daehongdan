@@ -51,6 +51,7 @@ qt_add_executable(qt_dashboard
     src/core/ZoneTypes.h
     src/core/DetectionTypes.h
     src/core/FloorMapTypes.h
+    src/core/ServerConfig.h
     src/pages/LoginPage.cpp
     src/pages/LoginPage.h
     src/pages/MonitorPage.cpp

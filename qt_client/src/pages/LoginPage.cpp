@@ -1,4 +1,5 @@
 #include "LoginPage.h"
+#include "../core/ServerConfig.h"
 
 #include <QLineEdit>
 #include <QLabel>
@@ -19,6 +20,7 @@
 #include <QTimer>
 #include <QGuiApplication>
 #include <QScreen>
+#include <QPainterPath>
 
 namespace {
 const QString kValidId = "admin";
@@ -31,10 +33,57 @@ const QString kTextPrimary = "#f5f5fa";
 const QString kTextSecondary = "#8d87a0";
 const QString kAccent = "#8b7cf6";
 
-// MainWindow.cpp의 kServerHost/kServerPort와 동일한 서버를 가리킨다(파일 분리로 인해 중복 정의).
+// 브랜드 마크: 공장 실루엣(굴뚝 + 톱니 지붕)을 브랜드 그라디언트로 직접 그린 아이콘.
+// 예전엔 그라디언트 박스 위에 "🏭" 이모지를 얹었는데 OS/폰트마다 렌더링이 달라서 벡터로 바꿨고,
+// 박스 배경도 빼서 아이콘 형태만 남긴다. 창문은 색을 덧칠하는 대신 path에서 빼내 실제로 뚫어서
+// 뒤 배경이 무엇이든(카드 위/사진 위) 그대로 비치게 한다.
+class BrandMarkWidget : public QWidget
+{
+public:
+    explicit BrandMarkWidget(QWidget *parent = nullptr) : QWidget(parent)
+    {
+        // 부모 카드의 스타일시트(배경/테두리/라운드)가 자식에게도 상속되므로 명시적으로 끈다.
+        setStyleSheet("background:transparent; border:none;");
+    }
+
+protected:
+    void paintEvent(QPaintEvent *) override
+    {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        const QRectF r = rect();
+        const auto px = [&r](qreal fx) { return r.left() + r.width() * fx; };
+        const auto py = [&r](qreal fy) { return r.top() + r.height() * fy; };
+
+        // 왼쪽 굴뚝에서 시작해 톱니 지붕(/|/|)을 지나 본체 오른쪽 벽으로 내려오는 한 붓 그리기.
+        QPainterPath factory;
+        factory.moveTo(px(0.08), py(0.92));   // 좌하단
+        factory.lineTo(px(0.08), py(0.14));   // 굴뚝 왼쪽 벽
+        factory.lineTo(px(0.26), py(0.14));   // 굴뚝 상단
+        factory.lineTo(px(0.26), py(0.60));   // 굴뚝 오른쪽 -> 지붕 골
+        factory.lineTo(px(0.53), py(0.34));   // 톱니 1 (사선 상승)
+        factory.lineTo(px(0.53), py(0.60));   // 톱니 1 수직 하강
+        factory.lineTo(px(0.81), py(0.34));   // 톱니 2 (사선 상승)
+        factory.lineTo(px(0.81), py(0.92));   // 본체 오른쪽 벽
+        factory.closeSubpath();
+
+        // 창문 3개 + 굴뚝 띠 — 실제로 뚫는다.
+        QPainterPath cutouts;
+        for (int i = 0; i < 3; ++i)
+            cutouts.addRect(QRectF(px(0.34 + i * 0.16), py(0.70), r.width() * 0.09, r.height() * 0.11));
+        cutouts.addRect(QRectF(px(0.10), py(0.24), r.width() * 0.14, r.height() * 0.05));
+
+        QLinearGradient grad(r.topLeft(), r.bottomRight());
+        grad.setColorAt(0, QColor("#6ee7d8"));
+        grad.setColorAt(1, QColor("#8b7cf6"));
+        p.setPen(Qt::NoPen);
+        p.fillPath(factory.subtracted(cutouts), grad);
+    }
+};
+
+// 서버 주소는 ServerConfig.h(MainWindow와 공유)를 그대로 쓴다 — 여기서 따로 상수를 들고 있다가
+// MainWindow 쪽만 갱신되면서 어긋난 적이 있어(로그인 화면 오탐 원인) 단일 출처로 합쳤다.
 // 로그인 단계에서는 실제 데이터 프로토콜을 쓸 필요 없이 TCP 연결 성공 여부만 확인하면 된다.
-const QString kServerHost = "172.20.35.230";
-const quint16 kServerPort = 9999;
 
 constexpr int kMaxLoginAttempts = 5;      // 결정 #7: 로그인 제한 있음 (브루트포스 대비)
 constexpr int kLockoutSeconds = 30;
@@ -44,7 +93,7 @@ constexpr int kServerCheckTimeoutMs = 3000;
 LoginPage::LoginPage(QWidget *parent)
     : QWidget(parent)
 {
-    setWindowTitle("실시간 안전 관제 센터");
+    setWindowTitle("SafeVision - 지능형 통합 화재 관제 시스템");
     // 결정 #8 갱신: 고정 크기 자체는 유지하되, 기준을 임의 사이즈가 아니라 화면 전체(작업표시줄
     // 제외 가용 영역)로 잡는다. 타이틀바는 그대로 두므로 완전 프레임리스 풀스크린은 아니다.
     applyFullScreenSize();
@@ -82,21 +131,19 @@ LoginPage::LoginPage(QWidget *parent)
     boxLayout->setContentsMargins(32, 32, 32, 32);
     boxLayout->setSpacing(10);
 
-    auto *icon = new QLabel("🏭", box);
-    icon->setFixedSize(52, 52);
-    icon->setAlignment(Qt::AlignCenter);
-    icon->setStyleSheet(
-        "background-color: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #6ee7d8, stop:1 #8b7cf6);"
-        "border-radius:14px; font-size:26px; border:none;");
+    auto *icon = new BrandMarkWidget(box);
+    icon->setFixedSize(56, 56);
     boxLayout->addWidget(icon);
     boxLayout->addSpacing(6);
 
-    auto *title = new QLabel("실시간 안전 관제 센터", box);
-    title->setStyleSheet(QString("color:%1; font-size:20px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;").arg(kTextPrimary));
+    auto *title = new QLabel("SafeVision", box);
+    title->setAlignment(Qt::AlignCenter);
+    title->setStyleSheet(QString("color:%1; font-size:40px; font-weight:bold; font-family:\"hanwhaGothic EL\"; border:none;").arg(kTextPrimary));
     boxLayout->addWidget(title);
 
-    auto *subtitle = new QLabel("가스·화재를 실시간으로 감시합니다", box);
-    subtitle->setStyleSheet(QString("color:%1; border:none;").arg(kTextSecondary));
+    auto *subtitle = new QLabel("지능형 통합 화재 관제 시스템", box);
+    subtitle->setAlignment(Qt::AlignCenter);
+    subtitle->setStyleSheet(QString("color:%1; font-size:16px; border:none;").arg(kTextSecondary));
     boxLayout->addWidget(subtitle);
     boxLayout->addSpacing(14);
 
@@ -270,7 +317,7 @@ void LoginPage::onLoginClicked()
     connect(timeoutTimer, &QTimer::timeout, this, [finish]() { finish(false); });
 
     timeoutTimer->start(kServerCheckTimeoutMs);
-    socket->connectToHost(kServerHost, kServerPort);
+    socket->connectToHost(ServerConfig::kServerHost, ServerConfig::kServerPort);
 }
 
 void LoginPage::completeLogin()

@@ -7,6 +7,7 @@
 #include "../network/ServerLink.h"
 #include "../widgets/WarningAlertDialog.h"
 #include "../widgets/DangerGlowOverlay.h"
+#include "ServerConfig.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -26,8 +27,9 @@
 
 namespace {
 const QString kMediaMtxHost = "172.20.32.41"; // MediaMTX가 도는 라즈베리파이 주소 (카메라 IP 아님)
-const QString kServerHost = "172.20.32.41";   // 감지/센서/제어 JSON 소켓도 같은 라즈베리파이
-const quint16 kServerPort = 9999;             // TODO: 실제 서버 리슨 포트로 맞추기
+// 감지/센서/제어 JSON 소켓 주소는 ServerConfig.h(ServerConfig::kServerHost/kServerPort)로 옮김 —
+// LoginPage.cpp가 따로 들고 있던 사본과 어긋나면서 "서버 켜져 있는데 로그인 화면에서 연결 실패로
+// 뜨는" 버그가 났던 적이 있어, 두 파일이 같은 상수를 참조하도록 단일화한다.
 
 const QStringList kTabNames = { "모니터링", "이벤트로그", "그래프", "평면도", "도움말" };
 
@@ -42,7 +44,7 @@ const QString kAccentDark = "#6a5cd6";
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
-    setWindowTitle("공장 가스·화재 조기감지 및 자동대응 시스템");
+    setWindowTitle("SafeVision - 지능형 통합 화재 관제 시스템");
     resize(1400, 860);
 
     // "구역" 명칭이 "공장"으로 바뀌고 A~D 4개 공장 체제가 됨. 실제 센서/카메라 하드웨어는 A공장에만
@@ -281,6 +283,9 @@ MainWindow::MainWindow(QWidget *parent)
             [this](const QString &reqId, const QString &target, const QJsonArray &rows) {
                 if (target == "event_log") {
                     eventLogPage->loadEntriesFromServer(rows);
+                    // 같은 응답을 그래프에도 넘겨서 경고/위험 시점을 그래프 위 마커로 표시한다
+                    // (이벤트로그가 이미 주기적으로 조회하고 있어서 별도 조회를 안 늘려도 된다).
+                    graphPage->setEventMarkersFromServer(rows);
                 } else if (target == "sensor_log") {
                     // 그래프 탭이 요청한 응답이면 그쪽으로, 아니면(초기 프리필) 기존대로 A구역 실시간
                     // 미니그래프 이력에 채운다. target이 같아서 reqId로 구분해야 한다.
@@ -354,7 +359,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(sensorWatchdogTimer, &QTimer::timeout, this, &MainWindow::refreshConnBadge);
     sensorWatchdogTimer->start(1000);
 
-    serverLink->connectToServer(kServerHost, kServerPort);
+    serverLink->connectToServer(ServerConfig::kServerHost, ServerConfig::kServerPort);
 }
 
 void MainWindow::refreshConnBadge()
@@ -447,7 +452,7 @@ QWidget *MainWindow::createTopBar()
     layout->setContentsMargins(24, 16, 24, 16);
     layout->setSpacing(16);
 
-    auto *title = new QLabel("통합 관제 플랫폼", bar);
+    auto *title = new QLabel("SafeVision", bar);
     title->setStyleSheet(QString("color:%1; font-size:20px; font-weight:bold; font-family:\"hanwhaGothic EL\";").arg(kTextPrimary));
     layout->addWidget(title);
 
