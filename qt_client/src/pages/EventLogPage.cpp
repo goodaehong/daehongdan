@@ -120,6 +120,19 @@ QString translateResponse(const QString &raw)
         parts << translateResponseToken(token.trimmed());
     return parts.join(" · ");
 }
+
+// 지속 시간을 HH:MM:SS로. "1209초"처럼 초만 적혀 있으면 몇 분인지 암산해야 해서 시:분:초로 바꾼다.
+// QTime은 24시간을 넘기면 무효값이 되므로(장시간 미해결 사건) 직접 계산한다.
+QString formatDuration(qint64 totalSeconds)
+{
+    const qint64 h = totalSeconds / 3600;
+    const qint64 m = (totalSeconds % 3600) / 60;
+    const qint64 s = totalSeconds % 60;
+    return QString("%1:%2:%3")
+        .arg(h, 2, 10, QChar('0'))
+        .arg(m, 2, 10, QChar('0'))
+        .arg(s, 2, 10, QChar('0'));
+}
 }
 
 EventLogPage::EventLogPage(QWidget *parent)
@@ -338,11 +351,12 @@ EventLogPage::EventLogPage(QWidget *parent)
     connect(endTimeEdit, &QTimeEdit::timeChanged, this, &EventLogPage::applyFilter);
 
     // MainWindow가 실제 이벤트(상태 전환/제어 성공/비상 전환·해제 등) 발생 시점마다 requestRefresh()를
-    // 바로 호출해줘서 사실상 실시간으로 갱신된다. 이 타이머는 그걸로 못 잡는 경우(다른 클라이언트의
-    // 조작 등)를 위한 안전망이라 주기를 넉넉하게 둔다.
+    // 바로 호출해줘서 사실상 실시간으로 갱신된다. 이 타이머는 그걸로 못 잡는 경우(같은 상태에서
+    // 반복 감지, 다른 클라이언트의 조작 등)를 위한 안전망 — "조회를 눌러야만 보인다"는 체감을
+    // 줄이려고 60초에서 15초로 줄였다.
     refreshTimer = new QTimer(this);
     connect(refreshTimer, &QTimer::timeout, this, &EventLogPage::requestRefresh);
-    refreshTimer->start(60000);
+    refreshTimer->start(15000);
 }
 
 void EventLogPage::updateZone(const Zone &zone)
@@ -438,7 +452,7 @@ void EventLogPage::loadEntriesFromServer(const QJsonArray &rows)
             entry.status = "해결됨";
 
         const double durationMs = row.value("durationMs").toDouble();
-        entry.duration = durationMs > 0 ? QString::number(durationMs / 1000.0, 'f', 0) + "초" : "-";
+        entry.duration = durationMs > 0 ? formatDuration(qint64(durationMs / 1000.0 + 0.5)) : "-";
 
         appendRow(entry);
     }
