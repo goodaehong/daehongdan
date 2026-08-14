@@ -48,6 +48,8 @@ void QtLink_SendPerson(Link& link, int ch, int srcW, int srcH,
 // 명세서 "액추에이터 상태 응답"
 void QtLink_SendActuator(Link& link, const ActuatorSnapshot& st);
 
+void QtLink_PushIgnoreRegions(Link& link);   // 접속 직후 ROI 4채널 push
+
 // 서버가 내린 목표 대응. actuator_status의 target 전송과 responseOk 판정에 쓴다 
 // 센서 스레드와 수신 스레드가 같이 보므로 여기서 잠금까지 처리
 void QtLink_SetTarget(const Response& r);
