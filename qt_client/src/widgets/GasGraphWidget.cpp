@@ -59,6 +59,13 @@ void GasGraphWidget::setUnit(const QString &unit)
     update();
 }
 
+void GasGraphWidget::setEventMarkers(const QVector<GraphEventMarker> &markers)
+{
+    m_markers = markers;
+    m_hoverMarker = -1;
+    update();
+}
+
 QRect GasGraphWidget::plotArea() const
 {
     return rect().adjusted(kMarginLeft, kMarginTop, -kMarginRight, -kMarginBottom);
@@ -229,6 +236,33 @@ void GasGraphWidget::paintEvent(QPaintEvent *)
         painter.drawPath(maxPath);
     }
 
+    // 사건 마커(경고/위험 전환 시점): 세로선 + 상단 깃발. 데이터 라인 위에 얹되 알파를 낮춰서
+    // 추이 자체를 가리지 않게 하고, 마우스를 올린 마커만 진하게 강조한다.
+    for (int i = 0; i < m_markers.size(); ++i) {
+        const GraphEventMarker &m = m_markers[i];
+        const double mx = area.left() + qBound(0.0, m.xRatio, 1.0) * area.width();
+        const bool hovered = (i == m_hoverMarker);
+        QColor mc(m.danger ? "#f87171" : "#fbbf24");
+
+        QColor lineColor = mc;
+        lineColor.setAlpha(hovered ? 235 : 120);
+        QPen markerPen(lineColor, hovered ? 2.0 : 1.2, Qt::DashLine);
+        markerPen.setDashPattern({ 2, 4 });
+        painter.setPen(markerPen);
+        painter.drawLine(QPointF(mx, area.top()), QPointF(mx, area.bottom()));
+
+        // 상단 깃발(아래를 가리키는 삼각형) — 세로선만으로는 임계선 점선과 헷갈려서 표식을 따로 둔다.
+        const qreal fw = hovered ? 5.5 : 4.5;
+        QPainterPath flag;
+        flag.moveTo(mx - fw, area.top() - 7);
+        flag.lineTo(mx + fw, area.top() - 7);
+        flag.lineTo(mx, area.top() + 1);
+        flag.closeSubpath();
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(mc);
+        painter.drawPath(flag);
+    }
+
     // 최신값 지점에 강조 마커
     {
         const QPointF last = pts.last();
@@ -287,6 +321,46 @@ void GasGraphWidget::paintEvent(QPaintEvent *)
     if (m_xLabels.size() > 1)
         painter.drawText(QRect(area.right() - 100, area.bottom() + 12, 100, 20), Qt::AlignRight, m_xLabels.last());
 
+    // 값 박스는 데이터 포인트 hover와 사건 마커 hover 양쪽에서 같은 모양으로 쓰므로 람다로 뺀다.
+    auto drawTip = [&](const QStringList &lines, const QPointF &anchor) {
+        QFont tipFont = painter.font();
+        tipFont.setPixelSize(13);
+        painter.setFont(tipFont);
+        const QFontMetrics tipFm(tipFont);
+        int tipW = 0;
+        for (const QString &line : lines)
+            tipW = std::max(tipW, tipFm.horizontalAdvance(line));
+        tipW += 16;
+        const int tipLineH = tipFm.height() + 4;
+        const int tipH = tipLineH * lines.size() + 8;
+
+        // 커서(포인트) 오른쪽 위로 띄우되, 위젯 경계를 넘어가면 반대쪽으로 붙인다.
+        qreal tipX = anchor.x() + 12;
+        qreal tipY = anchor.y() - tipH - 12;
+        if (tipX + tipW > width() - 4)
+            tipX = anchor.x() - tipW - 12;
+        if (tipY < 4)
+            tipY = anchor.y() + 12;
+        const QRectF tipRect(tipX, tipY, tipW, tipH);
+
+        painter.setPen(QPen(QColor("#3a3a4a"), 1));
+        painter.setBrush(QColor(30, 30, 44, 235));
+        painter.drawRoundedRect(tipRect, 6, 6);
+
+        painter.setPen(QColor("#f5f5fa"));
+        for (int i = 0; i < lines.size(); ++i) {
+            painter.drawText(QRectF(tipRect.left() + 8, tipRect.top() + 4 + i * tipLineH, tipW - 16, tipLineH),
+                              Qt::AlignVCenter | Qt::AlignLeft, lines[i]);
+        }
+    };
+
+    // 사건 마커에 마우스를 올린 경우 — 그 마커 문구를 그래프 위쪽에 띄운다.
+    if (m_hoverMarker >= 0 && m_hoverMarker < m_markers.size()) {
+        const GraphEventMarker &m = m_markers[m_hoverMarker];
+        const double mx = area.left() + qBound(0.0, m.xRatio, 1.0) * area.width();
+        drawTip({ m.label }, QPointF(mx, area.top() + 18));
+    }
+
     // 마우스가 올라가 있는 지점 강조: 세로 가이드라인 + 해당 포인트를 더 크게 다시 그림.
     if (m_hoverIndex >= 0 && m_hoverIndex < pts.size()) {
         QPen guidePen(QColor(255, 255, 255, 70), 1, Qt::DashLine);
@@ -320,36 +394,7 @@ void GasGraphWidget::paintEvent(QPaintEvent *)
             tipLines << QString("최댓값 %1%2").arg(m_maxValues[m_hoverIndex], 0, 'f', 1).arg(m_unit);
         }
 
-        QFont tipFont = painter.font();
-        tipFont.setPixelSize(13);
-        painter.setFont(tipFont);
-        const QFontMetrics tipFm(tipFont);
-        int tipW = 0;
-        for (const QString &line : tipLines)
-            tipW = std::max(tipW, tipFm.horizontalAdvance(line));
-        tipW += 16;
-        const int tipLineH = tipFm.height() + 4;
-        const int tipH = tipLineH * tipLines.size() + 8;
-
-        // 커서(포인트) 오른쪽 위로 띄우되, 위젯 경계를 넘어가면 반대쪽으로 붙인다.
-        const QPointF anchor = pts[m_hoverIndex];
-        qreal tipX = anchor.x() + 12;
-        qreal tipY = anchor.y() - tipH - 12;
-        if (tipX + tipW > width() - 4)
-            tipX = anchor.x() - tipW - 12;
-        if (tipY < 4)
-            tipY = anchor.y() + 12;
-        const QRectF tipRect(tipX, tipY, tipW, tipH);
-
-        painter.setPen(QPen(QColor("#3a3a4a"), 1));
-        painter.setBrush(QColor(30, 30, 44, 235));
-        painter.drawRoundedRect(tipRect, 6, 6);
-
-        painter.setPen(QColor("#f5f5fa"));
-        for (int i = 0; i < tipLines.size(); ++i) {
-            painter.drawText(QRectF(tipRect.left() + 8, tipRect.top() + 4 + i * tipLineH, tipW - 16, tipLineH),
-                              Qt::AlignVCenter | Qt::AlignLeft, tipLines[i]);
-        }
+        drawTip(tipLines, pts[m_hoverIndex]);
     }
 }
 
@@ -367,6 +412,31 @@ void GasGraphWidget::mouseMoveEvent(QMouseEvent *event)
 
     const QRect area = plotArea();
     const QPoint pos = event->pos();
+
+    // 사건 마커를 먼저 본다 — 세로선/깃발 위에 있으면 데이터 포인트 대신 마커 문구를 띄운다.
+    // 깃발이 그래프 영역 살짝 위(area.top()-7)에 있어서 y 허용 범위를 그만큼 넓힌다.
+    int markerHit = -1;
+    if (pos.y() >= area.top() - 10 && pos.y() <= area.bottom()) {
+        for (int i = 0; i < m_markers.size(); ++i) {
+            const double mx = area.left() + qBound(0.0, m_markers[i].xRatio, 1.0) * area.width();
+            if (std::abs(double(pos.x()) - mx) <= 6.0) {
+                markerHit = i;
+                break;
+            }
+        }
+    }
+    if (markerHit != m_hoverMarker) {
+        m_hoverMarker = markerHit;
+        update();
+    }
+    if (markerHit >= 0) {
+        if (m_hoverIndex != -1) {
+            m_hoverIndex = -1;
+            update();
+        }
+        return;
+    }
+
     if (!area.contains(pos)) {
         if (m_hoverIndex != -1) {
             m_hoverIndex = -1;
@@ -387,8 +457,9 @@ void GasGraphWidget::mouseMoveEvent(QMouseEvent *event)
 
 void GasGraphWidget::leaveEvent(QEvent *event)
 {
-    if (m_hoverIndex != -1) {
+    if (m_hoverIndex != -1 || m_hoverMarker != -1) {
         m_hoverIndex = -1;
+        m_hoverMarker = -1;
         update();
     }
     QWidget::leaveEvent(event);

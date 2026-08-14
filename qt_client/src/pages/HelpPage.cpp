@@ -83,7 +83,10 @@ QList<HelpTopic> buildTopics()
           "<h3 style='color:#f5f5fa; font-size:22px; font-weight:700; margin:0 0 16px 0; padding-bottom:10px; border-bottom:1px solid #2c2c3d;'>그래프 탭</h3>"
           "<ul style='margin:0; padding-left:22px;'>"
           "<li style='margin-bottom:10px;'>기간을 하루/1주/1달 중에서 선택할 수 있으며, '하루'는 오늘 0시부터 현재까지입니다.</li>"
-          "<li style='margin-bottom:10px;'>화면을 보고 있는 동안 30초마다 자동으로 최신 데이터가 반영됩니다.</li>"
+          "<li style='margin-bottom:10px;'>화면을 보고 있는 동안 1분마다 자동으로 최신 데이터가 반영됩니다.</li>"
+          "<li style='margin-bottom:10px;'>경고·위험이 발생했던 시점은 그래프 위에 세로선으로 표시됩니다"
+          " (<span style='color:" + kWarnColor + ";'>노랑=경고</span> / <span style='color:" + kDangerColor + ";'>빨강=위험</span>)."
+          " 세로선 위에 마우스를 올리면 그 시각과 발생 원인이 표시됩니다.</li>"
           "</ul>" },
 
         { "평면도 탭",
