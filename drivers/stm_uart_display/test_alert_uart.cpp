@@ -108,5 +108,5 @@ int main()
     }
 
     StmDisplayProtocol_Close(fd);
-0    return 0;
+    return 0;
 }
