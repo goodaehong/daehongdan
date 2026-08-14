@@ -370,7 +370,7 @@ static const uint8_t EvacExits[][2] = {
 /* USER CODE END EVAC_DATA */
 
 // 대피도 화면: 벽(흰색)/전광판(노랑)/출구(초록)를 62x62 격자에서 +1 오프셋으로 그림
-// (맨 바깥 1px 링은 지도 데이터 없이 비워두고 아래 DrawBitmap64가 그 자리에 위험 점멸 테두리를 그림)
+// (HUB75_Shape13 테두리를 1px로 줄여서, 그 안쪽 62x62에만 지도를 그리면 안 가려짐)
 static void DrawEvacuationScreen(void)
 {
   HUB75_Clear(HUB75_BLACK);

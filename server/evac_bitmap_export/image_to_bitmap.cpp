@@ -29,7 +29,7 @@
 #include <string>
 #include <vector>
 
-constexpr int OUT_SIZE = 62;   // HUB75는 64x64지만, 테두리 2줄(상하좌우 각 1px)은 빨간 점멸 경고용으로 비워둬서 62x62만 실제 맵으로 씀
+constexpr int OUT_SIZE = 62;   // HUB75는 64x64지만, 테두리가 상하좌우 각 1px씩(HUB75_Shape13을 1px로 수정함) 빨간 점멸 경고용이라 62x62만 실제 맵으로 씀
 // 실측 결과: 벽은 raw값 146+, 살려야 하는 좁은 틈은 최대 108~120 - 그 사이인 130이 최적.
 // 팽창은 다시 0으로 (걸어도 이 정도로 얇은 벽엔 효과 없고, 오히려 다른 통로를 막을 위험만 있음).
 constexpr int kObstacleDilatePx = 0;
