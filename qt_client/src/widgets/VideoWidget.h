@@ -5,6 +5,7 @@
 #include <QVector>
 #include <QPoint>
 #include <QRectF>
+#include <QPolygonF>
 #include "../core/DetectionTypes.h"
 
 class QLabel;
@@ -88,8 +89,9 @@ private:
     double panY = 0.0;
 
     QPushButton *roiButton;
+    QPushButton *roiVisibilityButton;
     bool roiEditActive = false;
-    QVector<QRectF> savedRoiRegions; // 0~1 정규화, zoom=1.0/pan=0 기준
+    QVector<RoiRegion> savedRoiRegions; // 0~1 정규화, zoom=1.0/pan=0 기준. 각 영역 = 꼭짓점 4개 + 적용 대상
 };
 
 #endif // VIDEOWIDGET_H
