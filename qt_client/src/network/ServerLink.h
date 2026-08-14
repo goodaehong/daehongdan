@@ -43,6 +43,10 @@ public:
     // ★ 서버가 아직 query 타입을 처리하지 않아서(2026-08 기준 db 쓰기 전용) 지금은 응답이 안 올 수 있음 — 뼈대.
     QString sendQuery(const QString &target, const QJsonObject &extraParams);
 
+    // 감시 제외(ROI) 영역을 서버에 반영. channel은 1-based. overlapThreshold는 서버가 전역 0.5로
+    // 고정 운용하기로 해서(PR #49 회신) 기본값만 그대로 실어 보낸다. 반환값 cmdId로 ignoreRegionsAck 매칭.
+    QString sendSetIgnoreRegions(int channel, const QVector<RoiRegion> &regions, double overlapThreshold = 0.5);
+
 signals:
     void connectionStateChanged(bool connected);
 
@@ -86,6 +90,12 @@ signals:
     // rows 구조는 target별로 다름 (명세서 3-1/3-2 참고). reqId로 어느 sendQuery() 응답인지 매칭.
     void queryResult(const QString &reqId, const QString &target, const QJsonArray &rows);
     void queryFailed(const QString &reqId, const QString &reason);
+
+    // set_ignore_regions 응답. reason은 실패했을 때만 채워진다.
+    void ignoreRegionsAck(const QString &cmdId, int channel, bool ok, const QString &reason);
+    // 접속 직후 서버가 4채널 전부 push하거나, query target=ignore_regions 응답으로 온 것 —
+    // Qt 입장에서 둘을 구분할 필요가 없어(그냥 최신값으로 화면에 반영하면 됨) 시그널 하나로 합쳤다.
+    void ignoreRegionsReceived(int channel, double overlapThreshold, const QVector<RoiRegion> &regions);
 
 private slots:
     void onReadyRead();

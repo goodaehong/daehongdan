@@ -320,7 +320,16 @@ void VideoWidget::toggleRoiEdit()
         overlay->setRoiEditMode(false);
         zoomOutBtn->setEnabled(true);
         zoomInBtn->setEnabled(true);
+        emit roiRegionsChanged(channelNumber, savedRoiRegions);
     }
+}
+
+void VideoWidget::setRoiRegionsFromServer(const QVector<RoiRegion> &regions)
+{
+    if (roiEditActive)
+        return; // 편집 중엔 사용자가 그리고 있는 걸 서버 데이터로 덮어쓰지 않는다
+    savedRoiRegions = regions;
+    overlay->setRoiRegions(regions);
 }
 
 void VideoWidget::updateVideoTransform()

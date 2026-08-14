@@ -37,12 +37,16 @@ public:
     void setActuatorRowStatus(const QString &target, const QString &text, const QString &color);
     // 서버 sensor 메시지의 visionOk(채널별 서버 영상 감지 생존 여부) 반영 (emergency-mode #14).
     void setCameraVisionStatus(bool ch1, bool ch2, bool ch3, bool ch4);
+    // 접속 직후 push 또는 query 응답으로 받은 ROI를 해당 채널(1-based) 카메라 카드에 반영.
+    void applyRoiRegionsFromServer(int channel, const QVector<RoiRegion> &regions);
 
 signals:
     void demoStateRequested(ZoneState state);
     void controlActionRequested(const QString &target, const QString &action, const QString &title);
     void emergencyTriggerRequested(const QString &cause);
     void emergencyClearRequested(const QString &admin, const QStringList &checklist);
+    // 채널 하나의 ROI 편집이 끝났을 때. MainWindow가 받아서 서버로 전송한다.
+    void roiRegionsChanged(int channel, const QVector<RoiRegion> &regions);
 
 private:
     // 채널 카드를 더블클릭하면 같은 스트림을 새로 하나 더 연결해 확대 창으로 띄운다.

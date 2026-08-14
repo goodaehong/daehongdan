@@ -10,6 +10,62 @@
 
 namespace {
 constexpr int kControlTimeoutMs = 3000;
+
+// RoiRegion -> set_ignore_regions의 regions[] 원소. points는 [[x,y],...] (0~1 정규화).
+QJsonArray roiRegionsToJson(const QVector<RoiRegion> &regions)
+{
+    QJsonArray arr;
+    for (const RoiRegion &region : regions) {
+        QJsonObject r;
+        r["enabled"] = region.enabled;
+        r["label"] = region.label;
+        QJsonArray applyTo;
+        if (region.applyFire) applyTo.append("fire");
+        if (region.applySmoke) applyTo.append("smoke");
+        r["applyTo"] = applyTo;
+        QJsonArray points;
+        for (const QPointF &p : region.points)
+            points.append(QJsonArray{ p.x(), p.y() });
+        r["points"] = points;
+        arr.append(r);
+    }
+    return arr;
+}
+
+// query_result(target=ignore_regions)의 regions[] -> RoiRegion. 서버 필드명과 1:1 대응.
+QVector<RoiRegion> roiRegionsFromJson(const QJsonArray &arr)
+{
+    QVector<RoiRegion> regions;
+    for (const QJsonValue &v : arr) {
+        const QJsonObject r = v.toObject();
+        RoiRegion region;
+        region.enabled = r.value("enabled").toBool(true);
+        region.label = r.value("label").toString();
+
+        // applyTo 필드 자체가 없으면(구버전 서버 등) 화재/연기 둘 다 적용으로 취급 — 서버 쪽
+        // hasTarget()의 "필드 없으면 양쪽 다 적용" 규칙과 대칭을 맞춘다.
+        const QJsonArray applyTo = r.value("applyTo").toArray();
+        if (applyTo.isEmpty()) {
+            region.applyFire = true;
+            region.applySmoke = true;
+        } else {
+            region.applyFire = false;
+            region.applySmoke = false;
+            for (const QJsonValue &t : applyTo) {
+                if (t.toString() == "fire") region.applyFire = true;
+                if (t.toString() == "smoke") region.applySmoke = true;
+            }
+        }
+
+        for (const QJsonValue &pv : r.value("points").toArray()) {
+            const QJsonArray p = pv.toArray();
+            if (p.size() == 2)
+                region.points << QPointF(p[0].toDouble(), p[1].toDouble());
+        }
+        regions.append(region);
+    }
+    return regions;
+}
 }
 
 ServerLink::ServerLink(QObject *parent)
@@ -137,6 +193,21 @@ QString ServerLink::sendQuery(const QString &target, const QJsonObject &extraPar
     return reqId;
 }
 
+QString ServerLink::sendSetIgnoreRegions(int channel, const QVector<RoiRegion> &regions, double overlapThreshold)
+{
+    const QString cmdId = generateCmdId();
+
+    QJsonObject obj;
+    obj["type"] = "set_ignore_regions";
+    obj["cmdId"] = cmdId;
+    obj["channel"] = channel;
+    obj["overlapThreshold"] = overlapThreshold;
+    obj["regions"] = roiRegionsToJson(regions);
+    sendLine(obj);
+
+    return cmdId;
+}
+
 void ServerLink::sendFalseAlarmReport(int channel, int frameId, const QString &admin)
 {
     QJsonObject obj;
@@ -260,12 +331,22 @@ void ServerLink::handleLine(const QByteArray &line)
         // 거절 없음 — result는 항상 "accepted"
         emit emergencyResult(cmdId, obj.value("zone").toString(), obj.value("mode").toString(),
                               obj.value("result").toString());
+    } else if (type == "set_ignore_regions_ack") {
+        emit ignoreRegionsAck(obj.value("cmdId").toString(), obj.value("channel").toInt(),
+                               obj.value("result").toString() == "ok", obj.value("reason").toString());
     } else if (type == "query_result") {
         const QString reqId = obj.value("reqId").toString();
         const QString target = obj.value("target").toString();
-        if (obj.value("result").toString() == "failed")
+        if (target == "ignore_regions") {
+            // event_log/sensor_log와 달리 rows 배열로 안 오고 channel/regions가 바로 최상위에 있다
+            // (접속 직후 push는 reqId 자체가 없음 — Qt는 push든 query 응답이든 구분 없이 반영한다).
+            emit ignoreRegionsReceived(obj.value("channel").toInt(),
+                                        obj.value("overlapThreshold").toDouble(0.5),
+                                        roiRegionsFromJson(obj.value("regions").toArray()));
+        } else if (obj.value("result").toString() == "failed") {
             emit queryFailed(reqId, obj.value("reason").toString());
-        else
+        } else {
             emit queryResult(reqId, target, obj.value("rows").toArray());
+        }
     }
 }
