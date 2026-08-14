@@ -1,5 +1,6 @@
 #include "qt_link.h"
 #include "db/query_handler.h"
+#include "roi/roi_store.h"   
 #include "audio/speaker_alert.h" 
 #include <sstream>
 #include <iomanip>
@@ -197,6 +198,47 @@ static void handleEmergency(Link& link, Database& db, AlarmState& alarm,
     link.send(oss.str());
 }
 
+// ROI 설정 반영 + set_ignore_regions_ack 응답                       
+// 검증 실패 시 기존 설정을 유지한다 (RoiStore_Apply 안에서 처리)
+static void handleSetIgnoreRegions(Link& link, const std::string& line) {
+    std::string cmdId = jsonStr(line, "cmdId");
+    int ch = 0;
+    std::string reason;
+    bool ok = RoiStore_Apply(line, &ch, &reason);
+
+    // 메모리엔 반영됐어도 파일 저장이 실패하면 재시작 때 사라진다 → Qt에 알려야 함
+    if (ok && !RoiStore_Save()) {
+        ok = false;
+        reason = "설정 파일 저장 실패";
+    }
+    if (!ok) std::cerr << "[ROI] ch" << ch << " 적용 실패 — " << reason << "\n";
+
+    std::ostringstream oss;
+    oss << "{\"type\":\"set_ignore_regions_ack\",\"cmdId\":\"" << cmdId
+        << "\",\"channel\":" << ch
+        << ",\"result\":\"" << (ok ? "ok" : "failed") << "\""
+        << ",\"reason\":" << (ok ? "null" : "\"" + jsonEscape(reason) + "\"")
+        << ",\"ts\":" << std::time(nullptr) << "}";
+    link.send(oss.str());
+}
+
+// query_result 본문. reqId가 비면 접속 직후 push용 (reqId 없이 나간다)
+static std::string ignoreRegionsResult(int ch, const std::string& reqId) {
+    if (ch < 0 || ch > 3) ch = 0;
+    std::ostringstream oss;
+    oss << "{\"type\":\"query_result\"";
+    if (!reqId.empty()) oss << ",\"reqId\":\"" << reqId << "\"";
+    oss << ",\"target\":\"ignore_regions\",\"channel\":" << (ch + 1)
+        << ",\"overlapThreshold\":" << RoiStore_Threshold(ch)
+        << ",\"regions\":" << RoiStore_ToJson(ch) << "}";
+    return oss.str();
+}
+
+// Qt 접속 직후 4채널 전부 전송 (Q3 회신 — query 대신 서버 push)
+void QtLink_PushIgnoreRegions(Link& link) {
+    for (int ch = 0; ch < 4; ch++) link.send(ignoreRegionsResult(ch, ""));
+}                                                                     
+
 // ── 수신 스레드: Qt→서버 방향 ──
 // \n 프레이밍·대기는 Link가 처리하므로 여기선 한 줄씩 받아 라우팅만
 void QtLink_RecvWorker(Link& link, AlarmState& alarm, Database& db) {
@@ -210,7 +252,14 @@ void QtLink_RecvWorker(Link& link, AlarmState& alarm, Database& db) {
             handleEmergency(link, db, alarm, line, true);
         else if (line.find("\"type\":\"emergency_clear\"") != std::string::npos)
             handleEmergency(link, db, alarm, line, false);                                               
-        else if (line.find("\"type\":\"query\"") != std::string::npos)   
-            link.send(handleQuery(db, line));
+        else if (line.find("\"type\":\"set_ignore_regions\"") != std::string::npos)   
+            handleSetIgnoreRegions(link, line);
+        else if (line.find("\"type\":\"query\"") != std::string::npos) {
+            if (jsonStr(line, "target") == "ignore_regions")
+                link.send(ignoreRegionsResult(jsonInt(line, "channel", 1) - 1,
+                                              jsonStr(line, "reqId")));
+            else
+                link.send(handleQuery(db, line));
+        }                                                                           
     }
 }

@@ -22,6 +22,7 @@
 #include "judgement.h"
 #include "alarm_state.h"
 #include "qt_link.h"
+#include "roi/roi_store.h"
 #include "db/Database.h"
 #include "audio/speaker_alert.h"   
 
@@ -225,6 +226,8 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
         bool justConnected = nowConnected && !prevConnected;
         prevConnected = nowConnected;
 
+        if (justConnected) QtLink_PushIgnoreRegions(link);   // 저장된 ROI 복원 (Q3 회신)  
+
         if (justConnected || ++tick % 5 == 0) {
             Actuator_Poll();   // STM에 상태 요청(0x40) → linkOk 갱신. 안 하면 끊겨도 모름
             QtLink_SendActuator(link, Actuator_GetState());
@@ -242,6 +245,7 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
     person.start(url);              // 카메라 WiseAI 사람 메타데이터 수신 (FFmpeg)
 
     FireDetectionRuntime runtime;   // 복사 금지 타입 → 채널당 지역변수 1개
+    int roiVer = -1;  // ROI 설정 버전. 바뀔 때만 런타임에 반영
     std::uint64_t frameId = 0;
     bool wasShowingBoxes = false;
     bool prevSmoke = false, prevPerson = false, prevFire = false;   // 로그: 변화 시에만 출력용
@@ -259,6 +263,7 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
 
         std::cout << "[cam" << ch + 1 << "] 연결 성공\n";
         runtime.resetStream();   // 재연결이면 이전 추적 상태 폐기
+        roiVer = -1;             // 재연결 후 ROI도 다시 넣는다 (상태 유실 대비)
 
         cv::Mat frame;
         while (true) {
@@ -271,6 +276,20 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
                 store.frames[ch] = frame.clone();
             }
             store.lastFrameTs[ch] = std::time(nullptr);   // 감지 생존 확인용
+
+            // ROI 갱신 확인. 평소엔 정수 하나만 읽고 지나간다               
+            // 화재·연기 엔진이 각각 설정을 받으므로 둘 다 넣어야 한다
+            int ver = RoiStore_Version(ch);
+            if (ver != roiVer) {
+                roiVer = ver;
+                IgnoreRegionConfig fireCfg, smokeCfg;
+                RoiStore_Get(ch, fireCfg, smokeCfg);
+                runtime.setIgnoreRegionConfig(fireCfg);
+                smoke.setIgnoreRegionConfig(ch, smokeCfg);
+                std::cout << "[ROI] cam" << ch + 1 << " 적용 — 화재 "
+                          << fireCfg.regions.size() << "개, 연기 "
+                          << smokeCfg.regions.size() << "개\n";
+            }                                                          
 
             runtime.submitFrame(frame, frameId);
             smoke.submitFrame(ch, frame, frameId);
@@ -371,6 +390,7 @@ int main() {
     }
     if (!g_db.open(DB_PATH))
         std::cerr << "[DB] 초기화 실패 — DB 없이 계속 진행\n";
+    RoiStore_Load();   // 저장된 ROI 복원. 파일 없으면 빈 상태로 시작   
     if (!Actuator_Init("/dev/stm_actuator"))          // STM 액추에이터 보드 (USB) (심볼릭링크)
         std::cerr << "[액추에이터] 초기화 실패 — 계속 진행\n";
     Actuator_Apply(responseForSafe(), "자동:초기화");   // 재시작 후 상태를 알 수 없으므로 평상으로 맞춤 
