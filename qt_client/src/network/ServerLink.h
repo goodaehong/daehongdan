@@ -5,10 +5,10 @@
 #include <QByteArray>
 #include <QVector>
 #include <QMap>
+#include <QSslError>
 #include "../core/DetectionTypes.h"
 
-class QTcpSocket;
-//class QSslSocket;
+class QSslSocket;
 class QTimer;
 class QJsonObject;
 class QJsonArray;
@@ -89,6 +89,8 @@ signals:
 
 private slots:
     void onReadyRead();
+    // 자체서명 인증서라 항상 발생하는 "신뢰할 수 없는 발급자" 에러를, 지문이 맞는 경우에만 무시한다.
+    void onSslErrors(const QList<QSslError> &errors);
 
 private:
     void handleLine(const QByteArray &line);
@@ -97,8 +99,7 @@ private:
     QString sendEmergencyRequest(const QString &type, const QString &mode, const QString &zone,
                                   const QString &admin, const QJsonObject &extraFields);
 
-    QTcpSocket *socket;
-    //QSslSocket *socket;
+    QSslSocket *socket;
     QByteArray buffer;
     QMap<QString, QTimer *> pendingCommands;
     // control과 별개 맵을 써서 evacuation_ack/타임아웃을 다른 시그널로 명확히 구분해 내보낸다.

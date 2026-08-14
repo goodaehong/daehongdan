@@ -15,7 +15,8 @@
 #include <QShowEvent>
 #include <QGraphicsDropShadowEffect>
 #include <QGraphicsBlurEffect>
-#include <QTcpSocket>
+#include <QSslSocket>
+#include <QSslError>
 #include <QAbstractSocket>
 #include <QTimer>
 #include <QGuiApplication>
@@ -293,7 +294,10 @@ void LoginPage::onLoginClicked()
     errorLabel->setText("서버 연결 확인 중...");
     setFormEnabled(false);
 
-    auto *socket = new QTcpSocket(this);
+    // 단순 TCP 연결 여부가 아니라 TLS 핸드셰이크(암호화)까지 성공하는지 확인한다 — 포트는 열려
+    // 있어도 인증서가 안 맞으면 실제 데이터 소켓(ServerLink)도 못 붙기 때문에, 여기서도 같은
+    // 검증(ServerConfig::verifyServerCertificate)을 거쳐야 사전 확인이 의미가 있다.
+    auto *socket = new QSslSocket(this);
     auto *timeoutTimer = new QTimer(this);
     timeoutTimer->setSingleShot(true);
 
@@ -312,12 +316,24 @@ void LoginPage::onLoginClicked()
         }
     };
 
-    connect(socket, &QTcpSocket::connected, this, [finish]() { finish(true); });
-    connect(socket, &QTcpSocket::errorOccurred, this, [finish](QAbstractSocket::SocketError) { finish(false); });
+    // ServerLink와 마찬가지로 서버가 실제 TLS를 켜기 전까지는 평문으로 확인한다
+    // (ServerConfig::kUseTls 하나로 양쪽 다 같이 전환됨).
+    if (ServerConfig::kUseTls) {
+        connect(socket, &QSslSocket::encrypted, this, [finish]() { finish(true); });
+        connect(socket, &QSslSocket::sslErrors, this, [socket](const QList<QSslError> &errors) {
+            ServerConfig::verifyServerCertificate(socket, errors);
+        });
+    } else {
+        connect(socket, &QAbstractSocket::connected, this, [finish]() { finish(true); });
+    }
+    connect(socket, &QSslSocket::errorOccurred, this, [finish](QAbstractSocket::SocketError) { finish(false); });
     connect(timeoutTimer, &QTimer::timeout, this, [finish]() { finish(false); });
 
     timeoutTimer->start(kServerCheckTimeoutMs);
-    socket->connectToHost(ServerConfig::kServerHost, ServerConfig::kServerPort);
+    if (ServerConfig::kUseTls)
+        socket->connectToHostEncrypted(ServerConfig::kServerHost, ServerConfig::kServerPort);
+    else
+        socket->connectToHost(ServerConfig::kServerHost, ServerConfig::kServerPort);
 }
 
 void LoginPage::completeLogin()

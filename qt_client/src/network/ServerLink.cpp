@@ -1,8 +1,7 @@
 #include "ServerLink.h"
+#include "../core/ServerConfig.h"
 
-#include <QTcpSocket>
-//#include <QSslSocket>
-//#include <QSslError> // 사설 인증서 에러 처리를 위해 추가
+#include <QSslSocket>
 #include <QTimer>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -16,26 +15,33 @@ constexpr int kControlTimeoutMs = 3000;
 ServerLink::ServerLink(QObject *parent)
     : QObject(parent)
 {
-    socket = new QTcpSocket(this);
-    connect(socket, &QTcpSocket::readyRead, this, &ServerLink::onReadyRead);
-    connect(socket, &QTcpSocket::connected, this, [this]() { emit connectionStateChanged(true); });
-    connect(socket, &QTcpSocket::disconnected, this, [this]() { emit connectionStateChanged(false); });
-    // socket = new QSslSocket(this);
-    // connect(socket, &QSslSocket::readyRead, this, &ServerLink::onReadyRead);
-    // // connected 대신 encrypted 사용: 암호화가 완료된 시점을 정확히 잡을 수 있음
-    // connect(socket, &QSslSocket::encrypted, this, [this]() { emit connectionStateChanged(true); });
-    // connect(socket, &QSslSocket::disconnected, this, [this]() { emit connectionStateChanged(false); });
-    // // 사설 인증서(Self-signed) 에러 무시 로직 추가
-    // connect(socket, &QSslSocket::sslErrors, this, [this](const QList<QSslError> &errors) {
-    //     socket->ignoreSslErrors();
-    // });
+    // QSslSocket은 QTcpSocket을 상속하므로 connectToHost()로 부르면 TLS 없이 평문 소켓처럼도
+    // 동작한다 — 서버가 TLS를 켜기 전까지는 타입은 그대로 두고 호출 방식만 ServerConfig::kUseTls로
+    // 가른다(광렬님 서버 TLS 완료되면 그 값만 true로 바꾸면 됨, 이 파일은 안 건드려도 된다).
+    socket = new QSslSocket(this);
+    connect(socket, &QSslSocket::readyRead, this, &ServerLink::onReadyRead);
+    if (ServerConfig::kUseTls) {
+        // connected 대신 encrypted를 쓴다 — connected는 TCP 핸드셰이크만 끝난 시점이라
+        // TLS 협상이 안 끝난 상태에서 "연결됨"으로 잘못 표시하게 된다.
+        connect(socket, &QSslSocket::encrypted, this, [this]() { emit connectionStateChanged(true); });
+        connect(socket, &QSslSocket::sslErrors, this, &ServerLink::onSslErrors);
+    } else {
+        connect(socket, &QAbstractSocket::connected, this, [this]() { emit connectionStateChanged(true); });
+    }
+    connect(socket, &QSslSocket::disconnected, this, [this]() { emit connectionStateChanged(false); });
 }
 
 void ServerLink::connectToServer(const QString &host, quint16 port)
 {
-    socket->connectToHost(host, port);
-    // // 일반 연결이 아닌 암호화 연결 함수 사용
-    // socket->connectToHostEncrypted(host, port);
+    if (ServerConfig::kUseTls)
+        socket->connectToHostEncrypted(host, port);
+    else
+        socket->connectToHost(host, port);
+}
+
+void ServerLink::onSslErrors(const QList<QSslError> &errors)
+{
+    ServerConfig::verifyServerCertificate(socket, errors);
 }
 
 QString ServerLink::generateCmdId()

@@ -115,6 +115,28 @@ add_custom_command(TARGET qt_dashboard POST_BUILD
         "$<TARGET_FILE_DIR:qt_dashboard>"
 )
 
+# --- OpenSSL 런타임 (ServerLink의 QSslSocket TLS 연결용) -----------------------
+# Qt의 openssl TLS 백엔드(qopensslbackend.dll)는 Qt 설치본에 포함돼 있지만, 그 백엔드가 실제로
+# 쓰는 libssl-3-x64.dll/libcrypto-3-x64.dll은 Qt에 안 들어있어 별도로 구해야 한다. 개발 PC에
+# Git for Windows 등이 깔려 있으면 그 OpenSSL DLL이 PATH에 잡혀서 우연히 동작하는 것처럼 보일 수
+# 있는데, 배포 대상 PC(공장 PC)에는 없을 수 있으므로 못 미덥다 — 명시적으로 지정해서 실행파일
+# 옆에 복사한다. 없으면 링크 자체는 되지만(빌드 필수 아님) 실행 시 TLS 연결만 실패한다.
+if(NOT DEFINED OPENSSL_BIN_DIR)
+    set(OPENSSL_BIN_DIR "" CACHE PATH
+        "libssl-3-x64.dll / libcrypto-3-x64.dll이 있는 폴더 (예: OpenSSL Win64 설치 경로의 bin)")
+endif()
+if(OPENSSL_BIN_DIR)
+    add_custom_command(TARGET qt_dashboard POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${OPENSSL_BIN_DIR}/libssl-3-x64.dll" "${OPENSSL_BIN_DIR}/libcrypto-3-x64.dll"
+            "$<TARGET_FILE_DIR:qt_dashboard>"
+    )
+else()
+    message(WARNING
+        "OPENSSL_BIN_DIR이 지정되지 않았습니다 — libssl-3-x64.dll/libcrypto-3-x64.dll이 실행파일 "
+        "옆에 없으면 TLS(ServerLink) 연결이 실패합니다. -DOPENSSL_BIN_DIR=<경로> 로 지정하세요.")
+endif()
+
 install(TARGETS qt_dashboard
     BUNDLE  DESTINATION .
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
