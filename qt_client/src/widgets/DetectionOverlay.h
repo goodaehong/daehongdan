@@ -24,10 +24,10 @@ public:
     void setViewTransform(double factor, double panX, double panY);
     void syncGeometry();
 
-    // 감시 제외 ROI 편집 모드(오늘 범위: Qt 로컬 상태만, 서버 전송은 이후 작업).
-    // 편집 중엔 줌/이동과 무관하게 항상 입력을 받고, 좌표는 zoom=1.0/pan=0 기준 화면 비율(0~1)로
-    // 저장한다 — 실제 소스 해상도(srcW/srcH)는 감지 이벤트가 온 적 있어야만 알 수 있어서
-    // 지금은 그 값에 의존하지 않는다. 서버 연동 시 원본 프레임 좌표계로 다시 맞춰야 한다.
+    // 감시 제외 ROI 편집 모드. 편집 중엔 줌/이동과 무관하게 항상 입력을 받는다.
+    // 저장 좌표는 화면 비율이 아니라 **원본 프레임 기준 0~1**이다(PR #50 리뷰 — 대홍) — 감지 박스와
+    // 똑같이 크롭·줌·팬 보정을 거쳐야 서버가 실제로 잘라내는 영역과 화면에 그려지는 영역이 일치한다.
+    // frameToScreen()/screenToFrameFraction()이 그 변환을 담당한다.
     //
     // 영역은 직사각형이 아니라 꼭짓점 4개를 직접 찍는 사각형(기울어진 설비/벽면도 감쌀 수 있게)이며,
     // 프로토콜의 points[[x,y],…] 형식과 그대로 대응된다. 영역마다 적용 대상(화재/연기)도 지정한다.
@@ -57,10 +57,20 @@ private:
     // 이름 입력 다이얼로그. 확인을 누르면 true를 주고 label을 채운다.
     // QInputDialog를 안 쓰는 이유는 구현부 주석 참고(테마·always-on-top 문제).
     bool promptRoiLabel(QString &label);
-    // 정규화(0~1) 폴리곤 -> 현재 위젯 크기의 화면 좌표 폴리곤.
+    // 원본 프레임 기준 0~1 폴리곤 -> 현재 위젯 크기의 화면 좌표 폴리곤 (frameToScreen을 각 점에 적용).
     QPolygonF roiToScreen(const QPolygonF &normalized) const;
     // 화면 좌표에서 꼭짓점을 집는다. 못 찾으면 polyIndex=-1.
     void hitTestVertex(const QPointF &pos, int &polyIndex, int &vertexIndex) const;
+
+    // 감지 박스 렌더링(paintEvent)이 쓰는 것과 동일한 크롭/줌/팬 보정값. 두 곳에서 각자 계산하면
+    // 하나만 고치고 잊어버리는 사고가 나기 쉬워서(이번 버그가 그 경우) 여기 하나로 합쳤다.
+    struct CropTransform { double cropLeft, cropTop, scaleX, scaleY; };
+    CropTransform currentCropTransform() const;
+    // 원본 프레임 기준 0~1 좌표 -> 현재 화면(위젯) 픽셀 좌표. 감지 박스와 ROI 표시가 공유한다.
+    QPointF frameToScreen(const QPointF &frameFraction) const;
+    // 화면(위젯) 픽셀 좌표 -> 원본 프레임 기준 0~1 좌표. ROI를 서버로 보내기 전 역변환에 쓴다.
+    // srcWidth/srcHeight를 아직 모르면(감지 메시지를 한 번도 못 받았으면) 위젯 크기 비율로 대체한다.
+    QPointF screenToFrameFraction(const QPointF &screenPixel) const;
     // 영역의 적용 대상에 따른 표시색/문구 — 감지 박스 색상 언어(FIRE=빨강, SMOKE=주황)와 맞춘다.
     static QColor roiColorFor(const RoiRegion &region);
     static QString roiApplyText(const RoiRegion &region);

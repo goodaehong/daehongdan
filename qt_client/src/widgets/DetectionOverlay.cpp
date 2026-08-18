@@ -128,12 +128,55 @@ void DetectionOverlay::setRoiVisible(bool visible)
     syncGeometry(); // 다 숨겨서 그릴 게 없어지면 오버레이 창 자체를 내린다
 }
 
+DetectionOverlay::CropTransform DetectionOverlay::currentCropTransform() const
+{
+    // paintEvent의 감지 박스 크롭 계산과 완전히 동일해야 한다 — 여기가 어긋나면 ROI가 화면에
+    // 보이는 위치와 서버가 실제로 잘라내는 위치가 서로 다른 곳을 가리키게 된다(PR #50 버그).
+    const double targetAspect = height() > 0 ? double(width()) / height() : 1.0;
+    const double sourceAspect = srcHeight > 0 ? double(srcWidth) / srcHeight : targetAspect;
+    double baseCropWidth = srcWidth;
+    double baseCropHeight = srcHeight;
+    if (sourceAspect > targetAspect)
+        baseCropWidth = srcHeight * targetAspect;
+    else
+        baseCropHeight = srcWidth / targetAspect;
+
+    const double cropWidth = baseCropWidth / zoomFactor;
+    const double cropHeight = baseCropHeight / zoomFactor;
+    CropTransform t;
+    t.cropLeft = (srcWidth - cropWidth) * (panX + 1.0) / 2.0;
+    t.cropTop = (srcHeight - cropHeight) * (panY + 1.0) / 2.0;
+    t.scaleX = cropWidth > 0 ? width() / cropWidth : 1.0;
+    t.scaleY = cropHeight > 0 ? height() / cropHeight : 1.0;
+    return t;
+}
+
+QPointF DetectionOverlay::frameToScreen(const QPointF &frameFraction) const
+{
+    if (srcWidth <= 0 || srcHeight <= 0) // 감지 메시지를 아직 한 번도 못 받음 — 위젯 크기로 대체
+        return QPointF(frameFraction.x() * width(), frameFraction.y() * height());
+    const CropTransform t = currentCropTransform();
+    const double frameX = frameFraction.x() * srcWidth;
+    const double frameY = frameFraction.y() * srcHeight;
+    return QPointF((frameX - t.cropLeft) * t.scaleX, (frameY - t.cropTop) * t.scaleY);
+}
+
+QPointF DetectionOverlay::screenToFrameFraction(const QPointF &screenPixel) const
+{
+    if (srcWidth <= 0 || srcHeight <= 0)
+        return QPointF(screenPixel.x() / qMax(1, width()), screenPixel.y() / qMax(1, height()));
+    const CropTransform t = currentCropTransform();
+    const double frameX = screenPixel.x() / t.scaleX + t.cropLeft;
+    const double frameY = screenPixel.y() / t.scaleY + t.cropTop;
+    return QPointF(frameX / srcWidth, frameY / srcHeight);
+}
+
 QPolygonF DetectionOverlay::roiToScreen(const QPolygonF &normalized) const
 {
     QPolygonF screenPoly;
     screenPoly.reserve(normalized.size());
     for (const QPointF &p : normalized)
-        screenPoly << QPointF(p.x() * width(), p.y() * height());
+        screenPoly << frameToScreen(p);
     return screenPoly;
 }
 
@@ -332,11 +375,13 @@ bool DetectionOverlay::eventFilter(QObject *watched, QEvent *event)
                     }
                 }
                 // 꼭짓점 찍기. 4개가 모이면 영역으로 확정(적용 대상은 기본 "둘 다").
+                // 화면 픽셀 그대로가 아니라 원본 프레임 기준 0~1로 변환해서 저장한다 —
+                // 편집은 항상 zoom=1.0/pan=0에서 하지만, 크롭(letterbox)은 그 상태에서도 걸려 있다.
                 pendingVertices.append(pos);
-                if (pendingVertices.size() == 4 && width() > 0 && height() > 0) {
+                if (pendingVertices.size() == 4) {
                     RoiRegion region;
                     for (const QPointF &p : std::as_const(pendingVertices))
-                        region.points << QPointF(p.x() / width(), p.y() / height());
+                        region.points << screenToFrameFraction(p);
                     roiRegionList.append(region);
                     pendingVertices.clear();
                 }
@@ -347,9 +392,10 @@ bool DetectionOverlay::eventFilter(QObject *watched, QEvent *event)
         if (event->type() == QEvent::MouseMove) {
             auto *mouseEvent = static_cast<QMouseEvent *>(event);
             const QPointF pos = mouseEvent->position();
-            if (dragPolyIndex >= 0 && width() > 0 && height() > 0) {
+            if (dragPolyIndex >= 0) {
+                QPointF frac = screenToFrameFraction(pos);
                 roiRegionList[dragPolyIndex].points[dragVertexIndex] =
-                    QPointF(qBound(0.0, pos.x() / width(), 1.0), qBound(0.0, pos.y() / height(), 1.0));
+                    QPointF(qBound(0.0, frac.x(), 1.0), qBound(0.0, frac.y(), 1.0));
                 update();
                 return true;
             }
@@ -408,29 +454,15 @@ void DetectionOverlay::paintEvent(QPaintEvent *)
     painter.setRenderHint(QPainter::Antialiasing);
 
     if (!boxes.isEmpty() && srcWidth > 0 && srcHeight > 0) {
-    const double targetAspect = height() > 0 ? double(width()) / height() : 1.0;
-    const double sourceAspect = double(srcWidth) / srcHeight;
-    double baseCropWidth = srcWidth;
-    double baseCropHeight = srcHeight;
-    if (sourceAspect > targetAspect)
-        baseCropWidth = srcHeight * targetAspect;
-    else
-        baseCropHeight = srcWidth / targetAspect;
-
-    const double cropWidth = baseCropWidth / zoomFactor;
-    const double cropHeight = baseCropHeight / zoomFactor;
-    const double cropLeft = (srcWidth - cropWidth) * (panX + 1.0) / 2.0;
-    const double cropTop = (srcHeight - cropHeight) * (panY + 1.0) / 2.0;
-    const double scaleX = width() / cropWidth;
-    const double scaleY = height() / cropHeight;
+    const CropTransform t = currentCropTransform();
 
     for (const DetectionBox &box : std::as_const(boxes)) {
         QColor color;
         if (box.cls == "FIRE") color = QColor("#f87171");
         else if (box.cls == "PERSON") color = QColor("#38bdf8"); // 화재/연기(빨강/주황)와 구분되는 하늘색
         else color = QColor("#fb923c"); // SMOKE 등
-        const QRectF rect((box.x - cropLeft) * scaleX, (box.y - cropTop) * scaleY,
-                          box.w * scaleX, box.h * scaleY);
+        const QRectF rect((box.x - t.cropLeft) * t.scaleX, (box.y - t.cropTop) * t.scaleY,
+                          box.w * t.scaleX, box.h * t.scaleY);
 
         painter.setPen(QPen(color, 2));
         painter.drawRect(rect);
