@@ -6,10 +6,10 @@
  
 | 폴더 | 담당자 | 대상 하드웨어 | 상태 |
 |---|---|---|---|
-| `gas_sensor/` | 김유나 | MQ-9(CO), MQ-2(연소성 가스) via ADS1115(I2C) | 개발 중 |
-| `dht22/` | 김유나 | DHT22 온습도 센서 (GPIO 단일버스) | 개발 중 |
-| `stm_uart_actuator/` | 김유나 | STM32 액추에이터 보드 (밸브, 팬 제어) | 예정 |
-| `stm_uart_display/` | 김광렬 | STM32 LED 매트릭스 보드 | 예정 |
+| `gas_sensor/` | 김유나 | MQ-9(CO), MQ-2(연소성 가스) via ADS1115(I2C) | 완료 |
+| `dht22/` | 김유나 | DHT22 온습도 센서 (GPIO 단일버스) | 완료 |
+| `stm_uart_actuator/` | 김유나 | STM32 액추에이터 보드 (밸브, 팬, 사이렌 제어) — 유저스페이스 UART 프로토콜 라이브러리 | 완료 |
+| `stm_uart_display/` | 김광렬 | STM32 LED 매트릭스 보드 — 유저스페이스 UART 프로토콜 라이브러리 | 완료 |
 
 ## 개발 환경
 
