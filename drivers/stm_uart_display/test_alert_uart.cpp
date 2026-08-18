@@ -82,6 +82,8 @@ static void SendAllEvacRoutes(uint8_t fireX, uint8_t fireY, uint8_t fireRadius)
                   << (int)fireX << "," << (int)fireY << "), 웨이포인트 "
                   << (int)kTestRoutes[i].count << "개) 전송 " << (ok ? "성공" : "실패") << "\n";
         if (!ok) { g_fd = StmDisplayProtocol_Reconnect(fd, kDevPath); }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));   // STM32 수신 링버퍼 여유 주기용
     }
 }
 

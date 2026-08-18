@@ -770,11 +770,10 @@ static void HandlePacket(uint8_t cmd, const uint8_t *data, uint8_t len)
       g_evacWaypointCount[routeIndex] = count;
     }
 
-    /* 이미 대피도 화면을 보여주고 있는 중이면 새 경로를 즉시 반영, 아니면 3초 자동전환 때 같이 그려짐 */
-    if (g_inAlertScreen && alertShowingEvacuation)
-    {
-      DrawEvacuationScreen();
-    }
+    /* 여기서 DrawEvacuationScreen()을 즉시 호출하지 않음 - 출구 4곳 패킷이 텀 없이 연달아
+       올 때(SendAllEvacRoutes 등) 무거운 전체 재렌더를 패킷마다 돌리면, 그 처리 시간 동안
+       수신 링버퍼(64바이트)가 넘쳐서 뒤에 오는 패킷이 깨지는 문제가 있었음.
+       대신 UpdateEvacPathAnimation()이 50ms마다 알아서 다시 그려주므로 그걸로 충분함 */
   }
 }
 
