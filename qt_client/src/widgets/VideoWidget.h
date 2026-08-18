@@ -5,6 +5,7 @@
 #include <QVector>
 #include <QPoint>
 #include <QRectF>
+#include <QPolygonF>
 #include "../core/DetectionTypes.h"
 
 class QLabel;
@@ -39,9 +40,15 @@ public:
     // 대피 음성 안내 방송 중이면 🔊 아이콘이 같이 깜빡인다. 데이터 소스 미정, UI만 우선.
     void setVoiceAnnouncementActive(bool active);
 
+    // 서버에서 받은(접속 직후 push 또는 query 응답) ROI로 화면을 갱신한다. 편집 중이면 사용자가
+    // 그리고 있는 걸 덮어쓰면 안 되므로 무시한다.
+    void setRoiRegionsFromServer(const QVector<RoiRegion> &regions);
+
 signals:
     // 카드 아무 곳이나(영상 영역 포함) 더블클릭하면 발생. MonitorPage가 받아서 확대 창을 띄운다.
     void doubleClicked(int channel);
+    // ROI 편집을 마칠 때(편집 버튼을 다시 눌러 끌 때) 발생. MonitorPage가 받아서 서버로 전송한다.
+    void roiRegionsChanged(int channel, const QVector<RoiRegion> &regions);
 
 protected:
     void mouseDoubleClickEvent(QMouseEvent *event) override;
@@ -88,8 +95,9 @@ private:
     double panY = 0.0;
 
     QPushButton *roiButton;
+    QPushButton *roiVisibilityButton;
     bool roiEditActive = false;
-    QVector<QRectF> savedRoiRegions; // 0~1 정규화, zoom=1.0/pan=0 기준
+    QVector<RoiRegion> savedRoiRegions; // 0~1 정규화, zoom=1.0/pan=0 기준. 각 영역 = 꼭짓점 4개 + 적용 대상
 };
 
 #endif // VIDEOWIDGET_H

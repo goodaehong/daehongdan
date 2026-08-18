@@ -132,6 +132,30 @@ MainWindow::MainWindow(QWidget *parent)
                 monitorPage->showControlStatus("응답 없음 — 서버 연결 확인 필요", "#f87171");
             });
 
+    // ROI(감시 제외 영역) 편집이 끝나면 그 채널만 서버로 전송. overlapThreshold는 서버가 전역
+    // 0.5로 고정 운용하기로 해서(PR #49 회신) sendSetIgnoreRegions 기본값 그대로 둔다.
+    connect(monitorPage, &MonitorPage::roiRegionsChanged, this,
+            [this](int channel, const QVector<RoiRegion> &regions) {
+                serverLink->sendSetIgnoreRegions(channel, regions);
+                monitorPage->showControlStatus(QString("처리 중... (Ch.%1 감시 제외 영역 저장)").arg(channel), "#8d87a0");
+            });
+    connect(serverLink, &ServerLink::ignoreRegionsAck, this,
+            [this](const QString &, int channel, bool ok, const QString &reason) {
+                if (ok) {
+                    monitorPage->showControlStatus(QString("완료: Ch.%1 감시 제외 영역 저장").arg(channel), "#34d399");
+                } else {
+                    monitorPage->showControlStatus(
+                        QString("실패: Ch.%1 감시 제외 영역 (%2)").arg(channel)
+                            .arg(reason.isEmpty() ? "알 수 없는 오류" : reason), "#f87171");
+                }
+            });
+    // 접속 직후 서버가 4채널 전부 push하거나(재접속 시 자동), query 응답으로 온 것 — 둘 다
+    // 여기서 그대로 해당 채널 카메라 카드에 반영한다.
+    connect(serverLink, &ServerLink::ignoreRegionsReceived, this,
+            [this](int channel, double /*overlapThreshold*/, const QVector<RoiRegion> &regions) {
+                monitorPage->applyRoiRegionsFromServer(channel, regions);
+            });
+
     // 이벤트로그 자체는 서버가 control 처리 시 db.insertEvent()로 이미 남기므로 Qt가 중복으로
     // 만들지 않는다. 다만 명세서(3-3)대로 성공/실패/타임아웃 각각 화면에 즉시 알림은 띄워야 한다.
     connect(serverLink, &ServerLink::controlResult, this,

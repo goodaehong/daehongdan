@@ -75,7 +75,7 @@ VideoWidget::VideoWidget(int channel, QWidget *parent)
     roiButton->setCheckable(true);
     roiButton->setFixedSize(26, 26);
     roiButton->setCursor(Qt::PointingHandCursor);
-    roiButton->setToolTip("감시 제외 영역(ROI) 편집 — 드래그로 추가, 우클릭으로 삭제");
+    roiButton->setToolTip("감시 제외 영역(ROI) 편집 — 꼭짓점 4개를 찍어 추가, 우클릭으로 삭제");
     roiButton->setStyleSheet(
         "QPushButton { color:#c4bfd2; background:#232333; border:1px solid #36364a; "
         "border-radius:4px; font-size:14px; font-weight:bold; font-family:\"hanwhaGothic EL\"; }"
@@ -83,6 +83,24 @@ VideoWidget::VideoWidget(int channel, QWidget *parent)
         "QPushButton:checked { color:#0a0a12; background:#f87171; border:1px solid #f87171; }");
     connect(roiButton, &QPushButton::clicked, this, &VideoWidget::toggleRoiEdit);
     header->addWidget(roiButton);
+
+    // 설정해둔 제외 영역이 영상 위에 계속 겹쳐 보이면 감시에 방해돼서, 평상시 표시를 끌 수 있게 한다.
+    // (편집 모드에서는 이 버튼과 무관하게 항상 보인다 — 안 보이면 편집 자체가 안 되므로)
+    roiVisibilityButton = new QPushButton("👁", this);
+    roiVisibilityButton->setCheckable(true);
+    roiVisibilityButton->setChecked(true);
+    roiVisibilityButton->setFixedSize(26, 26);
+    roiVisibilityButton->setCursor(Qt::PointingHandCursor);
+    roiVisibilityButton->setToolTip("제외 영역 표시 켜기/끄기 (영상만 보고 싶을 때)");
+    roiVisibilityButton->setStyleSheet(
+        "QPushButton { color:#6b6680; background:#232333; border:1px solid #36364a; "
+        "border-radius:4px; font-size:13px; }"
+        "QPushButton:hover { color:#ffffff; background:#343448; }"
+        "QPushButton:checked { color:#f5f5fa; }");
+    connect(roiVisibilityButton, &QPushButton::clicked, this, [this](bool checked) {
+        overlay->setRoiVisible(checked);
+    });
+    header->addWidget(roiVisibilityButton);
 
     auto *expandBtn = new QPushButton("⛶", this);
     expandBtn->setCursor(Qt::PointingHandCursor);
@@ -302,7 +320,16 @@ void VideoWidget::toggleRoiEdit()
         overlay->setRoiEditMode(false);
         zoomOutBtn->setEnabled(true);
         zoomInBtn->setEnabled(true);
+        emit roiRegionsChanged(channelNumber, savedRoiRegions);
     }
+}
+
+void VideoWidget::setRoiRegionsFromServer(const QVector<RoiRegion> &regions)
+{
+    if (roiEditActive)
+        return; // 편집 중엔 사용자가 그리고 있는 걸 서버 데이터로 덮어쓰지 않는다
+    savedRoiRegions = regions;
+    overlay->setRoiRegions(regions);
 }
 
 void VideoWidget::updateVideoTransform()

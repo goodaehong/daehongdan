@@ -5,10 +5,10 @@
 #include <QByteArray>
 #include <QVector>
 #include <QMap>
+#include <QSslError>
 #include "../core/DetectionTypes.h"
 
-class QTcpSocket;
-//class QSslSocket;
+class QSslSocket;
 class QTimer;
 class QJsonObject;
 class QJsonArray;
@@ -42,6 +42,10 @@ public:
     // 반환값 reqId로 queryResult/queryFailed 응답을 매칭한다.
     // ★ 서버가 아직 query 타입을 처리하지 않아서(2026-08 기준 db 쓰기 전용) 지금은 응답이 안 올 수 있음 — 뼈대.
     QString sendQuery(const QString &target, const QJsonObject &extraParams);
+
+    // 감시 제외(ROI) 영역을 서버에 반영. channel은 1-based. overlapThreshold는 서버가 전역 0.5로
+    // 고정 운용하기로 해서(PR #49 회신) 기본값만 그대로 실어 보낸다. 반환값 cmdId로 ignoreRegionsAck 매칭.
+    QString sendSetIgnoreRegions(int channel, const QVector<RoiRegion> &regions, double overlapThreshold = 0.5);
 
 signals:
     void connectionStateChanged(bool connected);
@@ -87,8 +91,16 @@ signals:
     void queryResult(const QString &reqId, const QString &target, const QJsonArray &rows);
     void queryFailed(const QString &reqId, const QString &reason);
 
+    // set_ignore_regions 응답. reason은 실패했을 때만 채워진다.
+    void ignoreRegionsAck(const QString &cmdId, int channel, bool ok, const QString &reason);
+    // 접속 직후 서버가 4채널 전부 push하거나, query target=ignore_regions 응답으로 온 것 —
+    // Qt 입장에서 둘을 구분할 필요가 없어(그냥 최신값으로 화면에 반영하면 됨) 시그널 하나로 합쳤다.
+    void ignoreRegionsReceived(int channel, double overlapThreshold, const QVector<RoiRegion> &regions);
+
 private slots:
     void onReadyRead();
+    // 자체서명 인증서라 항상 발생하는 "신뢰할 수 없는 발급자" 에러를, 지문이 맞는 경우에만 무시한다.
+    void onSslErrors(const QList<QSslError> &errors);
 
 private:
     void handleLine(const QByteArray &line);
@@ -97,8 +109,7 @@ private:
     QString sendEmergencyRequest(const QString &type, const QString &mode, const QString &zone,
                                   const QString &admin, const QJsonObject &extraFields);
 
-    QTcpSocket *socket;
-    //QSslSocket *socket;
+    QSslSocket *socket;
     QByteArray buffer;
     QMap<QString, QTimer *> pendingCommands;
     // control과 별개 맵을 써서 evacuation_ack/타임아웃을 다른 시그널로 명확히 구분해 내보낸다.
