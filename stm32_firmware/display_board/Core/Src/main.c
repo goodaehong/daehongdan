@@ -371,8 +371,9 @@ static const uint8_t EvacExits[][2] = {
 
 #define EVAC_PATH_MAX_WAYPOINTS 30   /* CMD_EVAC_PATH 웨이포인트 최대 개수: (64바이트 버퍼 - 헤더5) / 2 */
 #define EVAC_FIRE_NONE 0xFF          /* fireX/fireY가 이 값이면 "화재 없음"(대피로만 표시) */
-#define EVAC_PATH_CYCLE_MS 500       /* 출발점->도착점 점등 애니메이션 한 바퀴 시간 */
+#define EVAC_PATH_CYCLE_MS 800       /* 꺼진 구멍이 출발점->도착점까지 흘러가는 데 걸리는 시간 */
 #define EVAC_ANIM_REDRAW_MS 50       /* 애니메이션 프레임 갱신 주기 (~20fps) */
+#define EVAC_PATH_GAP_SIZE 3         /* 경로 위를 흘러가는 "꺼진 픽셀" 개수 */
 
 /* CMD_EVAC_PATH로 받은 최신 대피경로(출구별로 하나씩, EvacExits와 같은 인덱스)/화재 위치
    (fireX==EVAC_FIRE_NONE이면 화재 없음). waypointCount[r]==0이면 그 출구로 가는 경로 없음(미수신 또는 도달 불가) */
@@ -396,7 +397,7 @@ static uint16_t EvacPathTotalSteps(const uint8_t wp[][2], uint8_t count)
   return total;
 }
 
-// 경로를 시작점부터 revealSteps 칸만큼만 그림 (점진적 점등 애니메이션용)
+// 경로를 시작점부터 revealSteps 칸만큼만 그림 (revealSteps에 총 길이를 넘기면 경로 전체가 그려짐)
 static void DrawEvacPathPartial(const uint8_t wp[][2], uint8_t count, uint16_t revealSteps, HUB75_Color color)
 {
   if (count == 0) return;
@@ -419,13 +420,39 @@ static void DrawEvacPathPartial(const uint8_t wp[][2], uint8_t count, uint16_t r
   }
 }
 
+// 경로를 따라 stepIndex번째 칸(0=시작점, total=도착점)의 실좌표를 구함 - 움직이는 구멍 그릴 때 씀
+static void EvacPathCellAt(const uint8_t wp[][2], uint8_t count, uint16_t stepIndex, uint8_t* outX, uint8_t* outY)
+{
+  uint16_t passed = 0;
+  for (uint8_t i = 0; i + 1 < count; i++)
+  {
+    int16_t x1 = wp[i][0], y1 = wp[i][1];
+    int16_t dx = (int16_t)wp[i + 1][0] - x1;
+    int16_t dy = (int16_t)wp[i + 1][1] - y1;
+    int16_t segLen = (dx != 0) ? ((dx >= 0) ? dx : -dx) : ((dy >= 0) ? dy : -dy);
+    int16_t stepX = (dx > 0) ? 1 : (dx < 0) ? -1 : 0;
+    int16_t stepY = (dy > 0) ? 1 : (dy < 0) ? -1 : 0;
+
+    if (stepIndex <= (uint16_t)(passed + segLen))
+    {
+      int16_t s = (int16_t)(stepIndex - passed);
+      *outX = (uint8_t)(x1 + s * stepX);
+      *outY = (uint8_t)(y1 + s * stepY);
+      return;
+    }
+    passed = (uint16_t)(passed + segLen);
+  }
+  *outX = wp[count - 1][0];   // stepIndex가 범위를 넘으면 도착점 반환
+  *outY = wp[count - 1][1];
+}
+
 // alertBorderVisible/alertDisasterType은 원래 UpdateAlertBorderBlink() 옆에 있었는데,
 // DrawEvacuationScreen()이 테두리 점멸 상태를 그대로 따라 그리려고 참조하면서 여기로 옮겨옴
 // (C는 변수를 쓰기 전에 선언이 먼저 나와야 함)
 static uint8_t alertBorderVisible = 1;
 static uint8_t alertDisasterType = 0;
 
-// 대피도 화면: 벽(흰색)/전광판(노랑)/출구(초록)/대피경로(청록, 애니메이션)/화재(자홍)를
+// 대피도 화면: 벽(흰색)/전광판(노랑)/출구(초록)/대피경로(초록, 흐르는 구멍 애니메이션)/화재(자홍)를
 // 62x62 격자에서 +1 오프셋으로 그림 (HUB75_Shape13 테두리 1px 안쪽에만 지도를 그리면 안 가려짐)
 static void DrawEvacuationScreen(void)
 {
@@ -452,14 +479,9 @@ static void DrawEvacuationScreen(void)
     HUB75_SetPixel(EvacDisplays[i][0] + 1, EvacDisplays[i][1] + 1, HUB75_YELLOW);
   }
 
-  // 대피경로 애니메이션: 0.5초 주기로 출발점부터 도착점까지 점진적으로 다 켜지고,
-  // 다 켜지면(한 바퀴 끝나면) 전체 꺼진 상태로 되돌아가서 처음부터 다시 시작 - 받은 경로 전부 동시 진행
-  uint32_t elapsed = HAL_GetTick() - g_evacAnimCycleStart;
-  if (elapsed >= EVAC_PATH_CYCLE_MS)
-  {
-    g_evacAnimCycleStart = HAL_GetTick();
-    elapsed = 0;
-  }
+  // 대피경로: 경로 전체를 항상 켜둔 채로(초록색), 꺼진 픽셀 3칸짜리 구멍이 출발점->도착점을
+  // 0.8초에 한 번씩 계속 흘러가는 애니메이션 - 도착하면 끊기지 않고 바로 출발점부터 다시 흐름
+  uint32_t cyclePos = (HAL_GetTick() - g_evacAnimCycleStart) % EVAC_PATH_CYCLE_MS;
 
   for (uint8_t r = 0; r < EVAC_EXIT_COUNT; r++)
   {
@@ -467,8 +489,19 @@ static void DrawEvacuationScreen(void)
     if (count == 0) continue;   /* 이 출구로 가는 경로 아직 안 받았거나 도달 불가 */
 
     uint16_t total = EvacPathTotalSteps(g_evacWaypoints[r], count);
-    uint16_t reveal = (total == 0) ? 0 : (uint16_t)(((uint32_t)elapsed * total) / EVAC_PATH_CYCLE_MS);
-    DrawEvacPathPartial(g_evacWaypoints[r], count, reveal, HUB75_CYAN);
+    DrawEvacPathPartial(g_evacWaypoints[r], count, total, HUB75_GREEN);   // 경로 전체를 항상 그림
+
+    if (total == 0) continue;   /* 웨이포인트 1개뿐(시작=도착) - 흐르는 구멍 없음 */
+
+    uint16_t gapStart = (uint16_t)(((uint32_t)cyclePos * total) / EVAC_PATH_CYCLE_MS);
+    for (uint8_t k = 0; k < EVAC_PATH_GAP_SIZE; k++)
+    {
+      uint16_t idx = gapStart + k;
+      if (idx > total) idx = total;   /* 도착점을 넘어가면 도착점에 고정 */
+      uint8_t cx, cy;
+      EvacPathCellAt(g_evacWaypoints[r], count, idx, &cx, &cy);
+      HUB75_SetPixel((uint8_t)(cx + 1), (uint8_t)(cy + 1), HUB75_BLACK);
+    }
   }
 
   // 화재 위치: fireX가 EVAC_FIRE_NONE이 아니면 반경만큼 사각형으로 채움 (자홍색)
