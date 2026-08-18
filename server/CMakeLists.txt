@@ -27,6 +27,7 @@ set(FIRE_CORE_SRC
     ${FIRE_CORE_DIR}/FlameDetector.cpp
     ${FIRE_CORE_DIR}/FireAlarmController.cpp
     ${FIRE_CORE_DIR}/FireDetectionRuntime.cpp
+    ${FIRE_CORE_DIR}/GridCoordinateMapper.cpp
     ${FIRE_CORE_DIR}/SmokeDetector.cpp
     ${FIRE_CORE_DIR}/SmokeDetectionRuntime.cpp
     ${FIRE_CORE_DIR}/PersonMetadataReceiver.cpp
@@ -103,7 +104,10 @@ target_compile_definitions(server_main PRIVATE
     ROI_CONFIG_PATH="${CMAKE_CURRENT_SOURCE_DIR}/roi/roi_config.json" 
     SNAPSHOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/db/snapshots"
     AUDIO_FILE="${CMAKE_CURRENT_SOURCE_DIR}/audio/evacuation_alert.wav"
-    AUDIO_DEVICE="${SPEAKER_ALSA_DEVICE}")
+    AUDIO_DEVICE="${SPEAKER_ALSA_DEVICE}"
+    FIRE_ARUCO_CONFIG_PATH="${FIRE_CORE_DIR}/aruco_board_config.txt"
+    FIRE_CAMERA_CALIBRATION_DIR="${FIRE_CORE_DIR}"
+    FIRE_STATIC_HOMOGRAPHY_DIR="${FIRE_CORE_DIR}")
 
 if(ENABLE_TLS)
     find_package(OpenSSL REQUIRED)
