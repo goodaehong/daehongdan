@@ -371,9 +371,9 @@ static const uint8_t EvacExits[][2] = {
 
 #define EVAC_PATH_MAX_WAYPOINTS 30   /* CMD_EVAC_PATH 웨이포인트 최대 개수: (64바이트 버퍼 - 헤더5) / 2 */
 #define EVAC_FIRE_NONE 0xFF          /* fireX/fireY가 이 값이면 "화재 없음"(대피로만 표시) */
-#define EVAC_PATH_CYCLE_MS 800       /* 꺼진 구멍이 출발점->도착점까지 흘러가는 데 걸리는 시간 */
+#define EVAC_PATH_CYCLE_MS 1300      /* 하이라이트가 출발점->도착점까지 흘러가는 데 걸리는 시간 */
 #define EVAC_ANIM_REDRAW_MS 50       /* 애니메이션 프레임 갱신 주기 (~20fps) */
-#define EVAC_PATH_GAP_SIZE 3         /* 경로 위를 흘러가는 "꺼진 픽셀" 개수 */
+#define EVAC_PATH_GAP_SIZE 3         /* 경로 위를 흘러가는 노란 하이라이트 픽셀 개수 */
 
 /* CMD_EVAC_PATH로 받은 최신 대피경로(출구별로 하나씩, EvacExits와 같은 인덱스)/화재 위치
    (fireX==EVAC_FIRE_NONE이면 화재 없음). waypointCount[r]==0이면 그 출구로 가는 경로 없음(미수신 또는 도달 불가) */
@@ -452,7 +452,7 @@ static void EvacPathCellAt(const uint8_t wp[][2], uint8_t count, uint16_t stepIn
 static uint8_t alertBorderVisible = 1;
 static uint8_t alertDisasterType = 0;
 
-// 대피도 화면: 벽(흰색)/전광판(노랑)/출구(초록)/대피경로(초록, 흐르는 구멍 애니메이션)/화재(자홍)를
+// 대피도 화면: 벽(흰색)/전광판(노랑)/출구(초록)/대피경로(초록 바탕 + 흐르는 노랑 하이라이트)/화재(자홍)를
 // 62x62 격자에서 +1 오프셋으로 그림 (HUB75_Shape13 테두리 1px 안쪽에만 지도를 그리면 안 가려짐)
 static void DrawEvacuationScreen(void)
 {
@@ -479,8 +479,13 @@ static void DrawEvacuationScreen(void)
     HUB75_SetPixel(EvacDisplays[i][0] + 1, EvacDisplays[i][1] + 1, HUB75_YELLOW);
   }
 
-  // 대피경로: 경로 전체를 항상 켜둔 채로(초록색), 꺼진 픽셀 3칸짜리 구멍이 출발점->도착점을
-  // 0.8초에 한 번씩 계속 흘러가는 애니메이션 - 도착하면 끊기지 않고 바로 출발점부터 다시 흐름
+  // 대피경로: 경로 전체를 항상 초록색으로 켜두고, 그 위에 노란 하이라이트 3칸이 출발점->도착점을
+  // 1.3초에 한 번씩 계속 흘러가는 애니메이션 - 도착하면 끊기지 않고 바로 출발점부터 다시 흐름.
+  // 2단계로 나눠서 그림: ① 전체 경로(초록) 먼저 다 그리고 ② 하이라이트(노랑)는 그 다음에 다 그림.
+  // 순서가 중요함 - 경로끼리 출발점 근처를 공유하는 경우가 많은데, 한 루프 안에서
+  // "그리고-하이라이트"를 경로별로 번갈아 하면 뒤에 그려지는 경로의 초록칠이 앞 경로의
+  // 하이라이트를 덮어써버려서, 공유 구간을 벗어나야 하이라이트가 보이는(즉 중간부터 시작하는
+  // 것처럼 보이는) 버그가 생김. 그리기 다 끝난 뒤에 하이라이트를 얹으면 이 문제가 없음.
   uint32_t cyclePos = (HAL_GetTick() - g_evacAnimCycleStart) % EVAC_PATH_CYCLE_MS;
 
   for (uint8_t r = 0; r < EVAC_EXIT_COUNT; r++)
@@ -489,18 +494,25 @@ static void DrawEvacuationScreen(void)
     if (count == 0) continue;   /* 이 출구로 가는 경로 아직 안 받았거나 도달 불가 */
 
     uint16_t total = EvacPathTotalSteps(g_evacWaypoints[r], count);
-    DrawEvacPathPartial(g_evacWaypoints[r], count, total, HUB75_GREEN);   // 경로 전체를 항상 그림
+    DrawEvacPathPartial(g_evacWaypoints[r], count, total, HUB75_GREEN);   // ① 경로 전체를 먼저 다 그림
+  }
 
-    if (total == 0) continue;   /* 웨이포인트 1개뿐(시작=도착) - 흐르는 구멍 없음 */
+  for (uint8_t r = 0; r < EVAC_EXIT_COUNT; r++)
+  {
+    uint8_t count = g_evacWaypointCount[r];
+    if (count == 0) continue;
+
+    uint16_t total = EvacPathTotalSteps(g_evacWaypoints[r], count);
+    if (total == 0) continue;   /* 웨이포인트 1개뿐(시작=도착) - 흐르는 하이라이트 없음 */
 
     uint16_t gapStart = (uint16_t)(((uint32_t)cyclePos * total) / EVAC_PATH_CYCLE_MS);
-    for (uint8_t k = 0; k < EVAC_PATH_GAP_SIZE; k++)
+    for (uint8_t k = 0; k < EVAC_PATH_GAP_SIZE; k++)   // ② 하이라이트는 전체 다 그려진 뒤에 얹음
     {
       uint16_t idx = gapStart + k;
       if (idx > total) idx = total;   /* 도착점을 넘어가면 도착점에 고정 */
       uint8_t cx, cy;
       EvacPathCellAt(g_evacWaypoints[r], count, idx, &cx, &cy);
-      HUB75_SetPixel((uint8_t)(cx + 1), (uint8_t)(cy + 1), HUB75_BLACK);
+      HUB75_SetPixel((uint8_t)(cx + 1), (uint8_t)(cy + 1), HUB75_YELLOW);
     }
   }
 
