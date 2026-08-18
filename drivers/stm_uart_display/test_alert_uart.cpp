@@ -17,8 +17,10 @@
  *       -I../../server/sensors -o test_alert_uart
  *
  * 실행: sudo ./test_alert_uart   (UART 권한 문제 있으면 sudo)
- *   콘솔에 1 입력+엔터 -> 위험(화재) 전환 화면
- *   콘솔에 2 입력+엔터 -> 평상시 화면 복귀
+ *   콘솔에 1 입력+엔터 -> 위험(화재) 전환 화면. 이후 자동으로 대피경로(CMD 0xB1)를
+ *                        1초 주기로 계속 재전송함(화재 없음으로 고정 - Phase 1 테스트용)
+ *   콘솔에 2 입력+엔터 -> 평상시 화면 복귀, 대피경로 자동 재전송도 같이 멈춤
+ *   콘솔에 3 입력+엔터 -> (수동 확인용) 대피경로를 지금 즉시 한 번 더 보내고 싶을 때
  */
 #include "sensor_reader.h"
 #include "stm_display_protocol.h"
@@ -50,17 +52,62 @@ static std::string CurrentTimeString()
 static std::atomic<int> g_fd{-1};
 static const char* kDevPath = "/dev/stm_display";
 
-// 테스트용: Start ID 3(전광판 (11,32)) -> Exit ID 1 경로. EvacPlanner가 뽑은 (y,x) 웨이포인트를
-// {x,y} 평탄화 배열로 손으로 옮겨온 것 (임시 테스트용 - 나중엔 EvacPlanner 호출로 대체)
-static const uint8_t kTestEvacWaypoints[] = {
-    11,32,  11,36,  13,36,  13,50,  38,50,  38,60,  48,60,  48,61
+// '1'(위험 전환) 입력 후 true, '2'(평상 복귀) 입력 후 false - EvacPathWorker가 이 값을 보고
+// 1초 주기 대피경로 자동 재전송을 계속할지 판단함
+static std::atomic<bool> g_alertActive{false};
+
+// 테스트용: Start ID 3(전광판 (11,32)) -> 출구 4곳 전체 경로. EvacPlanner가 뽑은 (y,x) 웨이포인트를
+// {x,y} 평탄화 배열로 손으로 옮겨온 것 (임시 테스트용 - 나중엔 EvacPlanner 호출로 대체).
+// 배열 순서 = EvacExits 인덱스(routeIndex) 순서와 반드시 일치해야 함
+struct EvacRoute { const uint8_t* xy; uint8_t count; };
+static const uint8_t kRouteExit1[] = { 11,32, 11,36, 13,36, 13,50, 38,50, 38,60, 48,60, 48,61 };
+static const uint8_t kRouteExit2[] = { 11,32, 11,36, 13,36, 13,48, 0,48 };
+static const uint8_t kRouteExit3[] = { 11,32, 11,35, 13,35, 13,16, 61,16 };
+static const uint8_t kRouteExit4[] = { 11,32, 11,35, 13,35, 13,15, 15,15, 15,13, 17,13, 17,1, 22,1, 22,0 };
+static const EvacRoute kTestRoutes[] = {
+    { kRouteExit1, sizeof(kRouteExit1) / 2 },
+    { kRouteExit2, sizeof(kRouteExit2) / 2 },
+    { kRouteExit3, sizeof(kRouteExit3) / 2 },
+    { kRouteExit4, sizeof(kRouteExit4) / 2 },
 };
-static const uint8_t kTestEvacWaypointCount = sizeof(kTestEvacWaypoints) / 2;
+static constexpr uint8_t kTestRouteCount = sizeof(kTestRoutes) / sizeof(kTestRoutes[0]);
+
+// 출구 4곳 경로를 전부(routeIndex 0~3) 순서대로 전송. 화재는 아직 없음(Phase 1)
+static void SendAllEvacRoutes()
+{
+    for (uint8_t i = 0; i < kTestRouteCount; i++)
+    {
+        int fd = g_fd.load();
+        bool ok = StmDisplayProtocol_SendEvacPath(fd,
+                                                   STM_DISPLAY_FIRE_NONE, STM_DISPLAY_FIRE_NONE, 0,
+                                                   i, kTestRoutes[i].xy, kTestRoutes[i].count);
+        std::cout << "[테스트] 대피경로 패킷(CMD 0xB1, 출구" << (int)(i + 1) << ", 웨이포인트 "
+                  << (int)kTestRoutes[i].count << "개) 전송 " << (ok ? "성공" : "실패") << "\n";
+        if (!ok) { g_fd = StmDisplayProtocol_Reconnect(fd, kDevPath); }
+    }
+}
+
+// g_alertActive가 true인 동안 1초 주기로 SendAllEvacRoutes() 반복 호출
+static void EvacPathWorker()
+{
+    while (true)
+    {
+        if (g_alertActive.load())
+        {
+            SendAllEvacRoutes();
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+        else
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));   // 꺼져있을 땐 짧게 대기하며 재확인
+        }
+    }
+}
 
 static void InputWorker()
 {
-    std::cout << "[테스트] '1' 입력+엔터 = 위험(화재) 전환, '2' 입력+엔터 = 평상시 복귀, "
-                 "'3' 입력+엔터 = 대피경로 전송(화재 없음)\n";
+    std::cout << "[테스트] '1' 입력+엔터 = 위험(화재) 전환(이후 대피경로 자동 반복 전송 시작), "
+                 "'2' 입력+엔터 = 평상시 복귀(자동 전송도 중지), '3' 입력+엔터 = 대피경로 즉시 1회 전송\n";
     std::string line;
     while (std::getline(std::cin, line))
     {
@@ -70,21 +117,18 @@ static void InputWorker()
             bool ok = StmDisplayProtocol_SendAlert(fd, STM_DISPLAY_DISASTER_FIRE, 0x01);
             std::cout << "[테스트] 위험 전환 패킷(CMD 0x90) 전송 " << (ok ? "성공" : "실패") << "\n";
             if (!ok) { g_fd = StmDisplayProtocol_Reconnect(fd, kDevPath); }
+            g_alertActive = true;
         }
         else if (line == "2")
         {
             bool ok = StmDisplayProtocol_SendClear(fd);
             std::cout << "[테스트] 평상시 복귀 패킷(CMD 0xA0) 전송 " << (ok ? "성공" : "실패") << "\n";
             if (!ok) { g_fd = StmDisplayProtocol_Reconnect(fd, kDevPath); }
+            g_alertActive = false;
         }
         else if (line == "3")
         {
-            bool ok = StmDisplayProtocol_SendEvacPath(fd,
-                                                       STM_DISPLAY_FIRE_NONE, STM_DISPLAY_FIRE_NONE, 0,
-                                                       kTestEvacWaypoints, kTestEvacWaypointCount);
-            std::cout << "[테스트] 대피경로 패킷(CMD 0xB1, 화재 없음, 웨이포인트 "
-                      << (int)kTestEvacWaypointCount << "개) 전송 " << (ok ? "성공" : "실패") << "\n";
-            if (!ok) { g_fd = StmDisplayProtocol_Reconnect(fd, kDevPath); }
+            SendAllEvacRoutes();
         }
         else if (!line.empty())
         {
@@ -104,6 +148,9 @@ int main()
 
     std::thread inputThread(InputWorker);
     inputThread.detach();
+
+    std::thread evacPathThread(EvacPathWorker);
+    evacPathThread.detach();
 
     while (true)
     {

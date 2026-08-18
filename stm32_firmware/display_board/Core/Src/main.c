@@ -369,31 +369,64 @@ static const uint8_t EvacExits[][2] = {
 
 /* USER CODE END EVAC_DATA */
 
-#define EVAC_PATH_MAX_WAYPOINTS 30   /* CMD_EVAC_PATH 웨이포인트 최대 개수: (64바이트 버퍼 - 헤더4) / 2 */
+#define EVAC_PATH_MAX_WAYPOINTS 30   /* CMD_EVAC_PATH 웨이포인트 최대 개수: (64바이트 버퍼 - 헤더5) / 2 */
 #define EVAC_FIRE_NONE 0xFF          /* fireX/fireY가 이 값이면 "화재 없음"(대피로만 표시) */
+#define EVAC_PATH_CYCLE_MS 500       /* 출발점->도착점 점등 애니메이션 한 바퀴 시간 */
+#define EVAC_ANIM_REDRAW_MS 50       /* 애니메이션 프레임 갱신 주기 (~20fps) */
 
-/* CMD_EVAC_PATH로 받은 최신 대피경로/화재 위치 (fireX==EVAC_FIRE_NONE이면 화재 없음) */
+/* CMD_EVAC_PATH로 받은 최신 대피경로(출구별로 하나씩, EvacExits와 같은 인덱스)/화재 위치
+   (fireX==EVAC_FIRE_NONE이면 화재 없음). waypointCount[r]==0이면 그 출구로 가는 경로 없음(미수신 또는 도달 불가) */
 static uint8_t g_evacFireX = EVAC_FIRE_NONE, g_evacFireY = EVAC_FIRE_NONE, g_evacFireRadius = 0;
-static uint8_t g_evacWaypoints[EVAC_PATH_MAX_WAYPOINTS][2];
-static uint8_t g_evacWaypointCount = 0;
+static uint8_t g_evacWaypoints[EVAC_EXIT_COUNT][EVAC_PATH_MAX_WAYPOINTS][2];
+static uint8_t g_evacWaypointCount[EVAC_EXIT_COUNT];
+static uint32_t g_evacAnimCycleStart = 0;
+static uint32_t g_evacAnimLastRedraw = 0;
 
-// 두 웨이포인트를 잇는 선을 그림. 이동이 4방향뿐이라 항상 수평 또는 수직 직선임(대각선 없음)
-static void DrawEvacLine(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2, HUB75_Color color)
+// 경로(웨이포인트 배열) 전체의 이동 칸 수(스텝 수) 합산 - 애니메이션 진행률 계산용
+static uint16_t EvacPathTotalSteps(const uint8_t wp[][2], uint8_t count)
 {
-  if (x1 == x2)
+  uint16_t total = 0;
+  for (uint8_t i = 0; i + 1 < count; i++)
   {
-    uint8_t ys = (y1 < y2) ? y1 : y2, ye = (y1 < y2) ? y2 : y1;
-    for (uint8_t y = ys; y <= ye; y++) HUB75_SetPixel(x1 + 1, y + 1, color);
+    int16_t dx = (int16_t)wp[i + 1][0] - (int16_t)wp[i][0];
+    int16_t dy = (int16_t)wp[i + 1][1] - (int16_t)wp[i][1];
+    int16_t d = (dx != 0) ? dx : dy;   // 이동이 4방향뿐이라 dx/dy 중 하나는 항상 0
+    total += (uint16_t)((d >= 0) ? d : -d);
   }
-  else
+  return total;
+}
+
+// 경로를 시작점부터 revealSteps 칸만큼만 그림 (점진적 점등 애니메이션용)
+static void DrawEvacPathPartial(const uint8_t wp[][2], uint8_t count, uint16_t revealSteps, HUB75_Color color)
+{
+  if (count == 0) return;
+  HUB75_SetPixel(wp[0][0] + 1, wp[0][1] + 1, color);   // 시작점은 항상 켜짐
+
+  uint16_t drawn = 0;
+  for (uint8_t i = 0; i + 1 < count && drawn < revealSteps; i++)
   {
-    uint8_t xs = (x1 < x2) ? x1 : x2, xe = (x1 < x2) ? x2 : x1;
-    for (uint8_t x = xs; x <= xe; x++) HUB75_SetPixel(x + 1, y1 + 1, color);
+    int16_t x1 = wp[i][0], y1 = wp[i][1];
+    int16_t dx = (int16_t)wp[i + 1][0] - x1;
+    int16_t dy = (int16_t)wp[i + 1][1] - y1;
+    int16_t segLen = (dx != 0) ? ((dx >= 0) ? dx : -dx) : ((dy >= 0) ? dy : -dy);
+    int16_t stepX = (dx > 0) ? 1 : (dx < 0) ? -1 : 0;
+    int16_t stepY = (dy > 0) ? 1 : (dy < 0) ? -1 : 0;
+
+    for (int16_t s = 1; s <= segLen && drawn < revealSteps; s++, drawn++)
+    {
+      HUB75_SetPixel((uint8_t)(x1 + s * stepX + 1), (uint8_t)(y1 + s * stepY + 1), color);
+    }
   }
 }
 
-// 대피도 화면: 벽(흰색)/전광판(노랑)/출구(초록)/대피경로(청록)/화재(자홍)를 62x62 격자에서 +1 오프셋으로 그림
-// (HUB75_Shape13 테두리를 1px로 줄여서, 그 안쪽 62x62에만 지도를 그리면 안 가려짐)
+// alertBorderVisible/alertDisasterType은 원래 UpdateAlertBorderBlink() 옆에 있었는데,
+// DrawEvacuationScreen()이 테두리 점멸 상태를 그대로 따라 그리려고 참조하면서 여기로 옮겨옴
+// (C는 변수를 쓰기 전에 선언이 먼저 나와야 함)
+static uint8_t alertBorderVisible = 1;
+static uint8_t alertDisasterType = 0;
+
+// 대피도 화면: 벽(흰색)/전광판(노랑)/출구(초록)/대피경로(청록, 애니메이션)/화재(자홍)를
+// 62x62 격자에서 +1 오프셋으로 그림 (HUB75_Shape13 테두리 1px 안쪽에만 지도를 그리면 안 가려짐)
 static void DrawEvacuationScreen(void)
 {
   HUB75_Clear(HUB75_BLACK);
@@ -419,11 +452,23 @@ static void DrawEvacuationScreen(void)
     HUB75_SetPixel(EvacDisplays[i][0] + 1, EvacDisplays[i][1] + 1, HUB75_YELLOW);
   }
 
-  // 대피경로: 웨이포인트를 순서대로 이어 그림 (청록색, 벽/전광판/출구 색과 안 겹침)
-  for (uint8_t i = 0; i + 1 < g_evacWaypointCount; i++)
+  // 대피경로 애니메이션: 0.5초 주기로 출발점부터 도착점까지 점진적으로 다 켜지고,
+  // 다 켜지면(한 바퀴 끝나면) 전체 꺼진 상태로 되돌아가서 처음부터 다시 시작 - 받은 경로 전부 동시 진행
+  uint32_t elapsed = HAL_GetTick() - g_evacAnimCycleStart;
+  if (elapsed >= EVAC_PATH_CYCLE_MS)
   {
-    DrawEvacLine(g_evacWaypoints[i][0], g_evacWaypoints[i][1],
-                 g_evacWaypoints[i + 1][0], g_evacWaypoints[i + 1][1], HUB75_CYAN);
+    g_evacAnimCycleStart = HAL_GetTick();
+    elapsed = 0;
+  }
+
+  for (uint8_t r = 0; r < EVAC_EXIT_COUNT; r++)
+  {
+    uint8_t count = g_evacWaypointCount[r];
+    if (count == 0) continue;   /* 이 출구로 가는 경로 아직 안 받았거나 도달 불가 */
+
+    uint16_t total = EvacPathTotalSteps(g_evacWaypoints[r], count);
+    uint16_t reveal = (total == 0) ? 0 : (uint16_t)(((uint32_t)elapsed * total) / EVAC_PATH_CYCLE_MS);
+    DrawEvacPathPartial(g_evacWaypoints[r], count, reveal, HUB75_CYAN);
   }
 
   // 화재 위치: fireX가 EVAC_FIRE_NONE이 아니면 반경만큼 사각형으로 채움 (자홍색)
@@ -443,7 +488,18 @@ static void DrawEvacuationScreen(void)
     }
   }
 
-  DrawBitmap64(0, 0, HUB75_Shape13, 64, HUB75_RED);      // 테두리 (점멸은 UpdateAlertBorderBlink가 계속 토글)
+  // 테두리: 점멸 상태(alertBorderVisible)를 그대로 따라 그림 - 이 함수가 애니메이션 때문에
+  // 자주 다시 불려도 UpdateAlertBorderBlink()가 관리하는 점멸 상태랑 어긋나지 않게
+  DrawBitmap64(0, 0, HUB75_Shape13, 64, alertBorderVisible ? AlertScreenColor(alertDisasterType) : HUB75_BLACK);
+}
+
+// 대피경로 애니메이션 프레임 갱신 (EVAC_ANIM_REDRAW_MS마다 한 번씩만 다시 그림)
+static void UpdateEvacPathAnimation(void)
+{
+  uint32_t now = HAL_GetTick();
+  if (now - g_evacAnimLastRedraw < EVAC_ANIM_REDRAW_MS) return;
+  g_evacAnimLastRedraw = now;
+  DrawEvacuationScreen();
 }
 
 // 테두리 점멸: 0.1초 간격으로 계속 깜빡임. CMD 0xA0(비상 해제)을 받기 전까지는
@@ -453,8 +509,6 @@ static void DrawEvacuationScreen(void)
 #define ALERT_TO_EVACUATION_MS   3000   /* 전환 화면 표시 후 대피도 화면으로 자동 전환까지 걸리는 시간 */
 
 static uint32_t alertBlinkCycleStart = 0;   /* 전환 화면 진입 시각(ms) - 점멸 + 3초 전환 기준 */
-static uint8_t alertBorderVisible = 1;
-static uint8_t alertDisasterType = 0;
 static uint8_t alertShowingEvacuation = 0;  /* 0=전환 화면, 1=대피도 화면 */
 
 static void UpdateAlertBorderBlink(void)
@@ -463,6 +517,7 @@ static void UpdateAlertBorderBlink(void)
 
   if (!alertShowingEvacuation && elapsed >= ALERT_TO_EVACUATION_MS)   // 3초 경과 -> 대피도 화면으로 전환
   {
+    g_evacAnimCycleStart = HAL_GetTick();   /* 대피경로 애니메이션 이번 진입에서 처음부터 다시 시작 */
     DrawEvacuationScreen();
     alertShowingEvacuation = 1;
     alertBorderVisible = 1;   /* 방금 테두리 포함해서 다시 그렸으니 "보이는 상태"로 동기화 */
@@ -545,7 +600,7 @@ static void DrawStaticScene(void)
 #define CMD_EVAC_PATH  0xB1   /* 대피경로+화재위치 (Pi -> STM32) */
 #define UPDATE_DATA_LEN 11    /* 표정,가스색,가스H,가스L,온도,습도,시,분,년,월,일 */
 #define ALERT_DATA_LEN  2     /* 재난종류,구역ID */
-#define EVAC_PATH_MIN_LEN 4   /* fireX,fireY,fireRadius,waypointCount (웨이포인트는 그 뒤에 가변 길이) */
+#define EVAC_PATH_MIN_LEN 5   /* fireX,fireY,fireRadius,routeIndex,waypointCount (웨이포인트는 그 뒤에 가변 길이) */
 /* EVAC_PATH_MAX_WAYPOINTS, EVAC_FIRE_NONE은 DrawEvacuationScreen() 쪽에서 더 먼저 쓰여서
    이 파일 앞부분(EVAC_DATA 근처)에 정의돼있음 - 여기서 또 정의하면 중복이라 안 함 */
 
@@ -592,7 +647,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 /* 패킷 파서 상태 */
 typedef enum { WAIT_STX, WAIT_LEN, WAIT_CMD, WAIT_DATA, WAIT_CHECKSUM, WAIT_ETX } ParseState;
 static ParseState parseState = WAIT_STX;
-static uint8_t packetLen, packetCmd, packetData[64], packetDataIdx;
+static uint8_t packetLen, packetCmd, packetData[70], packetDataIdx;   /* CMD_EVAC_PATH 최대 데이터(5+30*2=65)를 담을 수 있게 */
 static uint32_t lastRxTick = 0;   /* 마지막으로 바이트를 처리한 시각(ms) - 유휴 타임아웃 재동기화용 */
 
 /* 파싱된 최신 값들 (표정/가스색은 서로 다른 상태라 별도 변수로 관리) */
@@ -654,17 +709,21 @@ static void HandlePacket(uint8_t cmd, const uint8_t *data, uint8_t len)
     g_evacFireX = data[0];
     g_evacFireY = data[1];
     g_evacFireRadius = data[2];
+    uint8_t routeIndex = data[3];
 
-    uint8_t count = data[3];
-    if (count > EVAC_PATH_MAX_WAYPOINTS) count = EVAC_PATH_MAX_WAYPOINTS;   /* 손상된 패킷 방어 */
-    if (len < (uint8_t)(EVAC_PATH_MIN_LEN + count * 2)) count = 0;          /* 데이터 길이 안 맞으면 무시 */
-
-    for (uint8_t i = 0; i < count; i++)
+    if (routeIndex < EVAC_EXIT_COUNT)   /* 범위 밖 인덱스(손상된 패킷 등)는 조용히 무시 */
     {
-      g_evacWaypoints[i][0] = data[EVAC_PATH_MIN_LEN + i * 2];       /* x */
-      g_evacWaypoints[i][1] = data[EVAC_PATH_MIN_LEN + i * 2 + 1];   /* y */
+      uint8_t count = data[4];
+      if (count > EVAC_PATH_MAX_WAYPOINTS) count = EVAC_PATH_MAX_WAYPOINTS;   /* 손상된 패킷 방어 */
+      if (len < (uint8_t)(EVAC_PATH_MIN_LEN + count * 2)) count = 0;          /* 데이터 길이 안 맞으면 무시 */
+
+      for (uint8_t i = 0; i < count; i++)
+      {
+        g_evacWaypoints[routeIndex][i][0] = data[EVAC_PATH_MIN_LEN + i * 2];       /* x */
+        g_evacWaypoints[routeIndex][i][1] = data[EVAC_PATH_MIN_LEN + i * 2 + 1];   /* y */
+      }
+      g_evacWaypointCount[routeIndex] = count;
     }
-    g_evacWaypointCount = count;
 
     /* 이미 대피도 화면을 보여주고 있는 중이면 새 경로를 즉시 반영, 아니면 3초 자동전환 때 같이 그려짐 */
     if (g_inAlertScreen && alertShowingEvacuation)
@@ -882,6 +941,10 @@ int main(void)
     if (g_inAlertScreen)
     {
       UpdateAlertBorderBlink();
+      if (alertShowingEvacuation)
+      {
+        UpdateEvacPathAnimation();   // 대피경로 점등 애니메이션 (0.5초 주기)
+      }
     }
     else
     {
