@@ -11,6 +11,8 @@
 | `stm_uart_actuator/` | 김유나 | STM32 액추에이터 보드 (밸브, 팬, 사이렌 제어) — 유저스페이스 UART 프로토콜 라이브러리 | 완료 |
 | `stm_uart_display/` | 김광렬 | STM32 LED 매트릭스 보드 — 유저스페이스 UART 프로토콜 라이브러리 | 완료 |
 
+> `stm_uart_actuator/`, `stm_uart_display/`는 커널 모듈이 아니라 STM32와 통신하는 유저스페이스 프로토콜 라이브러리 + 테스트 프로그램입니다 (`gcc`/`g++`로 직접 빌드, `insmod` 아님). 빌드 방법은 [아래 섹션](#stm_uart_actuator--stm_uart_display-빌드-방법) 참고.
+
 ## 개발 환경
 
 - Target: Raspberry Pi 4 (kernel 6.18.34+rpt-rpi-v8)
@@ -41,6 +43,37 @@ cd drivers/gas_sensor      # 또는 drivers/dht22
 make load                   # sudo insmod
 dmesg | tail
 make unload                 # sudo rmmod
+```
+
+## stm_uart_actuator / stm_uart_display 빌드 방법
+
+이 두 폴더는 커널 모듈이 아니라 일반 유저스페이스 프로그램입니다. Makefile 없이 `gcc`/`g++`로 직접 빌드합니다.
+
+- `stm_display_protocol.c/h`: **서버 빌드에 실제로 포함되는 프로덕션 코드** (`server/CMakeLists.txt` 참고, 별도 빌드 불필요)
+- 아래 프로그램들은 전부 **수동 테스트/하드웨어 점검용 독립 실행 파일**입니다. 최종 서버 빌드에는 포함되지 않고, 새 파이·새 보드를 처음 연결했을 때 통신 확인 용도로만 씁니다.
+
+**액추에이터 테스트 프로그램**
+```bash
+cd drivers/stm_uart_actuator
+gcc test_stm_actuator.c stm_actuator_protocol.c -o test_stm_actuator
+sudo ./test_stm_actuator          # 기본 경로 /dev/ttyACM0
+```
+명령어: `fan off|low|mid|high`, `valve open|close`, `siren on|off`, `status`, `gas_emerg`, `max_emerg`, `reset`, `quit`
+
+**전광판 테스트 프로그램**
+```bash
+cd drivers/stm_uart_display
+gcc send_test_uart.c -o send_test_uart          # 임의 값으로 UART 송신 테스트
+sudo ./send_test_uart
+```
+```bash
+# 실제 센서값 + 위험/평상 전환까지 테스트 (server/sensors 코드 재사용)
+g++ -std=c++17 test_alert_uart.cpp \
+    ../../server/sensors/sensor_reader_hw.cpp \
+    ../../server/sensors/sensor_conversion.cpp \
+    stm_display_protocol.c \
+    -I../../server/sensors -o test_alert_uart
+sudo ./test_alert_uart          # 콘솔에 1=위험 전환, 2=평상 복귀
 ```
 
 ## Device Tree
@@ -86,6 +119,26 @@ ls -l /sys/bus/i2c/devices/1-0048/driver
 # -> .../drivers/ads1115_gas 로 나오면 정상
 ```
 
+### STM32 보드 UART 장치 경로: `/dev/ttyACM0` 직접 지정 vs udev 심볼릭 링크
+
+전광판 보드는 USART1(GPIO)에서 USART2(ST-Link USB VCP)로 전환되면서 `/dev/stm_display`라는 udev 심볼릭 링크로 여는 방식으로 바뀌었습니다 (`server_main.cpp`). 반면 액추에이터 보드는 `/dev/ttyACM0`을 직접 고정해서 씁니다.
+
+두 STM32 보드가 모두 USB로 연결되는 환경이므로, 연결 순서나 재부팅에 따라 `ttyACM0`↔`ttyACM1`이 뒤바뀌면 액추에이터가 엉뚱한 포트를 열 수 있습니다. udev 규칙(idVendor/idProduct 또는 시리얼 기준)으로 두 보드 모두 고정 심볼릭 링크를 만드는 게 안전합니다.
+
+**주의**: udev 규칙 파일 자체는 `/etc/udev/rules.d/`에 들어가는 시스템 설정이라 이 저장소에는 포함되어 있지 않습니다. `/dev/stm_display` 심볼릭 링크를 처음 만든 사람이 사용한 규칙 내용을 여기에 채워 넣어야 다른 팀원 파이에서도 재현 가능합니다. (`udevadm info -a -n /dev/ttyACM0`로 idVendor/idProduct 확인 가능)
+
+### stm_actuator_protocol.c/h 서버 통합 진행 중
+
+드라이버 쪽(`drivers/stm_uart_actuator/`)은 정리 완료: `StmActuator_*` 함수명을 `StmActuatorProtocol_*`로 전부 개명해서 전광판 쪽(`StmDisplayProtocol_*`)과 네이밍 규칙을 통일했고, 서버의 `Actuator_*`와도 안 헷갈리게 분리했습니다.
+
+서버 쪽(`server/actuator/actuator_controller.cpp`)은 아직 체크섬·패킷 프레이밍·UART open을 자체 재구현한 옛날 코드 그대로라 `stm_actuator_protocol.c/h`를 안 씁니다. 전광판(`stm_display_protocol.c` + `server/CMakeLists.txt`)과 동일한 패턴으로 통합하는 작업 진행 중:
+
+- `server/CMakeLists.txt`에 `STM_ACTUATOR_PROTOCOL_DIR` 추가, `USE_MOCK_ACTUATOR`가 아니면 `stm_actuator_protocol.c`를 빌드에 포함
+- `actuator_control.h`가 `drivers/stm_uart_actuator/stm_actuator_protocol.h`를 include해서 STX/CMD_*/`StmActuatorStatus`를 그대로 재사용
+- `actuator_controller.cpp`는 자체 UART 로직을 지우고 `StmActuatorProtocol_*` 호출로 교체
+
+동작(체크섬 계산, 바이트 단위 읽기, termios 설정)은 기존과 100% 동일하고 구현 위치만 라이브러리로 옮기는 리팩터링입니다. 완료되면 이 항목 삭제.
+
 ## stm_uart_display 실제 센서 테스트 전 체크리스트
 
 `drivers/stm_uart_display/sensor_uart_driver.c`(실제 센서값을 STM32로 전송하는 프로그램)를
@@ -126,7 +179,9 @@ MQ9 경로는 유나 팀원이 실제 파이에서 검증해서 확정한 값(`/
 find /sys -name temp_value -o -name humid_value -o -name mq9_value 2>/dev/null
 ```
 
-### 4. `/dev/serial0`가 `ttyAMA0`인지 확인
+### 4. `/dev/serial0`가 `ttyAMA0`인지 확인 (GPIO UART 사용하는 `sensor_uart_driver.c`/`send_test_uart.c`에만 해당)
+
+> `test_alert_uart.cpp`는 USB VCP(`/dev/stm_display`)를 쓰므로 이 항목은 해당 없음.
 
 라즈베리파이 기본 UART(`GPIO14/15`)가 Bluetooth에 밀려 정확도 낮은 mini-UART(`ttyS0`)로 잡히는 경우가 있음. 새로 설정하는 파이라면 재현 가능성 높음.
 
