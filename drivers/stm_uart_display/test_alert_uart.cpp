@@ -50,9 +50,17 @@ static std::string CurrentTimeString()
 static std::atomic<int> g_fd{-1};
 static const char* kDevPath = "/dev/stm_display";
 
+// 테스트용: Start ID 3(전광판 (11,32)) -> Exit ID 1 경로. EvacPlanner가 뽑은 (y,x) 웨이포인트를
+// {x,y} 평탄화 배열로 손으로 옮겨온 것 (임시 테스트용 - 나중엔 EvacPlanner 호출로 대체)
+static const uint8_t kTestEvacWaypoints[] = {
+    11,32,  11,36,  13,36,  13,50,  38,50,  38,60,  48,60,  48,61
+};
+static const uint8_t kTestEvacWaypointCount = sizeof(kTestEvacWaypoints) / 2;
+
 static void InputWorker()
 {
-    std::cout << "[테스트] '1' 입력+엔터 = 위험(화재) 전환, '2' 입력+엔터 = 평상시 복귀\n";
+    std::cout << "[테스트] '1' 입력+엔터 = 위험(화재) 전환, '2' 입력+엔터 = 평상시 복귀, "
+                 "'3' 입력+엔터 = 대피경로 전송(화재 없음)\n";
     std::string line;
     while (std::getline(std::cin, line))
     {
@@ -69,9 +77,18 @@ static void InputWorker()
             std::cout << "[테스트] 평상시 복귀 패킷(CMD 0xA0) 전송 " << (ok ? "성공" : "실패") << "\n";
             if (!ok) { g_fd = StmDisplayProtocol_Reconnect(fd, kDevPath); }
         }
+        else if (line == "3")
+        {
+            bool ok = StmDisplayProtocol_SendEvacPath(fd,
+                                                       STM_DISPLAY_FIRE_NONE, STM_DISPLAY_FIRE_NONE, 0,
+                                                       kTestEvacWaypoints, kTestEvacWaypointCount);
+            std::cout << "[테스트] 대피경로 패킷(CMD 0xB1, 화재 없음, 웨이포인트 "
+                      << (int)kTestEvacWaypointCount << "개) 전송 " << (ok ? "성공" : "실패") << "\n";
+            if (!ok) { g_fd = StmDisplayProtocol_Reconnect(fd, kDevPath); }
+        }
         else if (!line.empty())
         {
-            std::cout << "[테스트] '1' 또는 '2'만 입력 가능\n";
+            std::cout << "[테스트] '1', '2', '3'만 입력 가능\n";
         }
     }
 }
