@@ -35,7 +35,7 @@ displayRadiusCells: 표시할 원의 반경(셀), 최소 1
 서버를 정지하고 필요한 각 채널에 대해 다음 한 명령을 실행한다.
 
 ```bash
-./SETUP_ARUCO_CHANNEL.sh 3
+./server/opencv/calibration/SetupArucoChannel.sh 3
 ```
 
 실제 공장 전체 범위, 축척, 채널 범위, 마커 ID별 실제 공장 중심 XY를 입력하면
@@ -46,7 +46,8 @@ displayRadiusCells: 표시할 원의 반경(셀), 최소 1
 ## 고정 파일 사용 조건
 
 `homography_chN.yml`은 생성 당시 카메라 위치·각도·줌과 입력 스트림 전용이다.
-다음 중 하나라도 바뀌면 `./SETUP_ARUCO_CHANNEL.sh N`을 다시 실행한다.
+다음 중 하나라도 바뀌면
+`./server/opencv/calibration/SetupArucoChannel.sh N`을 다시 실행한다.
 
 - 카메라 위치 또는 각도
 - 광학/디지털 줌
@@ -75,7 +76,7 @@ FIRE_PERSON_RTSP_TEMPLATE=rtsp://user:URL인코딩암호@camera:554/{channel}/pr
 
 - 실제 카메라 암호 또는 인증정보가 검색되지 않는지 확인
 - 현장 인증정보, 빌드 결과, DB, 스냅샷을 새로 커밋하지 않기
-- 루트와 `server/opencv/calibration/`의 `.sh` 실행 파일을 커밋하기
+- `server/opencv/calibration/`의 `.sh` 실행 파일을 커밋하기
 - `aruco_board_config.txt`, 채널별 렌즈 보정 및 Homography 포함 여부를 팀에서 결정
 - `ArucoGridMapper tests passed` 확인
 

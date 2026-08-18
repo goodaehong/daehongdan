@@ -11,7 +11,7 @@ Raspberry Pi OS에서 개발 도구와 OpenCV를 설치한다.
 sudo apt update
 sudo apt install -y build-essential cmake pkg-config libopencv-dev
 cd ~/daehongdan
-chmod +x ./*.sh server/opencv/calibration/*.sh
+chmod +x server/opencv/calibration/*.sh
 ```
 
 MediaMTX는 실행한 상태로 두고 화재·연기 서버만 중지한다. 기본 입력은 현재
@@ -34,10 +34,10 @@ RTSP 주소나 영상 파일을 직접 전달할 수도 있다.
 하지 않아도 된다.
 
 ```bash
-./CALIBRATE_CAMERA.sh 1
-./CALIBRATE_CAMERA.sh 2
-./CALIBRATE_CAMERA.sh 3
-./CALIBRATE_CAMERA.sh 4
+./server/opencv/calibration/RunCameraCalibration.sh 1
+./server/opencv/calibration/RunCameraCalibration.sh 2
+./server/opencv/calibration/RunCameraCalibration.sh 3
+./server/opencv/calibration/RunCameraCalibration.sh 4
 ```
 
 이 도구는 미리보기 창과 키 입력을 사용하므로 Raspberry Pi 데스크톱에서 실행하거나
@@ -56,15 +56,15 @@ X11 포워딩을 사용해야 한다.
 카메라를 현장 최종 위치에 고정하고 마커를 배치한 뒤 실행한다.
 
 ```bash
-./SETUP_ARUCO_CHANNEL.sh 3
+./server/opencv/calibration/SetupArucoChannel.sh 3
 ```
 
 한 명령이 실제 공장/마커 좌표 입력과 `homography_ch3.yml` 생성을 연속 수행한다.
 두 단계를 분리하려면 다음을 사용한다.
 
 ```bash
-./CONFIGURE_ARUCO_CHANNEL.sh 3
-./CALIBRATE_FIXED_HOMOGRAPHY.sh 3
+./server/opencv/calibration/ConfigureArucoChannel.sh 3
+./server/opencv/calibration/RunFixedHomographyCalibration.sh 3
 ```
 
 Homography 생성은 GUI가 필요 없다. 카메라 위치·각도·줌·스트림 해상도/크롭 또는

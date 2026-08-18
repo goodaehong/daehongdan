@@ -184,5 +184,5 @@ if [[ -f "$homography_path" ]]; then
     mv -- "$homography_path" "$stale_backup"
     echo "Old Homography disabled: $stale_backup"
 fi
-echo "Next: ./RunFixedHomographyCalibration.sh $channel"
-echo "Or next time run ./SetupArucoChannel.sh $channel for both steps."
+echo "Next: $script_dir/RunFixedHomographyCalibration.sh $channel"
+echo "Or next time run $script_dir/SetupArucoChannel.sh $channel for both steps."
