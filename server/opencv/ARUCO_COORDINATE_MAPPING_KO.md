@@ -68,9 +68,9 @@ MARKER 4 0 31.50 1.50 0.04 0
  -> 채널별 homography_chN.yml 저장
 ```
 
-프로젝트 루트에서 `SETUP_ARUCO_CHANNEL.cmd N`을 실행하면 좌표 입력 후 고정값
+프로젝트 루트에서 `./SETUP_ARUCO_CHANNEL.sh N`을 실행하면 좌표 입력 후 고정값
 생성까지 연속으로 실행된다. 여기서 `N`은 1~4 채널이다. 두 단계를 분리해야 할
-때만 `CONFIGURE_ARUCO_CHANNEL.cmd N`과 `CALIBRATE_FIXED_HOMOGRAPHY.cmd N`을
+때만 `./CONFIGURE_ARUCO_CHANNEL.sh N`과 `./CALIBRATE_FIXED_HOMOGRAPHY.sh N`을
 순서대로 사용한다.
 설치 보정 중에는 화재·연기 서버를 정지하고, 설정한 마커 중 적어도 네 개가
 안정적으로 보이게 한다.
@@ -89,6 +89,15 @@ MARKER 4 0 31.50 1.50 0.04 0
 고정 파일을 성공적으로 불러온 운영 중에는 ArUco를 매 프레임 검출하지 않는다.
 따라서 검증 후 바닥 마커를 제거할 수 있다. 카메라 위치·각도·줌, 영상 크롭,
 렌즈 보정 또는 마커 실제 좌표가 바뀌면 고정 Homography를 다시 만들어야 한다.
+
+Linux 실행기는 기본적으로 현재 운영 서버와 동일한
+`rtsp://127.0.0.1:8554/camN`을 읽는다. 서버가 `camNdet` 등의 다른 경로를 쓰면
+다음처럼 정확히 같은 경로를 지정한다.
+
+```bash
+export DHD_CALIBRATION_SOURCE_TEMPLATE='rtsp://127.0.0.1:8554/cam{channel}det'
+./SETUP_ARUCO_CHANNEL.sh 3
+```
 
 OpenCV `DetectionBox`에는 `gridX`, `gridY`, `displayRadiusCells`와 함께
 `factoryXMetres`, `factoryYMetres` 및 상세 추정값이 준비된다. 서버 담당자가

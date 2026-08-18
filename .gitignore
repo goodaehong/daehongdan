@@ -44,8 +44,7 @@
 
 # Kernel Module Compile Results
 *.mod*
-# Windows 실행 도우미(.cmd)는 소스이므로 추적한다. 커널 빌드의 숨김
-# 명령 파일만 무시한다.
+# 커널 빌드의 숨김 명령 파일만 무시한다.
 .*.cmd
 .tmp_versions/
 modules.order
@@ -99,6 +98,8 @@ server/roi/roi_config.json
 # 현장마다 다시 생성되는 카메라/좌표 파일
 server/opencv/homography_ch*.yml
 server/opencv/homography_ch*.yml.bak
+server/opencv/homography_ch*.yml.*.bak
+server/opencv/aruco_board_config.txt.*.bak
 server/opencv/camera.env
 **/out/
 **/bin/

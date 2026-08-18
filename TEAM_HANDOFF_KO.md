@@ -34,8 +34,8 @@ displayRadiusCells: 표시할 원의 반경(셀), 최소 1
 저장소에는 채널별 시험 좌표와 고정 Homography를 넣지 않았다. 시연 현장에서
 서버를 정지하고 필요한 각 채널에 대해 다음 한 명령을 실행한다.
 
-```bat
-SETUP_ARUCO_CHANNEL.cmd 3
+```bash
+./SETUP_ARUCO_CHANNEL.sh 3
 ```
 
 실제 공장 전체 범위, 축척, 채널 범위, 마커 ID별 실제 공장 중심 XY를 입력하면
@@ -45,8 +45,8 @@ SETUP_ARUCO_CHANNEL.cmd 3
 
 ## 고정 파일 사용 조건
 
-`homography_chN.yml`은 생성 당시 카메라 위치·각도·줌과 640×360 스트림 전용이다.
-다음 중 하나라도 바뀌면 `SETUP_ARUCO_CHANNEL.cmd N`을 다시 실행한다.
+`homography_chN.yml`은 생성 당시 카메라 위치·각도·줌과 입력 스트림 전용이다.
+다음 중 하나라도 바뀌면 `./SETUP_ARUCO_CHANNEL.sh N`을 다시 실행한다.
 
 - 카메라 위치 또는 각도
 - 광학/디지털 줌
@@ -75,22 +75,21 @@ FIRE_PERSON_RTSP_TEMPLATE=rtsp://user:URL인코딩암호@camera:554/{channel}/pr
 
 - 실제 카메라 암호 또는 인증정보가 검색되지 않는지 확인
 - 현장 인증정보, 빌드 결과, DB, 스냅샷을 새로 커밋하지 않기
-- 루트의 `.cmd` 실행 파일은 반드시 커밋하기
+- 루트와 `server/opencv/calibration/`의 `.sh` 실행 파일을 커밋하기
 - `aruco_board_config.txt`, 채널별 렌즈 보정 및 Homography 포함 여부를 팀에서 결정
 - `ArucoGridMapper tests passed` 확인
 
 ## 빌드 환경 주의
 
-OpenCV 좌표 테스트, 보정 도구, Windows 디버그 실행기는 Visual Studio 2022에서
-빌드 확인했다. 전체 `server_main`은 POSIX 소켓·SQLite·라즈베리파이 오디오를 쓰는
-Linux/Raspberry Pi 대상이므로 Windows 전체 빌드는 검증 기준이 아니다. 조원은
-라즈베리파이에서 SQLite3/OpenCV/NCNN 개발 패키지를 설치한 뒤 전체 서버를 다시
-빌드해야 한다.
+보정 도구는 Linux/Raspberry Pi용 CMake와 Bash 실행기로 정리했다. 실행기는
+필요할 때 `server/opencv/calibration/out/build/linux-release`에 증분 빌드한다.
+ChArUco 렌즈 보정은 미리보기 창이 필요하므로 Raspberry Pi 데스크톱 또는 X11
+포워딩 환경에서 실행한다. 고정 Homography 생성은 화면 없이 실행할 수 있다.
 
-일부 기존 `.vcxproj`와 PowerShell 보정 스크립트에는 현재 PC의 OpenCV/NCNN 경로가
-기본값으로 남아 있다. 다른 PC에서는 Visual Studio 속성의 include/lib 경로를
-바꾸거나 PowerShell 실행 시 `-OpenCvBin`을 지정해야 한다. 가능하면 CMake와 각자
-설치한 `OpenCV_DIR`, `ncnn_DIR`을 사용하는 것이 안전하다.
+기본 입력은 현재 `server_main.cpp`와 동일한 MediaMTX 경로
+`rtsp://127.0.0.1:8554/camN`이다. 서버 입력 경로가 바뀌면
+`DHD_CALIBRATION_SOURCE_TEMPLATE`을 같은 경로로 바꿔야 한다. 좌표 보정 중에는
+화재·연기 서버만 중지하고 MediaMTX는 실행해 둔다.
 
 `server/server_main.cpp`, `server/qt_link.h`, `server/qt_link.cpp`와 Qt 수신 코드는
 최신 `main` 상태를 유지하며 이 브랜치에서 감지 결과를 연결하지 않는다.

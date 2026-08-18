@@ -16,6 +16,6 @@ QUALITY 4 12 2.0 1500 1 0.45
 
 # 현장 좌표는 저장소에 임시값으로 넣지 않는다. 설치 시 채널별로 아래
 # 명령을 실행하고 실제 공장 범위와 마커 중심 XY를 입력한다.
-#   server/opencv/SETUP_ARUCO_CHANNEL.cmd <channel>
+#   ./SETUP_ARUCO_CHANNEL.sh <channel>
 # 이 파일에 BOARD/MARKER가 없는 채널은 화재·연기 감지만 계속하며
 # 서버가 gridValid=false를 전송한다.

@@ -17,9 +17,16 @@
 #include <opencv2/core/utils/logger.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
+#if __has_include(<opencv2/objdetect/charuco_detector.hpp>)
+#define DHD_CHARUCO_NEW_API 1
 #include <opencv2/objdetect/aruco_board.hpp>
 #include <opencv2/objdetect/aruco_detector.hpp>
 #include <opencv2/objdetect/charuco_detector.hpp>
+#else
+#define DHD_CHARUCO_NEW_API 0
+#include <opencv2/aruco.hpp>
+#include <opencv2/aruco/charuco.hpp>
+#endif
 #include <opencv2/videoio.hpp>
 
 namespace
@@ -387,6 +394,7 @@ int main(int argc, char** argv)
             return 1;
         }
 
+#if DHD_CHARUCO_NEW_API
         const cv::aruco::Dictionary dictionary =
             cv::aruco::getPredefinedDictionary(cv::aruco::DICT_4X4_50);
         cv::aruco::CharucoBoard board(
@@ -395,6 +403,16 @@ int main(int argc, char** argv)
         board.setLegacyPattern(options.legacyPattern);
         cv::aruco::CharucoDetector detector(board);
         cv::aruco::ArucoDetector arucoDetector(dictionary);
+#else
+        const cv::Ptr<cv::aruco::Dictionary> dictionary =
+            cv::aruco::getPredefinedDictionary(cv::aruco::DICT_4X4_50);
+        const cv::Ptr<cv::aruco::CharucoBoard> board =
+            cv::aruco::CharucoBoard::create(
+                BOARD_SQUARES_X, BOARD_SQUARES_Y,
+                SQUARE_LENGTH_M, MARKER_LENGTH_M, dictionary);
+        const cv::Ptr<cv::aruco::DetectorParameters> detectorParameters =
+            cv::aruco::DetectorParameters::create();
+#endif
 
         if (!options.headless)
             cv::namedWindow(windowName, cv::WINDOW_NORMAL);
@@ -427,10 +445,26 @@ int main(int argc, char** argv)
             std::vector<std::vector<cv::Point2f>> markerCorners;
             std::vector<int> markerIds;
             if (options.arucoOnly)
+#if DHD_CHARUCO_NEW_API
                 arucoDetector.detectMarkers(frame, markerCorners, markerIds);
             else
                 detector.detectBoard(frame, charucoCorners, charucoIds,
                     markerCorners, markerIds);
+#else
+                cv::aruco::detectMarkers(
+                    frame, dictionary, markerCorners, markerIds,
+                    detectorParameters);
+            else
+            {
+                cv::aruco::detectMarkers(
+                    frame, dictionary, markerCorners, markerIds,
+                    detectorParameters);
+                if (!markerIds.empty())
+                    cv::aruco::interpolateCornersCharuco(
+                        markerCorners, markerIds, frame, board,
+                        charucoCorners, charucoIds);
+            }
+#endif
             observedMarkerIds.insert(markerIds.begin(), markerIds.end());
             const bool newMarkerMaximum =
                 static_cast<int>(markerIds.size()) > maximumMarkers;
@@ -515,16 +549,36 @@ int main(int argc, char** argv)
             }
             else if (key == ' ')
             {
+                bool collinear = false;
+#if DHD_CHARUCO_NEW_API
+                collinear = board.checkCharucoCornersCollinear(charucoIds);
+#else
+                collinear = cv::aruco::testCharucoCornersCollinear(
+                    board, charucoIds);
+#endif
                 if (static_cast<int>(charucoIds.size()) < MIN_CAPTURED_CORNERS ||
-                    board.checkCharucoCornersCollinear(charucoIds))
+                    collinear)
                 {
                     std::cout << "Rejected: need at least " << MIN_CAPTURED_CORNERS
                         << " non-collinear ChArUco corners.\n";
                     continue;
                 }
                 CapturedView view;
+#if DHD_CHARUCO_NEW_API
                 board.matchImagePoints(charucoCorners, charucoIds,
                     view.objectPoints, view.imagePoints);
+#else
+                for (std::size_t index = 0; index < charucoIds.size(); ++index)
+                {
+                    const int cornerId = charucoIds[index];
+                    if (cornerId < 0 ||
+                        static_cast<std::size_t>(cornerId) >=
+                            board->chessboardCorners.size())
+                        continue;
+                    view.objectPoints.push_back(board->chessboardCorners[cornerId]);
+                    view.imagePoints.push_back(charucoCorners[index]);
+                }
+#endif
                 view.charucoCorners = static_cast<int>(charucoIds.size());
                 if (view.objectPoints.size() != view.imagePoints.size() ||
                     view.objectPoints.size() < MIN_CAPTURED_CORNERS)
