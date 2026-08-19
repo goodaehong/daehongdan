@@ -10,6 +10,7 @@ class QLabel;
 class QPushButton;
 class QDialog;
 class QTimer;
+class QStackedWidget;
 class FloorMapGridWidget;
 
 // 메뉴 "평면도" 탭: 기본 화면은 변환된 대피도 + 전광판 클릭 시 경로 표시(운영용).
@@ -56,8 +57,14 @@ private:
     QDialog *setupDialog = nullptr;
     QLabel *originalPreviewLabel = nullptr;
     QLabel *convertedPreviewLabel = nullptr;
+    // 변환 성공 시 convertedPreviewLabel(상태 텍스트) 대신 이걸 보여준다 — 변환 전/후를
+    // 같은 다이얼로그 안에서 직접 비교할 수 있게.
+    QStackedWidget *convertedStack = nullptr;
+    FloorMapGridWidget *convertedPreviewGrid = nullptr;
     QPushButton *pickButton = nullptr;
     QPushButton *applyButton = nullptr;
+    // 변환 성공 후에만 보이는 닫기 버튼 — 자동으로 닫지 않고 결과를 확인한 뒤 직접 닫게 한다.
+    QPushButton *closeButton = nullptr;
     QImage pendingOriginalImage;
 
     bool hasData = false;

@@ -29,7 +29,10 @@
 #include <string>
 #include <vector>
 
-constexpr int OUT_SIZE = 62;   // HUB75는 64x64지만, 테두리가 상하좌우 각 1px씩(HUB75_Shape13을 1px로 수정함) 빨간 점멸 경고용이라 62x62만 실제 맵으로 씀
+// GridCoordinateMapper(감지 좌표계, server/opencv/GridCoordinateMapper.h)와 통일해서
+// 60으로 확정 (2026-08-19). HUB75 물리 매트릭스(64x64) 안에서 테두리를 얼마나 쓸지는
+// 전광판 쪽(stm32_firmware/display_board) 렌더링 코드가 알아서 맞춰야 함 — 거기 아직 62 기준.
+constexpr int OUT_SIZE = 60;
 // 실측 결과: 벽은 raw값 146+, 살려야 하는 좁은 틈은 최대 108~120 - 그 사이인 130이 최적.
 // 팽창은 다시 0으로 (걸어도 이 정도로 얇은 벽엔 효과 없고, 오히려 다른 통로를 막을 위험만 있음).
 constexpr int kObstacleDilatePx = 0;

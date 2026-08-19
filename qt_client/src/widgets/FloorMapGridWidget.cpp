@@ -83,7 +83,7 @@ int FloorMapGridWidget::hitTestDisplay(const QPointF &pos) const
     const double cs = cellSize();
     if (cs <= 0)
         return -1;
-    // 셀 하나 정도 반경까지는 클릭으로 인정 — 62x62 격자에서 정확히 점 하나만 누르긴 어렵다.
+    // 셀 하나 정도 반경까지는 클릭으로 인정 — 촘촘한 격자에서 정확히 점 하나만 누르긴 어렵다.
     const double radius = qMax(10.0, cs * 1.5);
     int best = -1;
     double bestDist = radius;
@@ -128,8 +128,8 @@ void FloorMapGridWidget::paintEvent(QPaintEvent *)
     const QRectF r = gridRect();
     const double cs = cellSize();
 
-    // 셀 하나씩 그리는 대신 장애물 셀만 한 덩어리 QPainterPath로 모아서 그린다(62x62=3844칸이라
-    // drawRect를 낱개로 부르면 불필요하게 많음 — path 하나로 합쳐 draw 호출 수를 줄인다).
+    // 셀 하나씩 그리는 대신 장애물 셀만 한 덩어리 QPainterPath로 모아서 그린다(격자 칸 수가
+    // 수천 단위라 drawRect를 낱개로 부르면 불필요하게 많음 — path 하나로 합쳐 draw 호출 수를 줄인다).
     painter.fillRect(r, kFreeCell);
     QPainterPath wallPath;
     for (int y = 0; y < gridSize && y < bitmap.size(); ++y) {
