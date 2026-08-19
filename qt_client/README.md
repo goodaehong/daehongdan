@@ -9,7 +9,7 @@
 
 | 탭 | 내용 |
 |---|---|
-| 모니터링 | 카메라 4채널 실시간 영상 + 감지 박스, 센서 수치, 액추에이터 수동 제어, 위험 모드 전환/해제 |
+| 모니터링 | 카메라 4채널 실시간 영상 + 감지 박스, 감시 제외(ROI) 영역 설정, 센서 수치, 액추에이터 수동 제어, 위험 모드 전환/해제 |
 | 이벤트로그 | 서버 DB 조회 결과 목록 + 상세 패널. 날짜/구역/위험도/키워드 필터 |
 | 그래프 | 가스·연기 농도 추이. 기간(10분/1시간/6시간/하루) 선택, 경고·위험 발생 시점 마커 |
 | 평면도 | 대피 경로 지도. 전광판 클릭 시 각 출구까지의 경로 표시 |
@@ -24,7 +24,7 @@
 | `dashboard_main.cpp` | 진입점. 폰트 등록, 로그인↔대시보드 전환 |
 | `src/core/` | `MainWindow`(셸·탭 전환·서버 시그널 배선), 공용 타입(`ZoneTypes`, `DetectionTypes`, `FloorMapTypes`), 서버 주소(`ServerConfig.h`) |
 | `src/pages/` | 탭별 화면 1개 = 파일 1개 (`MonitorPage`, `EventLogPage`, `GraphPage`, `FloorMapPage`, `HelpPage`, `LoginPage`) |
-| `src/widgets/` | 페이지가 조립해 쓰는 커스텀 위젯 (상태 패널, 그래프, 감지 오버레이, 경고 배너 등) |
+| `src/widgets/` | 페이지가 조립해 쓰는 커스텀 위젯 (상태 패널, 그래프, 감지 오버레이, ROI 편집용 `VideoWidget`, 경고 배너 등) |
 | `src/network/` | `ServerLink`(JSON 소켓), `StreamReceiver`(libvlc RTSP 재생) |
 | `resources/` | 폰트(한화고딕 2종), 로그인 배경 이미지, `resources.qrc` |
 
@@ -86,10 +86,24 @@ inline const quint16 kServerPort = 9999;
 
 | 방향 | 메시지 타입 |
 |---|---|
-| 수신 | `sensor`, `detection`, `actuator_status`, `led_matrix_status`, `control_ack`, `emergency_ack`, `query_result` |
-| 송신 | `control`(수동 제어), `emergency_trigger`/`emergency_clear`, `false_alarm_report`, `query`(DB 조회) |
+| 수신 | `sensor`, `detection`, `actuator_status`, `led_matrix_status`, `control_ack`, `emergency_ack`, `set_ignore_regions_ack`, `query_result` |
+| 송신 | `control`(수동 제어), `emergency_trigger`/`emergency_clear`, `false_alarm_report`, `set_ignore_regions`(ROI 설정), `query`(DB/설정 조회) |
 
-`query`는 `target`으로 `event_log`/`sensor_log`를 구분하고, `reqId`로 응답을 매칭한다.
+`query`는 `target`으로 `event_log`/`sensor_log`/`ignore_regions`를 구분하고, `reqId`로 응답을 매칭한다.
+`ignore_regions`는 접속 직후 서버가 `reqId` 없이 먼저 push하기도 한다(저장된 ROI 복원용).
+
+### ROI(감시 제외 영역)
+
+채널별로 꼭짓점 4개짜리 다각형을 지정해 감지 대상에서 제외한다. `applyTo`로 화재/연기 감지를
+따로 켜고 끌 수 있다. `VideoWidget`에서 편집한 영역은 `set_ignore_regions`로 서버에 반영되고,
+`overlapThreshold`(서버 전역 0.5) 기준으로 감지 박스와 겹치는 영역을 판단한다.
+
+### TLS
+
+`ServerConfig.h`의 `kUseTls` 스위치로 평문/TLS를 전환한다. Qt 쪽 구현(인증서 SHA-256 지문 고정
+검증 포함, `kServerCertSha256`)은 이미 완성돼 있지만, 서버가 아직 평문 TCP만 지원해서 현재는
+`false`로 꺼둔 상태다. 서버 측 TLS가 준비되면 이 값만 `true`로 바꾸고 지문 값을 채우면 되고,
+Qt 쪽 재작업은 필요 없다.
 
 ## 카메라 영상
 
@@ -113,8 +127,11 @@ MediaMTX 주소는 `MainWindow.cpp`의 `kMediaMtxHost`에 있다(서버와 같�
 
 ## 현재 상태 / 알려진 제약
 
-- **평면도** — 서버 프로토콜 미확정 상태라 화면에 뜨는 데이터는 예시(placeholder)다.
-  변환 알고리즘은 `server/evac_map_tools`(태호)에 있고, Qt↔서버 메시지 규격 확정 후 연결 예정
+- **평면도** — 격자·전광판·출구·경로 데이터는 실제 우리 건물 평면도를 `server/evac_map_tools`(태호)로
+  변환한 진짜 결과로 교체됐다(더 이상 손으로 지어낸 예시 아님). 다만 아직 서버 연동 전이라
+  `FloorMapPage.cpp`에 하드코딩된 값이다 — Qt↔서버 메시지 규격 확정 후 서버에서 받아오도록 연결 예정
+- **서버 TLS** — Qt 쪽 TLS(인증서 지문 고정 포함)는 구현 완료. 서버가 아직 평문 TCP만 지원해서
+  `ServerConfig::kUseTls = false`로 꺼둔 상태 — 서버 TLS 준비되면 그 값만 바꾸면 된다
 - **이벤트로그 스냅샷** — 상세 패널에 자리만 있고 "스냅샷 없음" 표시. 서버가 감지 시점 프레임을
   저장·전송하는 프로토콜이 필요해 미구현
 - **로그인 인증** — 서버 연동 없이 클라이언트에 하드코딩된 계정으로만 동작
