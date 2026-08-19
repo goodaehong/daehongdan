@@ -104,7 +104,6 @@ private:
 
     std::vector<DetectionBox> updateTracks(
         const std::vector<Features>& detections,
-        const cv::Size& frameSize,
         std::uint64_t frameId,
         std::int64_t timestampMs);
     static double intersectionOverUnion(const cv::Rect& a, const cv::Rect& b);
