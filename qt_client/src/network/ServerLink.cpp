@@ -10,6 +10,8 @@
 
 namespace {
 constexpr int kControlTimeoutMs = 3000;
+// 이미지 저장 + EvacPlanner 변환까지 걸리는 작업이라 control보다 넉넉하게 잡는다.
+constexpr int kFloorMapUploadTimeoutMs = 15000;
 
 // RoiRegion -> set_ignore_regions의 regions[] 원소. points는 [[x,y],...] (0~1 정규화).
 QJsonArray roiRegionsToJson(const QVector<RoiRegion> &regions)
@@ -65,6 +67,54 @@ QVector<RoiRegion> roiRegionsFromJson(const QJsonArray &arr)
         regions.append(region);
     }
     return regions;
+}
+
+// floor_map_result / query_result(target=floor_map)의 bitmap[][] -> QVector<QVector<int>>.
+// 실패 응답(gridSize·bitmap 없음)일 때도 그냥 빈 배열이 나오도록 값 검증 없이 그대로 옮긴다.
+QVector<QVector<int>> floorMapBitmapFromJson(const QJsonArray &arr)
+{
+    QVector<QVector<int>> bitmap;
+    for (const QJsonValue &rowV : arr) {
+        QVector<int> row;
+        for (const QJsonValue &cellV : rowV.toArray())
+            row.append(cellV.toInt());
+        bitmap.append(row);
+    }
+    return bitmap;
+}
+
+// displays[]/exits[] 공통 형태({"id","y","x"}) -> FloorMapMarker.
+QVector<FloorMapMarker> floorMapMarkersFromJson(const QJsonArray &arr)
+{
+    QVector<FloorMapMarker> markers;
+    for (const QJsonValue &v : arr) {
+        const QJsonObject o = v.toObject();
+        FloorMapMarker m;
+        m.id = o.value("id").toInt();
+        m.y = o.value("y").toInt();
+        m.x = o.value("x").toInt();
+        markers.append(m);
+    }
+    return markers;
+}
+
+// routes[] -> FloorMapRoute. 서버는 waypoint를 {"y","x"}로 보내지만 FloorMapRoute::waypoints는
+// Qt 좌표계 관례대로 QPoint(x,y)로 뒤집어 보관한다(FloorMapTypes.h 주석 참고).
+QVector<FloorMapRoute> floorMapRoutesFromJson(const QJsonArray &arr)
+{
+    QVector<FloorMapRoute> routes;
+    for (const QJsonValue &v : arr) {
+        const QJsonObject o = v.toObject();
+        FloorMapRoute r;
+        r.displayId = o.value("displayId").toInt();
+        r.exitId = o.value("exitId").toInt();
+        for (const QJsonValue &wv : o.value("waypoints").toArray()) {
+            const QJsonObject w = wv.toObject();
+            r.waypoints << QPoint(w.value("x").toInt(), w.value("y").toInt());
+        }
+        routes.append(r);
+    }
+    return routes;
 }
 }
 
@@ -208,6 +258,29 @@ QString ServerLink::sendSetIgnoreRegions(int channel, const QVector<RoiRegion> &
     return cmdId;
 }
 
+QString ServerLink::sendSetFloorMap(const QByteArray &pngBytes)
+{
+    const QString cmdId = generateCmdId();
+
+    QJsonObject obj;
+    obj["type"] = "set_floor_map";
+    obj["cmdId"] = cmdId;
+    obj["imageFormat"] = "png";
+    obj["imageBase64"] = QString::fromLatin1(pngBytes.toBase64());
+    sendLine(obj);
+
+    auto *timer = new QTimer(this);
+    timer->setSingleShot(true);
+    connect(timer, &QTimer::timeout, this, [this, cmdId]() {
+        if (pendingFloorMapUploads.remove(cmdId) > 0)
+            emit floorMapUploadTimedOut(cmdId);
+    });
+    pendingFloorMapUploads.insert(cmdId, timer);
+    timer->start(kFloorMapUploadTimeoutMs);
+
+    return cmdId;
+}
+
 void ServerLink::sendFalseAlarmReport(int channel, int frameId, const QString &admin)
 {
     QJsonObject obj;
@@ -334,6 +407,20 @@ void ServerLink::handleLine(const QByteArray &line)
     } else if (type == "set_ignore_regions_ack") {
         emit ignoreRegionsAck(obj.value("cmdId").toString(), obj.value("channel").toInt(),
                                obj.value("result").toString() == "ok", obj.value("reason").toString());
+    } else if (type == "floor_map_result") {
+        const QString cmdId = obj.value("cmdId").toString();
+        QTimer *timer = pendingFloorMapUploads.take(cmdId);
+        if (!timer)
+            return; // 이미 타임아웃 처리됐거나(응답이 늦게 옴) 중복 응답 -> 무시
+        timer->stop();
+        timer->deleteLater();
+        const bool ok = obj.value("result").toString() == "ok";
+        emit floorMapUploadResult(cmdId, ok, obj.value("reason").toString(),
+                                   obj.value("gridSize").toInt(),
+                                   floorMapBitmapFromJson(obj.value("bitmap").toArray()),
+                                   floorMapMarkersFromJson(obj.value("displays").toArray()),
+                                   floorMapMarkersFromJson(obj.value("exits").toArray()),
+                                   floorMapRoutesFromJson(obj.value("routes").toArray()));
     } else if (type == "query_result") {
         const QString reqId = obj.value("reqId").toString();
         const QString target = obj.value("target").toString();
@@ -343,6 +430,14 @@ void ServerLink::handleLine(const QByteArray &line)
             emit ignoreRegionsReceived(obj.value("channel").toInt(),
                                         obj.value("overlapThreshold").toDouble(0.5),
                                         roiRegionsFromJson(obj.value("regions").toArray()));
+        } else if (target == "floor_map") {
+            // 저장된 결과가 없으면 result:"empty" (gridSize·bitmap 등 필드 자체가 없음).
+            const bool available = obj.value("result").toString() == "ok";
+            emit floorMapReceived(available, obj.value("gridSize").toInt(),
+                                   floorMapBitmapFromJson(obj.value("bitmap").toArray()),
+                                   floorMapMarkersFromJson(obj.value("displays").toArray()),
+                                   floorMapMarkersFromJson(obj.value("exits").toArray()),
+                                   floorMapRoutesFromJson(obj.value("routes").toArray()));
         } else if (obj.value("result").toString() == "failed") {
             emit queryFailed(reqId, obj.value("reason").toString());
         } else {
