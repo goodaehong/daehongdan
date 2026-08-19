@@ -1,0 +1,21 @@
+# Installation ArUco -> factory coordinate configuration.
+# Coordinates and marker sizes use metres. Channel numbers are logical 1..4.
+VERSION 1
+DICTIONARY DICT_4X4_50
+GRID 60 0 59
+
+# Entire real factory coordinate range in metres.
+FACTORY 0.00 0.00 60.00 60.00
+
+# 60 cm model board represents a 30 m factory quadrant: 1 model metre = 50 m.
+MODEL_SCALE 50
+
+# minimum_visible_markers minimum_inlier_corners max_rms_px hold_ms
+# update_every_accepted_frames smoothing_alpha
+QUALITY 4 12 2.0 1500 1 0.45
+
+# 현장 좌표는 저장소에 임시값으로 넣지 않는다. 설치 시 채널별로 아래
+# 명령을 실행하고 실제 공장 범위와 마커 중심 XY를 입력한다.
+#   ./server/opencv/calibration/SetupArucoChannel.sh <channel>
+# 이 파일에 BOARD/MARKER가 없는 채널은 화재·연기 감지만 계속하며
+# 서버가 gridValid=false를 전송한다.

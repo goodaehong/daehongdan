@@ -20,6 +20,12 @@ extern "C" {
 #define STM_DISPLAY_CMD_ALERT  0x90  /* 위험 대피 전환: Pi -> STM32 */
 #define STM_DISPLAY_CMD_ACK    0xB0  /* 상태 응답: STM32 -> Pi (지금은 안 읽고 무시해도 됨) */
 #define STM_DISPLAY_CMD_CLEAR  0xA0  /* 비상 해제(평상시 화면 복귀): Pi -> STM32 */
+#define STM_DISPLAY_CMD_EVAC_PATH 0xB1  /* 대피경로+화재위치: Pi -> STM32 */
+
+/* fireX/fireY에 이 값을 넣으면 "화재 없음" - 대피경로만 표시하고 화재 마커는 안 그림 */
+#define STM_DISPLAY_FIRE_NONE 0xFF
+/* SendEvacPath의 waypoints 배열 최대 개수 (STM32 packetData[64] 버퍼 기준: (64-4)/2) */
+#define STM_DISPLAY_EVAC_MAX_WAYPOINTS 30
 
 /* CMD_UPDATE의 face/gasColor 공통 값 (0=정상/웃음, 1=주의/무표정, 2=위험/찡그림) */
 #define STM_DISPLAY_STATE_SAFE    0
@@ -58,6 +64,18 @@ bool StmDisplayProtocol_SendAlert(int fd, uint8_t disasterType, uint8_t zoneId);
 
 /* 비상 해제 패킷(CMD 0xA0) 전송. 데이터 없음(0바이트) - STM32가 평상시 화면으로 복귀함 */
 bool StmDisplayProtocol_SendClear(int fd);
+
+/* 대피경로+화재위치 패킷(CMD 0xB1) 전송. 출구 하나당 경로 하나씩, routeIndex로 구분해서 보냄
+   (그래야 STM32가 "이 전광판에서 나가는 모든 출구 경로"를 동시에 저장/표시할 수 있음).
+   fireX/fireY에 STM_DISPLAY_FIRE_NONE(0xFF)을 넣으면 화재 마커 없이 대피경로만 표시됨.
+   routeIndex는 EvacExits 배열의 인덱스(0부터)와 같아야 함 - 이 값으로 STM32가 어느 출구 경로인지 구분함.
+   waypointsXY는 {x0,y0,x1,y1,...} 형태의 평탄화된 배열(길이 = waypointCount*2),
+   웨이포인트는 EvacPlanner의 경로 결과처럼 "꺾이는 지점만"이어야 함(STM32가 직선으로 이어 그림).
+   waypointCount가 STM_DISPLAY_EVAC_MAX_WAYPOINTS를 넘으면 false(전송 안 함) */
+bool StmDisplayProtocol_SendEvacPath(int fd,
+                                      uint8_t fireX, uint8_t fireY, uint8_t fireRadius,
+                                      uint8_t routeIndex,
+                                      const uint8_t *waypointsXY, uint8_t waypointCount);
 
 /* CMD_ACK(0xB0) 응답 대기. STM32는 CMD_UPDATE를 처리하자마자 곧바로 ACK를 보내므로
    SendUpdate 호출 직후에만 의미 있음 (ALERT/CLEAR는 STM32가 ACK를 안 보냄).

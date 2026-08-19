@@ -90,3 +90,13 @@ bool StmDisplay_SendClear()
     ReconnectIfBroken(sent);
     return sent;
 }
+
+bool StmDisplay_SendEvacPath(uint8_t fireX, uint8_t fireY, uint8_t fireRadius,
+                              uint8_t routeIndex,
+                              const uint8_t* waypointsXY, uint8_t waypointCount)
+{
+    bool sent = StmDisplayProtocol_SendEvacPath(s_fd, fireX, fireY, fireRadius,
+                                                 routeIndex, waypointsXY, waypointCount);
+    ReconnectIfBroken(sent);
+    return sent;
+}
