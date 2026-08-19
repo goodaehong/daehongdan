@@ -14,6 +14,10 @@ namespace {
         // 스트림 추출이 조용히 실패하면서 outTemp/outHum이 초기화 안 된 채로 남는다.
         // 이 상태를 성공으로 착각하면 0도/쓰레기값이 정상값처럼 Qt까지 흘러간다 -> 반드시 확인.
         if (tempFile.fail() || humFile.fail()) return false;
+        // 체크섬은 통과했는데 값 자체가 물리적으로 불가능한 경우(습도 0~100% 범위 밖) —
+        // 실측 중 습도 3000%대로 튀는 게 확인됨. 그대로 흘려보내면 Qt 화면·DB 이력에
+        // 쓰레기값이 남으니 여기서 "읽기 실패"로 취급해 마지막 정상값을 유지시킨다.
+        if (outHum < 0.0f || outHum > 100.0f) return false;
         return true;
     }
 

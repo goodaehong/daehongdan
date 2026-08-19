@@ -149,6 +149,22 @@ namespace flame_config
     constexpr const char* OPTIONAL_SVM_PATH = "flame_svm.xml";
 }
 
+// Persistent, warning-only camera blur/cover diagnosis used by the detection runtime.
+namespace camera_health_config
+{
+    // Run this low-priority diagnosis at 1 FPS on a small image. Fire/smoke inference
+    // keeps its own frequency and is not delayed by repeated blur calculations.
+    constexpr int ANALYSIS_WIDTH = 160;
+    constexpr int ANALYSIS_INTERVAL_MS = 1000;
+    constexpr double BLUR_LAPLACIAN_VARIANCE_THRESHOLD = 20.0;
+    constexpr int DARK_PIXEL_THRESHOLD = 12;
+    constexpr int BRIGHT_PIXEL_THRESHOLD = 248;
+    constexpr double DARK_PIXEL_RATIO_THRESHOLD = 0.70;
+    constexpr double BRIGHT_PIXEL_RATIO_THRESHOLD = 0.85;
+    constexpr int WARNING_PERSISTENCE_MS = 3000;
+    constexpr int HEALTHY_CLEAR_MS = 1000;
+}
+
 // 공개 D-Fire YOLOv8n 연기 NCNN 설정
 namespace smoke_config
 {
@@ -191,8 +207,14 @@ namespace smoke_config
     // 연속 양성 박스가 같은 영역일 때만 hits를 누적해 서로 다른 오검출의 합산을 막는다.
     constexpr float TRACK_MIN_IOU = 0.08F;
     constexpr float TRACK_MAX_CENTER_DISTANCE_RATIO = 0.45F;
+    constexpr float MERGE_EXPANSION_RATIO = 0.12F;
+    constexpr std::size_t MAX_TRACKS_PER_CHANNEL = 16;
     constexpr int CONFIRM_HITS = 2;
+    // 확정 전 후보는 빠르게 정리하고, 확정된 연기는 마지막 실제 검출부터 5초간 유지한다.
     constexpr int RELEASE_MISSES = 2;
+    constexpr int RELEASE_HOLD_MS = 5000;
+    constexpr int RELEASE_HOLD_RESULTS =
+        (RELEASE_HOLD_MS + INFERENCE_INTERVAL_MS - 1) / INFERENCE_INTERVAL_MS;
     constexpr int RESULT_FRESH_MS = 2500;
     constexpr int BOX_FRESH_MS = 1500;
 
