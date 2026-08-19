@@ -1,9 +1,46 @@
 cmake_minimum_required(VERSION 3.19)
 project(qt_dashboard LANGUAGES CXX)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Multimedia MultimediaWidgets)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Widgets Multimedia MultimediaWidgets Network)
 
 qt_standard_project_setup()
+
+# qt_standard_project_setup()이 AUTOMOC/AUTOUIC는 기본 켜주지만 AUTORCC는 켜주지 않아서
+# resources.qrc가 빌드에서 그냥 무시되고 있었음 -> 명시적으로 켜야 리소스가 실행파일에 포함됨.
+set(CMAKE_AUTORCC ON)
+
+# --- libvlc (RTSP 저지연 재생용) ---------------------------------------------
+# 공식 SDK 없이, 설치된 libvlc.dll에서 필요한 함수만 뽑아 MinGW 임포트 라이브러리를
+# 빌드 시점에 직접 생성한다 (dlltool). VLC 설치 경로가 다르면 -DVLC_DIR=... 로 지정.
+if(NOT DEFINED VLC_DIR)
+    set(VLC_DIR "C:/Program Files/VideoLAN/VLC")
+endif()
+
+set(VLC_DLL "${VLC_DIR}/libvlc.dll")
+if(NOT EXISTS "${VLC_DLL}")
+    message(FATAL_ERROR "libvlc.dll을 찾을 수 없습니다: ${VLC_DLL} (VLC 설치 경로를 -DVLC_DIR=... 로 지정하세요)")
+endif()
+
+set(VLC_DEF "${CMAKE_CURRENT_BINARY_DIR}/libvlc.def")
+set(VLC_IMPLIB "${CMAKE_CURRENT_BINARY_DIR}/libvlc.a")
+
+file(WRITE "${VLC_DEF}"
+"LIBRARY libvlc.dll\nEXPORTS\nlibvlc_new\nlibvlc_release\nlibvlc_media_new_location\nlibvlc_media_release\nlibvlc_media_add_option\nlibvlc_media_player_new_from_media\nlibvlc_media_player_release\nlibvlc_media_player_set_hwnd\nlibvlc_media_player_play\nlibvlc_media_player_stop\nlibvlc_video_set_crop_geometry\n"
+)
+
+get_filename_component(_mingw_bin_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+find_program(DLLTOOL_EXECUTABLE dlltool HINTS "${_mingw_bin_dir}")
+if(NOT DLLTOOL_EXECUTABLE)
+    message(FATAL_ERROR "dlltool을 찾을 수 없습니다 (MinGW binutils 필요)")
+endif()
+
+add_custom_command(
+    OUTPUT "${VLC_IMPLIB}"
+    COMMAND "${DLLTOOL_EXECUTABLE}" -d "${VLC_DEF}" -D libvlc.dll -l "${VLC_IMPLIB}"
+    DEPENDS "${VLC_DEF}"
+    COMMENT "Generating MinGW import library for libvlc.dll"
+)
+add_custom_target(libvlc_implib DEPENDS "${VLC_IMPLIB}")
 
 qt_add_executable(qt_dashboard
     WIN32 MACOSX_BUNDLE
@@ -12,6 +49,9 @@ qt_add_executable(qt_dashboard
     src/core/MainWindow.h
     src/core/ZoneTypes.cpp
     src/core/ZoneTypes.h
+    src/core/DetectionTypes.h
+    src/core/FloorMapTypes.h
+    src/core/ServerConfig.h
     src/pages/LoginPage.cpp
     src/pages/LoginPage.h
     src/pages/MonitorPage.cpp
@@ -20,23 +60,41 @@ qt_add_executable(qt_dashboard
     src/pages/EventLogPage.h
     src/pages/GraphPage.cpp
     src/pages/GraphPage.h
-    src/pages/ControlPage.cpp
-    src/pages/ControlPage.h
     src/pages/HelpPage.cpp
     src/pages/HelpPage.h
+    src/pages/FloorMapPage.cpp
+    src/pages/FloorMapPage.h
+    src/widgets/FloorMapGridWidget.cpp
+    src/widgets/FloorMapGridWidget.h
     src/widgets/VideoWidget.cpp
     src/widgets/VideoWidget.h
+    src/widgets/DetectionOverlay.cpp
+    src/widgets/DetectionOverlay.h
     src/widgets/StatusPanel.cpp
     src/widgets/StatusPanel.h
     src/widgets/GasGraphWidget.cpp
     src/widgets/GasGraphWidget.h
+    src/widgets/WarningAlertDialog.cpp
+    src/widgets/WarningAlertDialog.h
+    src/widgets/DangerGlowOverlay.cpp
+    src/widgets/DangerGlowOverlay.h
     src/network/StreamReceiver.cpp
     src/network/StreamReceiver.h
+    src/network/ServerLink.cpp
+    src/network/ServerLink.h
+    resources/resources.qrc
 )
+
+add_dependencies(qt_dashboard libvlc_implib)
 
 target_include_directories(qt_dashboard
     PRIVATE
         src
+)
+
+target_compile_definitions(qt_dashboard
+    PRIVATE
+        VLC_PLUGIN_PATH="${VLC_DIR}/plugins"
 )
 
 target_link_libraries(qt_dashboard
@@ -45,7 +103,39 @@ target_link_libraries(qt_dashboard
         Qt::Widgets
         Qt::Multimedia
         Qt::MultimediaWidgets
+        Qt::Network
+        "${VLC_IMPLIB}"
 )
+
+# 실행에 필요한 libvlc 런타임 dll을 실행파일 옆에 복사 (plugins 폴더는 용량이 커서
+# VLC_PLUGIN_PATH 환경변수로 설치 경로를 그대로 가리킴 - dashboard_main.cpp 참고).
+add_custom_command(TARGET qt_dashboard POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${VLC_DIR}/libvlc.dll" "${VLC_DIR}/libvlccore.dll"
+        "$<TARGET_FILE_DIR:qt_dashboard>"
+)
+
+# --- OpenSSL 런타임 (ServerLink의 QSslSocket TLS 연결용) -----------------------
+# Qt의 openssl TLS 백엔드(qopensslbackend.dll)는 Qt 설치본에 포함돼 있지만, 그 백엔드가 실제로
+# 쓰는 libssl-3-x64.dll/libcrypto-3-x64.dll은 Qt에 안 들어있어 별도로 구해야 한다. 개발 PC에
+# Git for Windows 등이 깔려 있으면 그 OpenSSL DLL이 PATH에 잡혀서 우연히 동작하는 것처럼 보일 수
+# 있는데, 배포 대상 PC(공장 PC)에는 없을 수 있으므로 못 미덥다 — 명시적으로 지정해서 실행파일
+# 옆에 복사한다. 없으면 링크 자체는 되지만(빌드 필수 아님) 실행 시 TLS 연결만 실패한다.
+if(NOT DEFINED OPENSSL_BIN_DIR)
+    set(OPENSSL_BIN_DIR "" CACHE PATH
+        "libssl-3-x64.dll / libcrypto-3-x64.dll이 있는 폴더 (예: OpenSSL Win64 설치 경로의 bin)")
+endif()
+if(OPENSSL_BIN_DIR)
+    add_custom_command(TARGET qt_dashboard POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${OPENSSL_BIN_DIR}/libssl-3-x64.dll" "${OPENSSL_BIN_DIR}/libcrypto-3-x64.dll"
+            "$<TARGET_FILE_DIR:qt_dashboard>"
+    )
+else()
+    message(WARNING
+        "OPENSSL_BIN_DIR이 지정되지 않았습니다 — libssl-3-x64.dll/libcrypto-3-x64.dll이 실행파일 "
+        "옆에 없으면 TLS(ServerLink) 연결이 실패합니다. -DOPENSSL_BIN_DIR=<경로> 로 지정하세요.")
+endif()
 
 install(TARGETS qt_dashboard
     BUNDLE  DESTINATION .

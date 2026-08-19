@@ -8,6 +8,7 @@ using namespace std;
 
 namespace
 {
+// 프레임 수 기반의 레거시 추적 임계값이다. 현재 FlameDetector 내부 추적과는 별개다.
 constexpr int FIRE_CONFIRM_FRAMES = 3;
 constexpr int MAX_CANDIDATE_MISSES = 15;
 constexpr int MAX_PRECONFIRM_MISSES = 3;
@@ -91,6 +92,7 @@ FireTrackingResult FireCandidateTracker::update(const vector<DetectionBox>& acce
         if (continuing && (!tracked || candidate.score > tracked->score)) tracked = &candidate;
     }
 
+    // 기존 추적 후보보다 점수가 충분히 높을 때만 다른 후보로 전환한다.
     constexpr double TRACK_SWITCH_SCORE_MARGIN = 0.12;
     if (tracked && highest)
         best = highest->score >= tracked->score + TRACK_SWITCH_SCORE_MARGIN ? highest : tracked;
@@ -143,6 +145,7 @@ FireTrackingResult FireCandidateTracker::update(const vector<DetectionBox>& acce
 
         if (!fireConfirmed_)
         {
+            // 작은 물체·반사·손가락 형태일수록 더 많은 강한 프레임을 요구한다.
             const double strongScore = best->fingerLikeCandidate ? 0.92 :
                 best->reflectionLikeCandidate ? 0.82 : best->tinyCandidate ? 0.72 : STRONG_FIRE_SCORE;
 
@@ -160,6 +163,7 @@ FireTrackingResult FireCandidateTracker::update(const vector<DetectionBox>& acce
         }
         else
         {
+            // 확정 후에는 잠깐 약해진 불꽃을 허용하되 제한 횟수를 넘으면 해제한다.
             const double keepScore = best->fingerLikeCandidate ? 0.86 :
                 best->reflectionLikeCandidate ? 0.74 : best->tinyCandidate ? 0.66 : KEEP_FIRE_SCORE;
             const bool reflectionKeepRescue = best->reflectionLikeCandidate && best->score >= 0.78 &&

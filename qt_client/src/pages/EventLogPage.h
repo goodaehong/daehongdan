@@ -3,6 +3,7 @@
 
 #include <QWidget>
 #include <QVector>
+#include <QDateTime>
 #include "../core/ZoneTypes.h"
 
 class QTableWidget;
@@ -10,17 +11,22 @@ class QComboBox;
 class QLineEdit;
 class QLabel;
 class QPushButton;
+class QTimeEdit;
+class QTimer;
 class GasGraphWidget;
+class QJsonArray;
 
 struct EventEntry {
-    QString time;
+    QString date;        // 표시용 "yyyy-MM-dd"
+    QString time;       // 표시용 "HH:mm:ss"
+    QDateTime timestamp; // 기간 필터링용 실제 시각
     QString zone;
     QString detection;
     QString response;
     QString admin;
-    QString severity;
+    QString severity;   // "안전"/"정보"/"경고"/"위험"
     QString sensorCombo;
-    QString status;
+    QString status;      // "해결됨"/"오탐 처리됨"
     QString duration;
 };
 
@@ -37,17 +43,50 @@ public:
                   const QString &admin = "시스템(자동)", const QString &severity = "정보",
                   const QString &sensorCombo = "-", const QString &duration = "-");
 
+    // 서버 query_result(target="event_log") 응답으로 목록을 통째로 교체한다.
+    // rows 필드: id,ts,zone,category,severity,cause,sensorCombo,source,response,admin,
+    //            gasPpm,smokePpm,status,durationMs,snapshotPath,incidentId (server/db/query_handler.cpp 참고)
+    void loadEntriesFromServer(const QJsonArray &rows);
+
+public slots:
+    // 조회 범위(날짜 필터가 있으면 그 하루, 없으면 최근 24시간) 계산해서 eventLogRequested emit.
+    // MainWindow가 실제 이벤트(상태 전환/제어 성공/비상 전환·해제 등) 발생 시점마다 바로 호출해서
+    // 이벤트로그가 사실상 실시간으로 갱신되게 한다 — 30초 주기는 그 사이 놓친 것만 잡는 안전망.
+    void requestRefresh();
+
+signals:
+    // "조회" 클릭 또는 주기적 자동 갱신 때 발생 — MainWindow가 받아서 서버에 다시 query를 보낸다.
+    // 예전엔 최초 접속 시 1회만 불러오고 끝이라, 그 이후 발생한 이벤트(비상 전환/해제 등)가
+    // 화면에 영영 안 보였다. "조회" 버튼도 지금까지 이미 불러온 목록을 필터링만 할 뿐 서버에
+    // 다시 물어보지 않았던 게 원인.
+    void eventLogRequested(qint64 from, qint64 to);
+
 private slots:
     void applyFilter();
     void showDetail(int row, int column);
     void markFalseAlarm();
+    void showDatePicker();
+    void clearDateFilter();
 
 private:
+    void appendRow(const EventEntry &entry);
+
     QTableWidget *eventTable;
     QComboBox *zoneFilterCombo;
+    QComboBox *severityFilterCombo;
+    QComboBox *periodFilterCombo;
+    QComboBox *statusFilterCombo;
     QLineEdit *searchEdit;
+    // 그래프 화면과 동일한 방식(팝업 달력)의 특정 날짜 조회 + 시:분 직접 입력 시간대 조회.
+    // periodFilterCombo(전체 기간/최근 1시간 등)와 별개로 AND 조건으로 함께 적용된다.
+    QPushButton *dateButton;
+    QDate filterDate; // 무효(QDate()) = 날짜 제한 없음
+    QTimeEdit *startTimeEdit;
+    QTimeEdit *endTimeEdit;
     QVector<EventEntry> eventEntries;
     GasGraphWidget *gasGraph;
+    QTimer *refreshTimer = nullptr;
+    bool columnsAutoSized = false; // 컬럼 폭 자동 맞춤은 최초 1회만 — 이후엔 사용자가 드래그한 폭 유지
 
     QLabel *detailPlaceholder;
     QWidget *detailContent;
