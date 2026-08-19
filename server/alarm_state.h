@@ -41,6 +41,8 @@ private:
     long warnStartTs_  = -1;      // 경고 진입 시각 (-1 = 타이머 비활성)
     std::atomic<bool> ack_{false};// 관리자 확인 수신 플래그
     bool ackLogged_    = false;   // 확인 로그 중복 방지
+    bool warnClearLogged_ = false;   // "해제됨" 로그 중복 방지 (깜빡임 도배)
+    std::string warnCause_;          // 경고 진입 시 원인. 깜빡임 중 상태 유지에 씀 
     bool forcedDanger_ = false;   // 무응답으로 강제 위험 전환된 상태
 
     long incidentId_      = 0;    // 현재 사태 번호
