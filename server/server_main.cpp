@@ -339,9 +339,20 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
                     bool hasFire = false;
                     for (const auto& b : snap.detection.boxes) {
                         if (b.type == DetectionType::FIRE) hasFire = true;
-                        boxes.push_back({ b.box.x, b.box.y, b.box.width, b.box.height,
-                                          b.type == DetectionType::FIRE ? "FIRE" : "SMOKE",
-                                          (float)b.score });
+                        DetBox box{ b.box.x, b.box.y, b.box.width, b.box.height,   
+                                    b.type == DetectionType::FIRE ? "FIRE" : "SMOKE",
+                                    (float)b.score };
+                        // 평면도 좌표는 화재만. 연기는 공중에 떠서 바닥 좌표가 안 나온다
+                        if (b.type == DetectionType::FIRE) {
+                            box.gridValid          = b.gridPositionValid;
+                            box.gridX              = b.gridX;
+                            box.gridY              = b.gridY;
+                            box.displayRadiusCells = b.displayRadiusCells;
+                            box.factoryValid       = b.factoryPositionValid;
+                            box.factoryXMetres     = b.factoryXMetres;
+                            box.factoryYMetres     = b.factoryYMetres;
+                        }
+                        boxes.push_back(box);                   
                     }
                     // 화재 상태는 화재 결과가 왔을 때만 갱신. 연기 결과에 같이 지우면
                     // 감지 중인 화재가 연기 추론 주기(1초)마다 꺼진다

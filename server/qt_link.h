@@ -8,12 +8,24 @@
 #include "actuator/actuator_control.h"
 #include "db/Database.h"
 
+// 평면도 격자 한 변. 감지(GridCoordinateMapper)·전광판·EvacPlanner가 같은 값이어야 한다 
+constexpr int FIRE_GRID_SIZE = 60;                                                    
+
 // 명세서 boxes 원소 규격. 감지 코어 타입에 안 묶이게 중립 구조체로
 // (화재·연기가 각각 다른 런타임에서 나오는데 한 배열에 합쳐 보내야 함)
 struct DetBox {
     int x, y, w, h;
     std::string cls;   // "FIRE" / "SMOKE"
     float score;
+
+     // 평면도 좌표. FIRE에만 채워지고 SMOKE는 기본값 유지                  
+    bool   gridValid = false;
+    int    gridX = -1;
+    int    gridY = -1;
+    int    displayRadiusCells = 0;
+    bool   factoryValid = false;
+    double factoryXMetres = 0.0;
+    double factoryYMetres = 0.0;                                  
 };
 
 // 사람 박스. score = 카메라(WiseAI)의 사람 확신도 → Qt가 낮은 값 걸러낼 수 있게

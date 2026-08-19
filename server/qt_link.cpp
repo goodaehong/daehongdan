@@ -80,10 +80,22 @@ void QtLink_SendDetection(Link& link, int ch, int frameId, int srcW, int srcH,
     for (size_t i = 0; i < boxes.size(); ++i) {
         const auto& b = boxes[i];
         if (i > 0) oss << ",";
-        oss << "{\"x\":" << b.x << ",\"y\":" << b.y
+        oss << "{\"x\":" << b.x << ",\"y\":" << b.y                            
             << ",\"w\":" << b.w << ",\"h\":" << b.h
             << ",\"cls\":\"" << b.cls << "\""
-            << ",\"score\":" << b.score << "}";
+            << ",\"score\":" << b.score;
+        // 화재만 평면도 좌표를 붙인다. gridValid=false면 좌표를 쓰면 안 됨
+        if (b.cls == "FIRE") {
+            oss << ",\"gridValid\":" << (b.gridValid ? "true" : "false")
+                << ",\"gridSize\":" << FIRE_GRID_SIZE
+                << ",\"gridX\":" << b.gridX
+                << ",\"gridY\":" << b.gridY
+                << ",\"displayRadiusCells\":" << b.displayRadiusCells
+                << ",\"factoryValid\":" << (b.factoryValid ? "true" : "false")
+                << ",\"factoryXMetres\":" << b.factoryXMetres
+                << ",\"factoryYMetres\":" << b.factoryYMetres;
+        }
+        oss << "}";                                                            
     }
     oss << "]}";
     link.send(oss.str());
