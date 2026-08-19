@@ -19,6 +19,7 @@
 #include "sensors/sensor_reader.h"
 #include "actuator/actuator_control.h"
 #include "display/stm_display.h"
+#include "../drivers/stm_uart_display/stm_display_protocol.h" 
 #include "judgement.h"
 #include "alarm_state.h"
 #include "qt_link.h"
@@ -36,12 +37,23 @@ struct FrameStore {
     std::atomic<int> frameH[4]{};
 };
 
+// 화재 하나의 평면도 좌표. 전광판 표시·경로 필터링용                      
+struct FireCell {
+    int x = 0, y = 0, radius = 0;
+};
+
 // 채널별 최신 감지 상태. 워커가 갱신, 판단(센서 스레드)이 읽음
 struct DetectionState {
     std::atomic<bool> fire{false};
     std::atomic<bool> smoke{false};
     std::atomic<long> lastInferTs{0};     // 마지막 추론 결과 시각 (visionOk 판정용) 
-};
+
+    // 이 채널에서 잡힌 화재들. 떨어진 불은 각각 경로를 막으므로 전부 보관한다
+    // (개수가 변해서 atomic으로 못 다룸 — 잠금으로 처리)
+    std::mutex fireMtx;
+    std::vector<FireCell> fires;
+};                                                                    
+
 DetectionState detState[4];
 
 Database g_db;   // 전역 DB. main에서 open
@@ -84,12 +96,84 @@ static bool responseApplied(const Response& t, const ActuatorSnapshot& a) {
     return true;
 }                                                                   
 
+// 4채널의 화재 좌표를 한 목록으로 모은다. 전광판 표시와 경로 필터링 둘 다    
+// 화재 전부를 봐야 해서, 채널을 가리지 않고 합친다
+static std::vector<FireCell> collectFires() {
+    std::vector<FireCell> all;
+    for (int ch = 0; ch < 4; ch++) {
+        std::lock_guard<std::mutex> lk(detState[ch].fireMtx);
+        all.insert(all.end(), detState[ch].fires.begin(), detState[ch].fires.end());
+    }
+    return all;
+}
+
+// 목록이 같은지 비교. 순서까지 같아야 같은 것으로 본다
+// (채널 순서로 모으므로 같은 상황이면 순서도 같다)
+static bool sameFires(const std::vector<FireCell>& a, const std::vector<FireCell>& b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); i++)
+        if (a[i].x != b[i].x || a[i].y != b[i].y || a[i].radius != b[i].radius)
+            return false;
+    return true;
+}
+
+// 새 상태가 이만큼 유지돼야 "바뀐 걸로" 친다. 감지 쪽 평활화로도 격자 셀
+// 경계 떨림은 안 잡혀서, 안 두면 매초 출구 수만큼 패킷이 나간다
+static const int FIRE_POS_HOLD_SEC = 3;                                     
+
+// 실물 전광판이 평면도의 몇 번 전광판인지. 평면도에서 전광판이 여러 개     
+// 잡혀도 실물은 하나라, 어느 자리인지 사람이 정해줘야 한다
+static const int EVAC_DISPLAY_ID = 1;
+
+// 대피경로를 전광판으로 보낸다. 출구마다 패킷 하나씩, 사이에 텀을 둔다
+// (연달아 쏘면 STM 수신 버퍼가 넘쳐 뒤 패킷이 깨짐 — 광렬님이 실제로 겪은 문제)
+static void sendEvacPaths(const std::vector<FireCell>& fires) {
+    if (!FloorMapStore_HasRoutes()) {
+        std::cerr << "[대피경로] 평면도 미등록 — 전송 생략\n";
+        return;
+    }
+
+    // 지금 프로토콜은 화재를 하나만 받는다. 여럿이면 반경이 가장 큰 것
+    // (다중 화재 지원되면 목록 전체를 보내는 것으로 교체)
+    const FireCell* big = nullptr;
+    for (const auto& f : fires)
+        if (!big || f.radius > big->radius) big = &f;
+
+    uint8_t fx = big ? (uint8_t)big->x : STM_DISPLAY_FIRE_NONE;
+    uint8_t fy = big ? (uint8_t)big->y : STM_DISPLAY_FIRE_NONE;
+    uint8_t fr = big ? (uint8_t)big->radius : 0;
+
+    for (const auto& r : FloorMapStore_RoutesFor(EVAC_DISPLAY_ID)) {
+        // EvacPlanner는 {y,x} 순서, 전광판은 {x,y} 순서 — 뒤집어서 평탄화
+        std::vector<uint8_t> xy;
+        xy.reserve(r.waypoints.size() * 2);
+        for (const Point& p : r.waypoints) {
+            xy.push_back((uint8_t)p.x);
+            xy.push_back((uint8_t)p.y);
+        }
+        // routeIndex는 0부터. EvacPlanner가 찾은 출구 순서와 맞아야 한다
+        if (!StmDisplay_SendEvacPath(fx, fy, fr, (uint8_t)(r.exitId - 1),
+                                     xy.data(), (uint8_t)r.waypoints.size()))
+            std::cerr << "[대피경로] 출구 " << r.exitId << " 전송 실패 (웨이포인트 "
+                      << r.waypoints.size() << "개, 최대 "
+                      << STM_DISPLAY_EVAC_MAX_WAYPOINTS << ")\n";
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+}                                                                          
+
 // ── 센서 스레드: 1초마다 읽기 → 판단 → 대응 → 기록 → 전송 ──
 void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
     int tick = 0;
     SensorReading lastGood{};      // 마지막으로 정상 읽은 값               
     long lastGoodTs = 0;           // 그 값을 읽은 시각 (0 = 아직 없음)
     const int STALE_SEC = 10;      // 이보다 오래되면 Qt에 신뢰 불가로 알림
+
+    // 전광판 대피경로 전송 상태                                              
+    std::vector<FireCell> sentFires;      // 마지막으로 전광판에 보낸 화재들
+    std::vector<FireCell> pendingFires;   // 유지 시간을 재는 중인 후보
+    long pendingSince = 0;                // 그 후보가 처음 나타난 시각
+    bool hasSent = false;                 // 한 번이라도 보냈나 (최초 전송 판단용) 
 
     while (true) {
         long now = std::time(nullptr);   // 아래에 있던 선언을 여기로 올림   
@@ -150,7 +234,7 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
         }
 
         // 위험 진입 또는 원인 변경 = 자동 대응 + 전광판 + 기록
-        // 수동 전환으로 위험이 된 경우는 아래 비상 블록이 처리하므로 건너뛴다  // <- 처음
+        // 수동 전환으로 위험이 된 경우는 아래 비상 블록이 처리하므로 건너뛴다 
         if (o.dangerEntered && !o.emergEntered) { 
             std::string src = "자동:" + o.j.cause;
             Response r = decideResponse(o.j.cause);
@@ -159,7 +243,11 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
             QtLink_SetTarget(r);                       // responseOk 비교 기준 갱신
             QtLink_SendActuator(link, Actuator_GetState());
             StmDisplay_SendAlert(o.j.cause, 1);
-             SpeakerAlert_Start();   // 대피 안내 음성 (사이렌은 STM 부저로 별개)    
+            // 대피 화면으로 바뀌는 순간 경로부터 보낸다. 화재 위치는 유지 조건    
+            // 때문에 몇 초 뒤에나 확정돼서, 그 사이 지도만 있고 경로가 빈다
+            sendEvacPaths({});
+            sentFires.clear();   // 다음 tick에 화재가 잡히면 정상 흐름으로 갱신됨   
+            SpeakerAlert_Start();   // 대피 안내 음성 (사이렌은 STM 부저로 별개)    
 
             std::string snap = saveSnapshot(store, detCh, "A", now);
             g_db.insertEvent(now, "A", "danger", o.j.state, o.j.cause,
@@ -186,7 +274,7 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
                              s.gasPpm, s.smokePpm, "해결됨", o.durationMs, "", o.incidentId, "");
         }
 
-        // ── 수동 비상 모드 (관리자가 Qt에서 전환 / 대응 재실행) ──        // <- 처음
+        // ── 수동 비상 모드 (관리자가 Qt에서 전환 / 대응 재실행) ──       
         // 둘 다 "현재 원인에 맞는 대응 실행"으로 동작이 같다.
         // 이미 위험이면 상태 변화 없이 대응만 다시 나간다
         if (o.emergEntered) {
@@ -196,6 +284,8 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
             QtLink_SetTarget(r);   
             QtLink_SendActuator(link, Actuator_GetState());
             StmDisplay_SendAlert(o.j.cause, 1);
+            sendEvacPaths({});   // 자동 전환과 같은 이유 — 경로부터 먼저         
+            sentFires.clear();    
             SpeakerAlert_Start();
 
             std::string snap = saveSnapshot(store, detCh, "A", now);
@@ -209,6 +299,23 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
 
         QtLink_SendSensor(link, s, o,st);
         StmDisplay_SendUpdate(s, o.j.state);
+
+        // ── 전광판 대피경로: 화재 위치가 바뀌었을 때만 보낸다 ──           
+        // 매초 보내면 출구 수만큼 패킷 + 대기가 반복되고 화면도 깜빡인다
+        std::vector<FireCell> nowFires = collectFires();
+        if (!sameFires(nowFires, sentFires)) {
+            if (!sameFires(nowFires, pendingFires)) {
+                pendingFires = nowFires;    // 새 후보 등장 → 유지 시간 다시 잼
+                pendingSince = now;
+            } else if (now - pendingSince >= FIRE_POS_HOLD_SEC) {
+                sendEvacPaths(nowFires);                                    
+
+                sentFires = nowFires;
+                hasSent = true;
+                std::cout << "[대피경로] 화재 " << sentFires.size() << "곳 갱신\n";
+            }
+        }                                                              
+
         // 전광판 ACK(0xB0)로 통신 상태 확인. 매초 찍으면 시끄러우니 바뀌는 순간만 
         // (SendUpdate 안에서 매초 갱신되므로 별도 폴링 불필요)
         static bool prevDisplayOk = true;
@@ -352,12 +459,21 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
                 std::vector<DetBox> boxes;
                 if (snap.boxIsFresh) {
                     bool hasFire = false;
+                    std::vector<FireCell> fires;   // 이 프레임의 화재 좌표들    
                     for (const auto& b : snap.detection.boxes) {
                         if (b.type == DetectionType::FIRE) hasFire = true;
+                        // 떨어진 불은 각각 경로를 막으므로 전부 모은다
+                        if (b.type == DetectionType::FIRE && b.gridPositionValid)
+                            fires.push_back({ b.gridX, b.gridY, b.displayRadiusCells });
+                                                                                                                            
                         boxes.push_back({ b.box.x, b.box.y, b.box.width, b.box.height,
                                           b.type == DetectionType::FIRE ? "FIRE" : "SMOKE",
                                           (float)b.score });
                     }
+                    {   // 감지 스레드가 쓰고 센서 스레드가 읽는다                 // <- 처음
+                        std::lock_guard<std::mutex> lk(detState[ch].fireMtx);
+                        detState[ch].fires = std::move(fires);
+                    }                                                             // <- 끝
                     // 화재 상태는 화재 결과가 왔을 때만 갱신. 연기 결과에 같이 지우면
                     // 감지 중인 화재가 연기 추론 주기(1초)마다 꺼진다
                     detState[ch].fire = hasFire && snap.alarm.alarmActive;
@@ -384,6 +500,10 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
                 QtLink_SendDetection(link, ch, 0, frame.cols, frame.rows, false, {});
                 wasShowingBoxes = false;
                 detState[ch].fire = false;
+                {   // 불이 꺼지면 좌표도 비운다. 안 그러면 마지막 위치가 계속 남음 
+                    std::lock_guard<std::mutex> lk(detState[ch].fireMtx);
+                    detState[ch].fires.clear();
+                }   
             }
         }
 
