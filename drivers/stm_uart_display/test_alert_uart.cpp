@@ -58,15 +58,15 @@ static std::string CurrentTimeString()
 static std::atomic<int> g_fd{-1};
 static const char* kDevPath = "/dev/stm_display";
 
-// 테스트용: Start ID 3(전광판 (11,32)) -> 출구 4곳 전체 경로. EvacPlanner가 뽑은 (y,x) 웨이포인트를
+// 테스트용: Start ID 3(전광판 (9,30)) -> 출구 4곳 전체 경로. EvacPlanner가 뽑은 (y,x) 웨이포인트를
 // {x,y} 평탄화 배열로 손으로 옮겨온 것 (임시 테스트용 - 나중엔 EvacPlanner 호출로 대체).
+// 60x60/threshold120으로 GRID_SIZE를 맞춘 뒤 evac_server를 다시 돌려서 새로 갱신한 값 (evac_routes.txt 기준)
 // 배열 순서 = EvacExits 인덱스(routeIndex) 순서와 반드시 일치해야 함
 struct EvacRoute { const uint8_t* xy; uint8_t count; };
-// 좌표 범위는 60x60 격자 기준(0~59) - 62x62였을 때 값(48,61)/(61,16)은 범위를 벗어나서 59로 클램프함
-static const uint8_t kRouteExit1[] = { 11,32, 11,36, 13,36, 13,50, 38,50, 38,59, 48,59 };
-static const uint8_t kRouteExit2[] = { 11,32, 11,36, 13,36, 13,48, 0,48 };
-static const uint8_t kRouteExit3[] = { 11,32, 11,35, 13,35, 13,16, 59,16 };
-static const uint8_t kRouteExit4[] = { 11,32, 11,35, 13,35, 13,15, 15,15, 15,13, 17,13, 17,1, 22,1, 22,0 };
+static const uint8_t kRouteExit1[] = { 9,30, 9,34, 13,34, 13,48, 37,48, 37,58, 47,58, 47,59 };
+static const uint8_t kRouteExit2[] = { 9,30, 9,34, 13,34, 13,47, 0,47 };
+static const uint8_t kRouteExit3[] = { 9,30, 9,33, 13,33, 13,15, 59,15 };
+static const uint8_t kRouteExit4[] = { 9,30, 9,33, 13,33, 13,15, 14,15, 14,12, 16,12, 16,1, 21,1, 21,0 };
 static const EvacRoute kTestRoutes[] = {
     { kRouteExit1, sizeof(kRouteExit1) / 2 },
     { kRouteExit2, sizeof(kRouteExit2) / 2 },
