@@ -1,6 +1,7 @@
 #include "qt_link.h"
 #include "db/query_handler.h"
 #include "roi/roi_store.h"   
+#include "floormap/floormap_store.h"  
 #include "audio/speaker_alert.h" 
 #include <sstream>
 #include <iomanip>
@@ -237,7 +238,36 @@ static std::string ignoreRegionsResult(int ch, const std::string& reqId) {
 // Qt 접속 직후 4채널 전부 전송 (Q3 회신 — query 대신 서버 push)
 void QtLink_PushIgnoreRegions(Link& link) {
     for (int ch = 0; ch < 4; ch++) link.send(ignoreRegionsResult(ch, ""));
-}                                                                     
+}                                                                
+
+// 평면도 업로드 처리 + floor_map_result 응답                            
+// 지금은 이미지 저장까지만 되고 변환은 미연동이라 failed가 나간다
+static void handleSetFloorMap(Link& link, const std::string& line) {
+    std::string cmdId = jsonStr(line, "cmdId");
+    std::string reason;
+    bool ok = FloorMapStore_Apply(line, &reason);
+    if (!ok) std::cerr << "[평면도] 처리 실패 — " << reason << "\n";
+
+    std::ostringstream oss;
+    oss << "{\"type\":\"floor_map_result\",\"cmdId\":\"" << cmdId
+        << "\",\"result\":\"" << (ok ? "ok" : "failed") << "\""
+        << ",\"reason\":" << (ok ? "null" : "\"" + jsonEscape(reason) + "\"");
+    if (ok) oss << "," << FloorMapStore_ToJson();   // gridSize·bitmap·displays·exits·routes
+    oss << ",\"ts\":" << std::time(nullptr) << "}";
+    link.send(oss.str());
+}
+
+// query target="floor_map" 응답. 저장된 결과가 없으면 result:"empty"
+static std::string floorMapResult(const std::string& reqId) {
+    std::string body = FloorMapStore_ToJson();
+    std::ostringstream oss;
+    oss << "{\"type\":\"query_result\",\"reqId\":\"" << reqId
+        << "\",\"target\":\"floor_map\"";
+    if (body.empty()) oss << ",\"result\":\"empty\"";
+    else              oss << ",\"result\":\"ok\"," << body;
+    oss << "}";
+    return oss.str();
+}                                                                        
 
 // ── 수신 스레드: Qt→서버 방향 ──
 // \n 프레이밍·대기는 Link가 처리하므로 여기선 한 줄씩 받아 라우팅만
@@ -254,10 +284,15 @@ void QtLink_RecvWorker(Link& link, AlarmState& alarm, Database& db) {
             handleEmergency(link, db, alarm, line, false);                                               
         else if (line.find("\"type\":\"set_ignore_regions\"") != std::string::npos)   
             handleSetIgnoreRegions(link, line);
+        else if (line.find("\"type\":\"set_floor_map\"") != std::string::npos)        
+            handleSetFloorMap(link, line);                                           
         else if (line.find("\"type\":\"query\"") != std::string::npos) {
             if (jsonStr(line, "target") == "ignore_regions")
                 link.send(ignoreRegionsResult(jsonInt(line, "channel", 1) - 1,
                                               jsonStr(line, "reqId")));
+            else if (jsonStr(line, "target") == "floor_map")                         
+                link.send(floorMapResult(jsonStr(line, "reqId")));                   
+
             else
                 link.send(handleQuery(db, line));
         }                                                                           

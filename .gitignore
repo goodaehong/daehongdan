@@ -95,6 +95,10 @@ drivers/stm_uart_display/test_alert_uart
 # ROI 설정 (현장마다 다름, 실행 중 생성)
 server/roi/roi_config.json
 
+# 평면도 (현장마다 다름, 실행 중 생성)
+server/floormap/uploaded_map.png
+server/floormap/floor_map.json
+
 # 현장마다 다시 생성되는 카메라/좌표 파일
 server/opencv/homography_ch*.yml
 server/opencv/homography_ch*.yml.bak

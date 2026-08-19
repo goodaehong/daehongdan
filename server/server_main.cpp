@@ -23,6 +23,7 @@
 #include "alarm_state.h"
 #include "qt_link.h"
 #include "roi/roi_store.h"
+#include "floormap/floormap_store.h"             
 #include "db/Database.h"
 #include "audio/speaker_alert.h"   
 
@@ -31,6 +32,8 @@ struct FrameStore {
     cv::Mat frames[4];
     std::mutex mtx[4];
     std::atomic<long> lastFrameTs[4]{};   // 마지막 프레임 수신 시각 (visionOk 판정용)
+    std::atomic<int> frameW[4]{};   // 원본 프레임 크기. Qt가 ROI 좌표 변환에 필요   
+    std::atomic<int> frameH[4]{};
 };
 
 // 채널별 최신 감지 상태. 워커가 갱신, 판단(센서 스레드)이 읽음
@@ -226,7 +229,17 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
         bool justConnected = nowConnected && !prevConnected;
         prevConnected = nowConnected;
 
-        if (justConnected) QtLink_PushIgnoreRegions(link);   // 저장된 ROI 복원 (Q3 회신)  
+        if (justConnected) {                                                       
+            QtLink_PushIgnoreRegions(link);   // 저장된 ROI 복원 (Q3 회신)
+
+            // 크기만 담은 빈 감지 메시지. Qt는 ROI 좌표를 원본 프레임 기준으로
+            // 변환하는데 그 크기를 detection에서만 알 수 있다. 감지가 한 번도
+            // 없던 채널은 detection이 안 나가서 영영 모르는 상태가 된다
+            for (int ch = 0; ch < 4; ch++) {
+                int w = store.frameW[ch].load(), h = store.frameH[ch].load();
+                if (w > 0 && h > 0) QtLink_SendDetection(link, ch, 0, w, h, false, {});
+            }
+        }                                                                           
 
         if (justConnected || ++tick % 5 == 0) {
             Actuator_Poll();   // STM에 상태 요청(0x40) → linkOk 갱신. 안 하면 끊겨도 모름
@@ -276,6 +289,8 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
                 store.frames[ch] = frame.clone();
             }
             store.lastFrameTs[ch] = std::time(nullptr);   // 감지 생존 확인용
+            store.frameW[ch] = frame.cols;                                         
+            store.frameH[ch] = frame.rows;
 
             // ROI 갱신 확인. 평소엔 정수 하나만 읽고 지나간다               
             // 화재·연기 엔진이 각각 설정을 받으므로 둘 다 넣어야 한다
@@ -390,7 +405,8 @@ int main() {
     }
     if (!g_db.open(DB_PATH))
         std::cerr << "[DB] 초기화 실패 — DB 없이 계속 진행\n";
-    RoiStore_Load();   // 저장된 ROI 복원. 파일 없으면 빈 상태로 시작   
+    RoiStore_Load();   // 저장된 ROI 복원. 파일 없으면 빈 상태로 시작  
+    FloorMapStore_Load();   // 저장된 평면도 변환 결과 복원 
     if (!Actuator_Init("/dev/stm_actuator"))          // STM 액추에이터 보드 (USB) (심볼릭링크)
         std::cerr << "[액추에이터] 초기화 실패 — 계속 진행\n";
     Actuator_Apply(responseForSafe(), "자동:초기화");   // 재시작 후 상태를 알 수 없으므로 평상으로 맞춤 
