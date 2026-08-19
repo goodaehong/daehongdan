@@ -6,8 +6,6 @@
 #include <poll.h>
 #include <cerrno>
 
-using json = nlohmann::json;
-
 TlsServer::TlsServer(int port) : serverPort_(port), ctx_(nullptr), ssl_(nullptr), isRunning_(false), serverFd_(-1) {
     initOpenSSL();
     ctx_ = createContext();
@@ -15,20 +13,32 @@ TlsServer::TlsServer(int port) : serverPort_(port), ctx_(nullptr), ssl_(nullptr)
 }
 
 TlsServer::~TlsServer() {
-    isRunning_ = false;
+    stop();
+    cleanupOpenSSL();
+}
+
+// run()의 accept()는 타임아웃 없이 블로킹이라, serverFd_를 닫아서 깨운다
+// (Linux에서 accept 중인 fd를 다른 스레드가 close하면 EBADF로 즉시 반환됨)
+void TlsServer::stop() {
+    if (!isRunning_.exchange(false)) return;
     txCv_.notify_all(); // 대기 중인 TX 스레드 종료 신호 전달
-    rxCv_.notify_all(); // 대기 중인 RX 소비자(하드웨어 제어 스레드) 종료 신호 전달
+    rxCv_.notify_all(); // 대기 중인 RX 소비자(recvLine 호출자) 종료 신호 전달
 
     if (txThread_.joinable()) {
         txThread_.join();
     }
-    if (ssl_) {
-        SSL_free(ssl_);
+    {
+        std::lock_guard<std::mutex> sslLock(sslMutex_);
+        if (ssl_) {
+            SSL_free(ssl_);
+            ssl_ = nullptr;
+        }
     }
+    connected_ = false;
     if (serverFd_ >= 0) {
         close(serverFd_);
+        serverFd_ = -1;
     }
-    cleanupOpenSSL();
 }
 
 void TlsServer::initOpenSSL() {
@@ -87,15 +97,22 @@ void TlsServer::txThreadLoop() {
 
         std::lock_guard<std::mutex> sslLock(sslMutex_);
         if (ssl_) {
-            int bytes = SSL_write(ssl_, dataToSend.c_str(), dataToSend.length());
-            if (bytes <= 0) {
-                std::cerr << "[TLS] 데이터 송신 실패" << std::endl;
+            // SSL_write가 요청량보다 적게 쓰고 돌아올 수 있으므로 다 나갈 때까지 반복
+            // (link_plain.cpp의 send() 루프와 동일한 이유 — 잘리면 \n 프레이밍이 어긋남)
+            size_t sent = 0;
+            while (sent < dataToSend.size()) {
+                int bytes = SSL_write(ssl_, dataToSend.data() + sent, dataToSend.size() - sent);
+                if (bytes <= 0) {
+                    std::cerr << "[TLS] 데이터 송신 실패" << std::endl;
+                    break;
+                }
+                sent += (size_t)bytes;
             }
         }
     }
 }
 
-bool TlsServer::waitAndPopRxCommand(json& outCommand) {
+bool TlsServer::waitAndPopRxLine(std::string& outLine) {
     std::unique_lock<std::mutex> lock(rxMutex_);
     rxCv_.wait(lock, [this] { return !rxQueue_.empty() || !isRunning_; });
 
@@ -103,7 +120,7 @@ bool TlsServer::waitAndPopRxCommand(json& outCommand) {
         return false; // 서버 종료로 인해 깨어남
     }
 
-    outCommand = rxQueue_.front();
+    outLine = rxQueue_.front();
     rxQueue_.pop();
     return true;
 }
@@ -164,6 +181,7 @@ void TlsServer::run() {
                 close(clientFd);
                 continue;
             }
+            connected_ = true;
             std::cout << "[TLS] 핸드쉐이크 완료. 보안 세션 수립." << std::endl;
         }
 
@@ -203,6 +221,7 @@ void TlsServer::run() {
             }
 
             if (connectionClosed) {
+                connected_ = false;
                 std::cout << "[TLS] 클라이언트 연결 종료" << std::endl;
                 close(clientFd);
                 break;
@@ -211,29 +230,30 @@ void TlsServer::run() {
             buffer[bytes] = '\0';
             rxBuffer.append(buffer, bytes);
 
-            // 개행(\n)으로 구분된 완전한 JSON 메시지만 추출하여 파싱 (TCP 스트림 분절 대응)
+            if (rxBuffer.size() > MAX_LINE) {
+                std::cerr << "[TLS] 수신 줄이 상한 초과 — 연결 끊음" << std::endl;
+                {
+                    std::lock_guard<std::mutex> sslLock(sslMutex_);
+                    if (ssl_) { SSL_free(ssl_); ssl_ = nullptr; }
+                }
+                connected_ = false;
+                close(clientFd);
+                break;
+            }
+
+            // 개행(\n)으로 구분된 완전한 메시지만 원문 그대로 큐에 적재 (TCP 스트림 분절 대응)
+            // 타입 판별·파싱은 하지 않는다 — control/emergency/query 등 라우팅은 qt_link.cpp가 담당
             size_t pos;
             while ((pos = rxBuffer.find('\n')) != std::string::npos) {
                 std::string line = rxBuffer.substr(0, pos);
                 rxBuffer.erase(0, pos + 1);
                 if (line.empty()) continue;
 
-                try {
-                    // 수동 제어 명령(환기팬 PWM 제어, 솔레노이드 밸브 잠금 등) 파싱
-                    json parsedCmd = json::parse(line);
-                    if (parsedCmd.contains("type") && parsedCmd["type"] == "control") {
-                        std::cout << "[TLS] 제어 명령 수신: " << parsedCmd.dump() << std::endl;
-
-                        // 하드웨어 제어 스레드(STM 보드 제어)가 waitAndPopRxCommand()로 소비
-                        {
-                            std::lock_guard<std::mutex> rxLock(rxMutex_);
-                            rxQueue_.push(parsedCmd);
-                        }
-                        rxCv_.notify_one();
-                    }
-                } catch (const json::parse_error& e) {
-                    std::cerr << "[TLS] JSON 파싱 오류: " << e.what() << std::endl;
+                {
+                    std::lock_guard<std::mutex> rxLock(rxMutex_);
+                    rxQueue_.push(line);
                 }
+                rxCv_.notify_one();
             }
         }
     }
