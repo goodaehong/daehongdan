@@ -369,17 +369,20 @@ static const uint8_t EvacExits[][2] = {
 
 /* USER CODE END EVAC_DATA */
 
-#define EVAC_PATH_MAX_WAYPOINTS 30   /* CMD_EVAC_PATH 웨이포인트 최대 개수: (64바이트 버퍼 - 헤더5) / 2 */
-#define EVAC_FIRE_NONE 0xFF          /* fireX/fireY가 이 값이면 "화재 없음"(대피로만 표시) */
+#define EVAC_PATH_MAX_WAYPOINTS 30   /* CMD_EVAC_PATH 웨이포인트 최대 개수 */
+#define EVAC_MAX_FIRES 6             /* CMD_EVAC_FIRES 화재 개수 최대값 (카메라 4채널 기준 여유) */
 #define EVAC_PATH_CYCLE_MS 1300      /* 하이라이트가 출발점->도착점까지 흘러가는 데 걸리는 시간 */
 #define EVAC_ANIM_REDRAW_MS 50       /* 애니메이션 프레임 갱신 주기 (~20fps) */
 #define EVAC_PATH_GAP_SIZE 3         /* 경로 위를 흘러가는 노란 하이라이트 픽셀 개수 */
 
-/* CMD_EVAC_PATH로 받은 최신 대피경로(출구별로 하나씩, EvacExits와 같은 인덱스)/화재 위치
-   (fireX==EVAC_FIRE_NONE이면 화재 없음). waypointCount[r]==0이면 그 출구로 가는 경로 없음(미수신 또는 도달 불가) */
-static uint8_t g_evacFireX = EVAC_FIRE_NONE, g_evacFireY = EVAC_FIRE_NONE, g_evacFireRadius = 0;
+/* CMD_EVAC_PATH로 받은 최신 대피경로(출구별로 하나씩, EvacExits와 같은 인덱스).
+   waypointCount[r]==0이면 그 출구로 가는 경로 없음(미수신 또는 도달 불가) */
 static uint8_t g_evacWaypoints[EVAC_EXIT_COUNT][EVAC_PATH_MAX_WAYPOINTS][2];
 static uint8_t g_evacWaypointCount[EVAC_EXIT_COUNT];
+
+/* CMD_EVAC_FIRES로 받은 최신 화재 위치 목록. g_evacFireCount==0이면 화재 없음 */
+static uint8_t g_evacFireX[EVAC_MAX_FIRES], g_evacFireY[EVAC_MAX_FIRES], g_evacFireRadius[EVAC_MAX_FIRES];
+static uint8_t g_evacFireCount = 0;
 static uint32_t g_evacAnimCycleStart = 0;
 static uint32_t g_evacAnimLastRedraw = 0;
 
@@ -516,10 +519,10 @@ static void DrawEvacuationScreen(void)
     }
   }
 
-  // 화재 위치: fireX가 EVAC_FIRE_NONE이 아니면 반경만큼 사각형으로 채움 (자홍색)
-  if (g_evacFireX != EVAC_FIRE_NONE)
+  // 화재 위치: g_evacFireCount개 전부, 각자 반경만큼 사각형으로 채움 (자홍색)
+  for (uint8_t f = 0; f < g_evacFireCount; f++)
   {
-    int16_t fx = g_evacFireX, fy = g_evacFireY, r = g_evacFireRadius;
+    int16_t fx = g_evacFireX[f], fy = g_evacFireY[f], r = g_evacFireRadius[f];
     for (int16_t dy = -r; dy <= r; dy++)
     {
       for (int16_t dx = -r; dx <= r; dx++)
@@ -642,11 +645,13 @@ static void DrawStaticScene(void)
 #define CMD_ALERT      0x90   /* 위험 대피 전환 (Pi -> STM32) */
 #define CMD_ACK        0xB0   /* 전광판 상태 응답 (STM32 -> Pi) */
 #define CMD_CLEAR      0xA0   /* 비상 해제, 평상시 화면 복귀 (Pi -> STM32) */
-#define CMD_EVAC_PATH  0xB1   /* 대피경로+화재위치 (Pi -> STM32) */
+#define CMD_EVAC_PATH  0xB1   /* 대피경로 (Pi -> STM32) */
+#define CMD_EVAC_FIRES 0xB2   /* 화재 위치 목록 (Pi -> STM32) */
 #define UPDATE_DATA_LEN 11    /* 표정,가스색,가스H,가스L,온도,습도,시,분,년,월,일 */
 #define ALERT_DATA_LEN  2     /* 재난종류,구역ID */
-#define EVAC_PATH_MIN_LEN 5   /* fireX,fireY,fireRadius,routeIndex,waypointCount (웨이포인트는 그 뒤에 가변 길이) */
-/* EVAC_PATH_MAX_WAYPOINTS, EVAC_FIRE_NONE은 DrawEvacuationScreen() 쪽에서 더 먼저 쓰여서
+#define EVAC_PATH_MIN_LEN 2   /* routeIndex,waypointCount (웨이포인트는 그 뒤에 가변 길이) */
+#define EVAC_FIRES_MIN_LEN 1  /* fireCount (화재 목록은 그 뒤에 가변 길이) */
+/* EVAC_PATH_MAX_WAYPOINTS, EVAC_MAX_FIRES는 DrawEvacuationScreen() 쪽에서 더 먼저 쓰여서
    이 파일 앞부분(EVAC_DATA 근처)에 정의돼있음 - 여기서 또 정의하면 중복이라 안 함 */
 
 static const uint8_t * const NumberDigits[10] = {
@@ -692,7 +697,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 /* 패킷 파서 상태 */
 typedef enum { WAIT_STX, WAIT_LEN, WAIT_CMD, WAIT_DATA, WAIT_CHECKSUM, WAIT_ETX } ParseState;
 static ParseState parseState = WAIT_STX;
-static uint8_t packetLen, packetCmd, packetData[70], packetDataIdx;   /* CMD_EVAC_PATH 최대 데이터(5+30*2=65)를 담을 수 있게 */
+static uint8_t packetLen, packetCmd, packetData[70], packetDataIdx;   /* CMD_EVAC_PATH 최대 데이터(2+30*2=62)를 담을 수 있게 */
 static uint32_t lastRxTick = 0;   /* 마지막으로 바이트를 처리한 시각(ms) - 유휴 타임아웃 재동기화용 */
 
 /* 파싱된 최신 값들 (표정/가스색은 서로 다른 상태라 별도 변수로 관리) */
@@ -751,14 +756,11 @@ static void HandlePacket(uint8_t cmd, const uint8_t *data, uint8_t len)
   }
   else if (cmd == CMD_EVAC_PATH && len >= EVAC_PATH_MIN_LEN)
   {
-    g_evacFireX = data[0];
-    g_evacFireY = data[1];
-    g_evacFireRadius = data[2];
-    uint8_t routeIndex = data[3];
+    uint8_t routeIndex = data[0];
 
     if (routeIndex < EVAC_EXIT_COUNT)   /* 범위 밖 인덱스(손상된 패킷 등)는 조용히 무시 */
     {
-      uint8_t count = data[4];
+      uint8_t count = data[1];
       if (count > EVAC_PATH_MAX_WAYPOINTS) count = EVAC_PATH_MAX_WAYPOINTS;   /* 손상된 패킷 방어 */
       if (len < (uint8_t)(EVAC_PATH_MIN_LEN + count * 2)) count = 0;          /* 데이터 길이 안 맞으면 무시 */
 
@@ -774,6 +776,22 @@ static void HandlePacket(uint8_t cmd, const uint8_t *data, uint8_t len)
        올 때(SendAllEvacRoutes 등) 무거운 전체 재렌더를 패킷마다 돌리면, 그 처리 시간 동안
        수신 링버퍼(64바이트)가 넘쳐서 뒤에 오는 패킷이 깨지는 문제가 있었음.
        대신 UpdateEvacPathAnimation()이 50ms마다 알아서 다시 그려주므로 그걸로 충분함 */
+  }
+  else if (cmd == CMD_EVAC_FIRES && len >= EVAC_FIRES_MIN_LEN)
+  {
+    uint8_t count = data[0];
+    if (count > EVAC_MAX_FIRES) count = EVAC_MAX_FIRES;                          /* 손상된 패킷 방어 */
+    if (len < (uint8_t)(EVAC_FIRES_MIN_LEN + count * 3)) count = 0;              /* 데이터 길이 안 맞으면 무시 */
+
+    for (uint8_t i = 0; i < count; i++)
+    {
+      g_evacFireX[i]      = data[EVAC_FIRES_MIN_LEN + i * 3];
+      g_evacFireY[i]      = data[EVAC_FIRES_MIN_LEN + i * 3 + 1];
+      g_evacFireRadius[i] = data[EVAC_FIRES_MIN_LEN + i * 3 + 2];
+    }
+    g_evacFireCount = count;
+
+    /* CMD_EVAC_PATH와 같은 이유로 여기서도 즉시 재렌더 안 함 - UpdateEvacPathAnimation()이 처리 */
   }
 }
 
