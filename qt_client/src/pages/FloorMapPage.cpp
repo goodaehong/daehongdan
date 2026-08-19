@@ -12,6 +12,7 @@
 #include <QFrame>
 #include <QStringList>
 #include <QBuffer>
+#include <QStackedWidget>
 
 namespace {
 const QString kTextPrimary = "#f5f5fa";
@@ -140,24 +141,43 @@ void FloorMapPage::openSetupPanel()
 
     // 변환 전/후를 나란히 두고 비교 — "변환이 잘 됐는지" 확인이 이 패널의 목적.
     auto *previewRow = new QHBoxLayout;
-    auto makePreviewCol = [&](const QString &label) {
-        auto *col = new QVBoxLayout;
-        auto *lbl = new QLabel(label, setupDialog);
-        lbl->setStyleSheet(QString("color:%1; font-size:12px; font-weight:bold;").arg(kTextSecondary));
-        col->addWidget(lbl);
-        auto *preview = new QLabel(setupDialog);
-        preview->setFixedSize(280, 280);
-        preview->setAlignment(Qt::AlignCenter);
-        preview->setStyleSheet(QString("background-color:#0d0d16; border:1px solid %1; border-radius:6px; color:%2;").arg(kCardBorder, kTextSecondary));
-        preview->setText("(이미지 없음)");
-        col->addWidget(preview);
-        previewRow->addLayout(col);
-        return preview;
-    };
-    originalPreviewLabel = makePreviewCol("원본");
-    convertedPreviewLabel = makePreviewCol("서버 처리 상태");
+
+    auto *originalCol = new QVBoxLayout;
+    auto *originalLbl = new QLabel("원본", setupDialog);
+    originalLbl->setStyleSheet(QString("color:%1; font-size:12px; font-weight:bold;").arg(kTextSecondary));
+    originalCol->addWidget(originalLbl);
+    originalPreviewLabel = new QLabel(setupDialog);
+    originalPreviewLabel->setFixedSize(320, 320);
+    originalPreviewLabel->setAlignment(Qt::AlignCenter);
+    originalPreviewLabel->setStyleSheet(QString("background-color:#0d0d16; border:1px solid %1; border-radius:6px; color:%2;").arg(kCardBorder, kTextSecondary));
+    originalPreviewLabel->setText("(이미지 없음)");
+    originalCol->addWidget(originalPreviewLabel);
+    previewRow->addLayout(originalCol);
+
+    // 변환 결과 칸은 상태 텍스트(convertedPreviewLabel)와 실제 격자 렌더링(convertedPreviewGrid)을
+    // 같은 자리에 겹쳐두고 필요할 때 전환한다 — 진행 중/실패는 텍스트, 성공하면 실제 결과.
+    auto *convertedCol = new QVBoxLayout;
+    auto *convertedLbl = new QLabel("변환 결과", setupDialog);
+    convertedLbl->setStyleSheet(QString("color:%1; font-size:12px; font-weight:bold;").arg(kTextSecondary));
+    convertedCol->addWidget(convertedLbl);
+    convertedStack = new QStackedWidget(setupDialog);
+    convertedStack->setFixedSize(320, 320);
+    convertedStack->setStyleSheet(QString("background-color:#0d0d16; border:1px solid %1; border-radius:6px;").arg(kCardBorder));
+    convertedPreviewLabel = new QLabel(convertedStack);
+    convertedPreviewLabel->setAlignment(Qt::AlignCenter);
+    convertedPreviewLabel->setWordWrap(true);
+    convertedPreviewLabel->setStyleSheet(QString("color:%1; border:none; background:transparent; padding:12px;").arg(kTextSecondary));
+    convertedPreviewLabel->setText("(적용을 누르면 서버 처리 상태가 여기 표시됩니다)");
+    convertedPreviewGrid = new FloorMapGridWidget(convertedStack);
+    convertedStack->addWidget(convertedPreviewLabel);
+    convertedStack->addWidget(convertedPreviewGrid);
+    convertedStack->setCurrentWidget(convertedPreviewLabel);
+    convertedCol->addWidget(convertedStack);
+    previewRow->addLayout(convertedCol);
+
     dialogLayout->addLayout(previewRow);
 
+    auto *buttonRow = new QHBoxLayout;
     applyButton = new QPushButton("서버로 전송 및 적용", setupDialog);
     applyButton->setEnabled(false);
     applyButton->setCursor(Qt::PointingHandCursor);
@@ -165,7 +185,20 @@ void FloorMapPage::openSetupPanel()
         "QPushButton { background-color:#232333; color:%1; border:1px solid %2; border-radius:6px; padding:8px 16px; }"
         "QPushButton:enabled:hover { border:1px solid %3; color:%3; }"
         "QPushButton:disabled { color:%4; }").arg(kTextPrimary, kCardBorder, kAccent, kTextSecondary));
-    dialogLayout->addWidget(applyButton);
+    buttonRow->addWidget(applyButton);
+
+    // 변환 성공 전에는 숨겨두고, onUploadResult(ok=true)에서만 보여준다 — 결과를 직접 눈으로
+    // 확인한 뒤 사용자가 눌러야 다이얼로그가 닫히게(자동으로 안 닫힘).
+    closeButton = new QPushButton("닫기", setupDialog);
+    closeButton->setVisible(false);
+    closeButton->setCursor(Qt::PointingHandCursor);
+    closeButton->setStyleSheet(QString(
+        "QPushButton { background-color:%1; color:white; border:none; border-radius:6px; padding:8px 16px; }"
+        "QPushButton:hover { background-color:#7c6ce8; }").arg(kAccent));
+    connect(closeButton, &QPushButton::clicked, setupDialog, &QDialog::accept);
+    buttonRow->addWidget(closeButton);
+
+    dialogLayout->addLayout(buttonRow);
 
     connect(pickButton, &QPushButton::clicked, this, [this]() {
         const QString path = QFileDialog::getOpenFileName(this, "원본 평면도 이미지 선택", QString(), "이미지 파일 (*.png *.jpg *.jpeg)");
@@ -189,8 +222,8 @@ void FloorMapPage::openSetupPanel()
         }
         originalPreviewLabel->setPixmap(QPixmap::fromImage(pendingOriginalImage)
             .scaled(originalPreviewLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        convertedStack->setCurrentWidget(convertedPreviewLabel); // 실패 후 재시도 시 이전 결과 화면 대신 상태 텍스트로 복귀
         convertedPreviewLabel->setText("(적용을 누르면 서버로 전송합니다)");
-        convertedPreviewLabel->setPixmap(QPixmap());
         applyButton->setEnabled(true);
     });
 
@@ -211,8 +244,11 @@ void FloorMapPage::openSetupPanel()
     setupDialog = nullptr;
     originalPreviewLabel = nullptr;
     convertedPreviewLabel = nullptr;
+    convertedStack = nullptr;
+    convertedPreviewGrid = nullptr;
     pickButton = nullptr;
     applyButton = nullptr;
+    closeButton = nullptr;
     pendingOriginalImage = QImage();
 }
 
@@ -234,9 +270,19 @@ void FloorMapPage::onUploadResult(bool ok, const QString &reason, int gridSize, 
                                    const QVector<FloorMapRoute> &routes)
 {
     if (ok) {
-        applyServerData(gridSize, bitmap, displays, exits, routes);
-        if (setupDialog)
-            setupDialog->accept(); // exec() 리턴 -> openSetupPanel()의 뒷정리로 이어짐
+        applyServerData(gridSize, bitmap, displays, exits, routes); // 뒤에 깔린 평면도 탭도 바로 반영
+
+        // 자동으로 닫지 않고, 변환 결과를 다이얼로그 안에서 원본과 나란히 보여준다.
+        // 사용자가 "닫기"를 눌러야 accept() -> exec() 리턴으로 이어진다.
+        if (setupDialog) {
+            if (pickButton) pickButton->setEnabled(false);
+            if (applyButton) applyButton->setEnabled(false);
+            if (convertedPreviewGrid) {
+                convertedPreviewGrid->setMapData(gridSize, bitmap, displays, exits, routes);
+                if (convertedStack) convertedStack->setCurrentWidget(convertedPreviewGrid);
+            }
+            if (closeButton) closeButton->setVisible(true);
+        }
         return;
     }
 
