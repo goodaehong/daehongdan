@@ -453,7 +453,7 @@ static void EvacPathCellAt(const uint8_t wp[][2], uint8_t count, uint16_t stepIn
 static uint8_t alertBorderVisible = 1;
 static uint8_t alertDisasterType = 0;
 
-// 대피도 화면: 벽(흰색)/전광판(노랑)/출구(초록)/대피경로(초록 바탕 + 흐르는 노랑 하이라이트)/화재(자홍)를
+// 대피도 화면: 벽(흰색)/전광판(노랑)/출구(초록)/대피경로(초록 바탕 + 흐르는 자홍 하이라이트)/화재(빨강)를
 // 60x60 격자에서 +2 오프셋으로 그림 (HUB75_Shape13 테두리 2px 안쪽에만 지도를 그리면 안 가려짐)
 static void DrawEvacuationScreen(void)
 {
@@ -513,11 +513,11 @@ static void DrawEvacuationScreen(void)
       if (idx > total) idx = total;   /* 도착점을 넘어가면 도착점에 고정 */
       uint8_t cx, cy;
       EvacPathCellAt(g_evacWaypoints[r], count, idx, &cx, &cy);
-      HUB75_SetPixel((uint8_t)(cx + 2), (uint8_t)(cy + 2), HUB75_YELLOW);
+      HUB75_SetPixel((uint8_t)(cx + 2), (uint8_t)(cy + 2), HUB75_MAGENTA);
     }
   }
 
-  // 화재 위치: g_evacFireCount개 전부, 각자 반경만큼 사각형으로 채움 (자홍색)
+  // 화재 위치: g_evacFireCount개 전부, 각자 반경만큼 사각형으로 채움 (빨강 - 테두리 위험색과 겹치지만 감안)
   for (uint8_t f = 0; f < g_evacFireCount; f++)
   {
     int16_t fx = g_evacFireX[f], fy = g_evacFireY[f], r = g_evacFireRadius[f];
@@ -528,7 +528,7 @@ static void DrawEvacuationScreen(void)
         int16_t x = fx + dx, y = fy + dy;
         if (x >= 0 && x < 60 && y >= 0 && y < 60)
         {
-          HUB75_SetPixel((uint8_t)(x + 2), (uint8_t)(y + 2), HUB75_MAGENTA);
+          HUB75_SetPixel((uint8_t)(x + 2), (uint8_t)(y + 2), HUB75_RED);
         }
       }
     }
