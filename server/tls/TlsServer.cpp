@@ -9,7 +9,7 @@
 TlsServer::TlsServer(int port) : serverPort_(port), ctx_(nullptr), ssl_(nullptr), isRunning_(false), serverFd_(-1) {
     initOpenSSL();
     ctx_ = createContext();
-    configureContext(ctx_);
+    ready_ = ctx_ && configureContext(ctx_);
 }
 
 TlsServer::~TlsServer() {
@@ -30,6 +30,7 @@ void TlsServer::stop() {
     {
         std::lock_guard<std::mutex> sslLock(sslMutex_);
         if (ssl_) {
+            SSL_shutdown(ssl_);
             SSL_free(ssl_);
             ssl_ = nullptr;
         }
@@ -55,21 +56,31 @@ SSL_CTX* TlsServer::createContext() {
     SSL_CTX* ctx = SSL_CTX_new(method);
     if (!ctx) {
         std::cerr << "[TLS] 컨텍스트 생성 실패" << std::endl;
-        exit(EXIT_FAILURE);
+        return nullptr;
     }
+    // TLS 1.2 미만(SSLv3/TLS1.0/1.1) 협상 차단
+    SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
     return ctx;
 }
 
-void TlsServer::configureContext(SSL_CTX* ctx) {
+// 실패 시 exit() 대신 false 반환 — 호출자(생성자)가 ready_로 기록하고
+// TlsLink::start()가 Link::start()의 "실패 시 false" 계약을 지킬 수 있게 한다
+bool TlsServer::configureContext(SSL_CTX* ctx) {
     // 상대 경로 기반 테스트용 x509 인증서 및 개인키 로드
     if (SSL_CTX_use_certificate_file(ctx, "server_cert.pem", SSL_FILETYPE_PEM) <= 0) {
         ERR_print_errors_fp(stderr);
-        exit(EXIT_FAILURE);
+        return false;
     }
     if (SSL_CTX_use_PrivateKey_file(ctx, "server_private.pem", SSL_FILETYPE_PEM) <= 0 ) {
         ERR_print_errors_fp(stderr);
-        exit(EXIT_FAILURE);
+        return false;
     }
+    // 인증서와 개인키가 서로 짝이 맞는지 검증 (안 맞으면 핸드셰이크 때가 돼서야 실패로 드러남)
+    if (!SSL_CTX_check_private_key(ctx)) {
+        std::cerr << "[TLS] 인증서와 개인키가 일치하지 않음" << std::endl;
+        return false;
+    }
+    return true;
 }
 
 void TlsServer::enqueueTxData(const std::string& jsonData) {
@@ -126,6 +137,11 @@ bool TlsServer::waitAndPopRxLine(std::string& outLine) {
 }
 
 void TlsServer::run() {
+    if (!ready_) {
+        std::cerr << "[TLS] 인증서/키 초기화 실패로 실행할 수 없음" << std::endl;
+        return;
+    }
+
     serverFd_ = socket(AF_INET, SOCK_STREAM, 0);
     if (serverFd_ < 0) {
         std::cerr << "[TLS] 소켓 생성 실패" << std::endl;
@@ -201,6 +217,12 @@ void TlsServer::run() {
             if (pollResult < 0) {
                 if (errno == EINTR) continue;
                 std::cerr << "[TLS] poll 오류" << std::endl;
+                {
+                    std::lock_guard<std::mutex> sslLock(sslMutex_);
+                    if (ssl_) { SSL_shutdown(ssl_); SSL_free(ssl_); ssl_ = nullptr; }
+                }
+                connected_ = false;
+                close(clientFd);
                 break;
             }
             if (pollResult == 0) {
@@ -215,6 +237,7 @@ void TlsServer::run() {
                 bytes = SSL_read(ssl_, buffer, sizeof(buffer) - 1);
                 if (bytes <= 0) {
                     connectionClosed = true;
+                    SSL_shutdown(ssl_);   // 가능하면 close_notify 전달 (한 번만 시도, 응답 대기 안 함)
                     SSL_free(ssl_);
                     ssl_ = nullptr;
                 }
@@ -234,7 +257,7 @@ void TlsServer::run() {
                 std::cerr << "[TLS] 수신 줄이 상한 초과 — 연결 끊음" << std::endl;
                 {
                     std::lock_guard<std::mutex> sslLock(sslMutex_);
-                    if (ssl_) { SSL_free(ssl_); ssl_ = nullptr; }
+                    if (ssl_) { SSL_shutdown(ssl_); SSL_free(ssl_); ssl_ = nullptr; }
                 }
                 connected_ = false;
                 close(clientFd);

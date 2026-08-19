@@ -30,11 +30,15 @@ public:
 
     bool isConnected() const { return connected_; }
 
+    // 인증서/키 로드까지 성공해서 run() 돌릴 준비가 됐는지. 실패해도 exit()하지 않고
+    // 이 플래그로 알린다 — 호출자(TlsLink::start)가 Link::start()의 "실패 시 false" 계약을 지킬 수 있게
+    bool isReady() const { return ready_; }
+
 private:
     void initOpenSSL();
     void cleanupOpenSSL();
     SSL_CTX* createContext();
-    void configureContext(SSL_CTX* ctx);
+    bool configureContext(SSL_CTX* ctx);   // 성공 여부 반환 (exit() 대신)
 
     // 내부 송신 전용 스레드 함수
     void txThreadLoop();
@@ -61,6 +65,7 @@ private:
 
     std::atomic<bool> isRunning_;
     std::atomic<bool> connected_{false};
+    bool ready_ = false;   // 생성자에서 인증서/키 로드까지 성공했는지 (run() 실행 가능 여부)
 
     static constexpr size_t MAX_LINE = 8 * 1024 * 1024;   // 평면도 base64 등 대용량 메시지 여유분
 };

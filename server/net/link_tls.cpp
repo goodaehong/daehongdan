@@ -11,9 +11,11 @@ public:
     ~TlsLink() override { stop(); }
 
     bool start(int port) override {
-        // TlsServer 생성자가 인증서 로드 실패 시 exit()으로 프로세스를 종료시킬 수 있음(기존 동작).
-        // PlainLink처럼 false를 반환하고 계속 진행하는 경로는 없다 — 알려진 차이점
         server_ = std::make_unique<TlsServer>(port);
+        if (!server_->isReady()) {
+            std::cerr << "[링크] TLS 초기화 실패 (인증서/키 확인 필요)\n";
+            return false;
+        }
         runThread_ = std::thread([this] { server_->run(); });
         std::cout << "[링크] TLS 대기 시작 (포트 " << port << ")\n";
         return true;
