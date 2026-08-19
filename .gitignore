@@ -90,3 +90,4 @@ drivers/stm_uart_display/test_alert_uart
 # 스냅샷 이미지 (실행 중 생성되는 데이터)
 **/snapshots/
 **/snapshots/
+server/roi/roi_config.json
