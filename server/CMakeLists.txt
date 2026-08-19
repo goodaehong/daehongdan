@@ -38,6 +38,10 @@ set(DB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/db)
 set(DB_SRC ${DB_DIR}/Database.cpp
            ${DB_DIR}/query_handler.cpp)   
 
+# 대피경로 계산 (server/evac_map_tools). 데모용 server.cpp 는 main()이 있어 제외  
+set(EVAC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/evac_map_tools)
+set(EVAC_SRC ${EVAC_DIR}/EvacPlanner.cpp) 
+
 # 서버 모듈 (대홍)
 set(SERVER_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/judgement.cpp
@@ -91,11 +95,12 @@ endif()
 add_executable(server_main
     server_main.cpp
     ${SERVER_SRC} ${SENSOR_SRC} ${ACTUATOR_SRC} ${DISPLAY_SRC} ${NET_SRC}
-    ${FIRE_CORE_SRC} ${DB_SRC})
+    ${FIRE_CORE_SRC} ${DB_SRC} ${EVAC_SRC}) 
 
 target_include_directories(server_main PRIVATE
     ${OpenCV_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}
-    ${FIRE_CORE_DIR} ${DB_DIR} ${SQLite3_INCLUDE_DIRS} ${STM_DISPLAY_PROTOCOL_DIR})
+    ${FIRE_CORE_DIR} ${DB_DIR} ${SQLite3_INCLUDE_DIRS} ${STM_DISPLAY_PROTOCOL_DIR}
+    ${EVAC_DIR})  
 
 target_link_libraries(server_main PRIVATE
     ${OpenCV_LIBS} Threads::Threads ${SQLite3_LIBRARIES})
