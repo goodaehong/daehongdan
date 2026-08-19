@@ -43,6 +43,7 @@ set(SERVER_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/alarm_state.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/qt_link.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/roi/roi_store.cpp 
+    ${CMAKE_CURRENT_SOURCE_DIR}/floormap/floormap_store.cpp        
     ${CMAKE_CURRENT_SOURCE_DIR}/audio/speaker_alert.cpp
 )
 
@@ -101,6 +102,8 @@ target_link_libraries(server_main PRIVATE
 target_compile_definitions(server_main PRIVATE
     DB_PATH="${CMAKE_CURRENT_SOURCE_DIR}/db/factory.db"
     ROI_CONFIG_PATH="${CMAKE_CURRENT_SOURCE_DIR}/roi/roi_config.json" 
+    FLOORMAP_IMAGE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/floormap/uploaded_map.png"    
+    FLOORMAP_JSON_PATH="${CMAKE_CURRENT_SOURCE_DIR}/floormap/floor_map.json"       
     SNAPSHOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/db/snapshots"
     AUDIO_FILE="${CMAKE_CURRENT_SOURCE_DIR}/audio/evacuation_alert.wav"
     AUDIO_DEVICE="${SPEAKER_ALSA_DEVICE}")

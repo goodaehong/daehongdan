@@ -23,6 +23,7 @@
 #include "alarm_state.h"
 #include "qt_link.h"
 #include "roi/roi_store.h"
+#include "floormap/floormap_store.h"             
 #include "db/Database.h"
 #include "audio/speaker_alert.h"   
 
@@ -404,7 +405,8 @@ int main() {
     }
     if (!g_db.open(DB_PATH))
         std::cerr << "[DB] 초기화 실패 — DB 없이 계속 진행\n";
-    RoiStore_Load();   // 저장된 ROI 복원. 파일 없으면 빈 상태로 시작   
+    RoiStore_Load();   // 저장된 ROI 복원. 파일 없으면 빈 상태로 시작  
+    FloorMapStore_Load();   // 저장된 평면도 변환 결과 복원 
     if (!Actuator_Init("/dev/stm_actuator"))          // STM 액추에이터 보드 (USB) (심볼릭링크)
         std::cerr << "[액추에이터] 초기화 실패 — 계속 진행\n";
     Actuator_Apply(responseForSafe(), "자동:초기화");   // 재시작 후 상태를 알 수 없으므로 평상으로 맞춤 
