@@ -11,3 +11,9 @@ bool StmDisplay_SendAlert(const std::string& cause, int zoneId) {
 }
 bool StmDisplay_SendClear() { return true; }
 bool StmDisplay_GetLinkOk() { return true; }   // Mock은 항상 응답함 취급
+bool StmDisplay_SendEvacPath(uint8_t fireX, uint8_t fireY, uint8_t fireRadius,
+                              uint8_t routeIndex,
+                              const uint8_t* waypointsXY, uint8_t waypointCount) {
+    (void)fireX; (void)fireY; (void)fireRadius; (void)routeIndex; (void)waypointsXY; (void)waypointCount;
+    return true;
+}

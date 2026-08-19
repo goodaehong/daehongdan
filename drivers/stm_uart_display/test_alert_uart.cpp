@@ -17,8 +17,10 @@
  *       -I../../server/sensors -o test_alert_uart
  *
  * 실행: sudo ./test_alert_uart   (UART 권한 문제 있으면 sudo)
- *   콘솔에 1 입력+엔터 -> 위험(화재) 전환 화면
+ *   콘솔에 1 입력+엔터 -> 위험(화재) 전환 화면 + 화재위치=없음(255,255)으로 대피경로 전송
  *   콘솔에 2 입력+엔터 -> 평상시 화면 복귀
+ *   콘솔에 3 입력+엔터 -> 화재위치가 (5,5)로 "바뀐" 상황을 흉내내서 대피경로 재전송
+ *   (주기적으로 계속 보내는 게 아니라, 화재 위치가 바뀌는 시점에만 패킷을 보내는 구조)
  */
 #include "sensor_reader.h"
 #include "stm_display_protocol.h"
@@ -50,9 +52,45 @@ static std::string CurrentTimeString()
 static std::atomic<int> g_fd{-1};
 static const char* kDevPath = "/dev/stm_display";
 
+// 테스트용: Start ID 3(전광판 (11,32)) -> 출구 4곳 전체 경로. EvacPlanner가 뽑은 (y,x) 웨이포인트를
+// {x,y} 평탄화 배열로 손으로 옮겨온 것 (임시 테스트용 - 나중엔 EvacPlanner 호출로 대체).
+// 배열 순서 = EvacExits 인덱스(routeIndex) 순서와 반드시 일치해야 함
+struct EvacRoute { const uint8_t* xy; uint8_t count; };
+static const uint8_t kRouteExit1[] = { 11,32, 11,36, 13,36, 13,50, 38,50, 38,60, 48,60, 48,61 };
+static const uint8_t kRouteExit2[] = { 11,32, 11,36, 13,36, 13,48, 0,48 };
+static const uint8_t kRouteExit3[] = { 11,32, 11,35, 13,35, 13,16, 61,16 };
+static const uint8_t kRouteExit4[] = { 11,32, 11,35, 13,35, 13,15, 15,15, 15,13, 17,13, 17,1, 22,1, 22,0 };
+static const EvacRoute kTestRoutes[] = {
+    { kRouteExit1, sizeof(kRouteExit1) / 2 },
+    { kRouteExit2, sizeof(kRouteExit2) / 2 },
+    { kRouteExit3, sizeof(kRouteExit3) / 2 },
+    { kRouteExit4, sizeof(kRouteExit4) / 2 },
+};
+static constexpr uint8_t kTestRouteCount = sizeof(kTestRoutes) / sizeof(kTestRoutes[0]);
+
+// 출구 4곳 경로를 전부(routeIndex 0~3) 순서대로 전송. 화재 위치가 바뀔 때만(1회성으로) 호출됨 -
+// 주기적으로 계속 보내는 구조가 아니라, 호출된 그 순간의 fireX/Y/Radius로 한 번만 쏨
+static void SendAllEvacRoutes(uint8_t fireX, uint8_t fireY, uint8_t fireRadius)
+{
+    for (uint8_t i = 0; i < kTestRouteCount; i++)
+    {
+        int fd = g_fd.load();
+        bool ok = StmDisplayProtocol_SendEvacPath(fd,
+                                                   fireX, fireY, fireRadius,
+                                                   i, kTestRoutes[i].xy, kTestRoutes[i].count);
+        std::cout << "[테스트] 대피경로 패킷(CMD 0xB1, 출구" << (int)(i + 1) << ", 화재("
+                  << (int)fireX << "," << (int)fireY << "), 웨이포인트 "
+                  << (int)kTestRoutes[i].count << "개) 전송 " << (ok ? "성공" : "실패") << "\n";
+        if (!ok) { g_fd = StmDisplayProtocol_Reconnect(fd, kDevPath); }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));   // STM32 수신 링버퍼 여유 주기용
+    }
+}
+
 static void InputWorker()
 {
-    std::cout << "[테스트] '1' 입력+엔터 = 위험(화재) 전환, '2' 입력+엔터 = 평상시 복귀\n";
+    std::cout << "[테스트] '1' 입력+엔터 = 위험(화재) 전환 + 화재없음(255,255)으로 대피경로 전송, "
+                 "'2' 입력+엔터 = 평상시 복귀, '3' 입력+엔터 = 화재위치 (5,5)로 변경해서 대피경로 재전송\n";
     std::string line;
     while (std::getline(std::cin, line))
     {
@@ -62,6 +100,7 @@ static void InputWorker()
             bool ok = StmDisplayProtocol_SendAlert(fd, STM_DISPLAY_DISASTER_FIRE, 0x01);
             std::cout << "[테스트] 위험 전환 패킷(CMD 0x90) 전송 " << (ok ? "성공" : "실패") << "\n";
             if (!ok) { g_fd = StmDisplayProtocol_Reconnect(fd, kDevPath); }
+            SendAllEvacRoutes(STM_DISPLAY_FIRE_NONE, STM_DISPLAY_FIRE_NONE, 0);
         }
         else if (line == "2")
         {
@@ -69,9 +108,13 @@ static void InputWorker()
             std::cout << "[테스트] 평상시 복귀 패킷(CMD 0xA0) 전송 " << (ok ? "성공" : "실패") << "\n";
             if (!ok) { g_fd = StmDisplayProtocol_Reconnect(fd, kDevPath); }
         }
+        else if (line == "3")
+        {
+            SendAllEvacRoutes(5, 5, 4);   // 화재 위치가 (5,5)로 바뀐 상황을 흉내냄, 반경은 임시로 4
+        }
         else if (!line.empty())
         {
-            std::cout << "[테스트] '1' 또는 '2'만 입력 가능\n";
+            std::cout << "[테스트] '1', '2', '3'만 입력 가능\n";
         }
     }
 }

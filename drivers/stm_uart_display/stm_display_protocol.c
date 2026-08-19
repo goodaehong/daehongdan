@@ -14,7 +14,7 @@
    여기서 한 비트라도 다르게 계산하면 STM32가 매 패킷마다 체크섬 불일치로 버림 */
 static bool SendPacket(int fd, uint8_t cmd, const uint8_t *data, uint8_t dataLen)
 {
-    uint8_t packet[32];
+    uint8_t packet[70];   /* CMD_EVAC_PATH가 최대 64바이트 데이터를 쓰므로 32에서 늘림 */
     int idx = 0;
 
     packet[idx++] = STM_DISPLAY_STX;
@@ -112,6 +112,33 @@ bool StmDisplayProtocol_SendClear(int fd)
     }
 
     return SendPacket(fd, STM_DISPLAY_CMD_CLEAR, NULL, 0);
+}
+
+bool StmDisplayProtocol_SendEvacPath(int fd,
+                                      uint8_t fireX, uint8_t fireY, uint8_t fireRadius,
+                                      uint8_t routeIndex,
+                                      const uint8_t *waypointsXY, uint8_t waypointCount)
+{
+    if (fd < 0)
+    {
+        return false;
+    }
+    if (waypointCount > STM_DISPLAY_EVAC_MAX_WAYPOINTS)
+    {
+        return false;   /* STM32 packetData 버퍼를 넘어가는 크기는 애초에 안 보냄 */
+    }
+
+    /* data[0..4] = fireX,fireY,fireRadius,routeIndex,waypointCount, 그 뒤로 {x,y} 반복
+       - main.c HandlePacket()의 CMD_EVAC_PATH 파싱 순서와 정확히 일치해야 함 */
+    uint8_t data[5 + STM_DISPLAY_EVAC_MAX_WAYPOINTS * 2];
+    data[0] = fireX;
+    data[1] = fireY;
+    data[2] = fireRadius;
+    data[3] = routeIndex;
+    data[4] = waypointCount;
+    memcpy(&data[5], waypointsXY, (size_t)waypointCount * 2);
+
+    return SendPacket(fd, STM_DISPLAY_CMD_EVAC_PATH, data, (uint8_t)(5 + waypointCount * 2));
 }
 
 /* poll()로 timeoutMs 안에 데이터 들어오길 기다렸다가 1바이트 읽음. 못 받으면 false */
