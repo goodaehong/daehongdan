@@ -54,23 +54,19 @@ typedef struct {
     uint8_t valve;  /* VALVE_CLOSED/OPEN */
     uint8_t siren;  /* SIREN_OFF/ON */
 } StmActuatorStatus;
-/* 이름에 Protocol_이 붙는 이유: server/actuator/actuator_control.h가 서버에서 부르는
-   고수준 함수로 Actuator_Init/Execute/Apply/Poll이라는 이름을 이미 쓰고 있음.
-   이 파일은 그 고수준 함수의 내부 구현이 호출하는 저수준(바이트/UART) 계층이라
-   이름이 겹치지 않게 전부 Protocol_ 접두어로 구분함 (drivers/stm_uart_display와 동일 규칙). */
 
 /* UART 오픈 (115200 8N1, raw 모드). 실패 시 -1 */
-int StmActuatorProtocol_Open(const char *devPath);
-void StmActuatorProtocol_Close(int fd);
+int StmActuator_Open(const char *devPath);
+void StmActuator_Close(int fd);
 
 /* ── 개별 명령 전송 (전송 성공 여부만 반환, ACK 대기는 안 함) ── */
-bool StmActuatorProtocol_SendFan(int fd, uint8_t fanSpeed);
-bool StmActuatorProtocol_SendValve(int fd, uint8_t valveState);
-bool StmActuatorProtocol_SendSiren(int fd, uint8_t sirenState);
-bool StmActuatorProtocol_SendReqStatus(int fd);
-bool StmActuatorProtocol_SendGasEmerg(int fd);
-bool StmActuatorProtocol_SendMaxEmerg(int fd);
-bool StmActuatorProtocol_SendSysReset(int fd);
+bool StmActuator_SendFan(int fd, uint8_t fanSpeed);
+bool StmActuator_SendValve(int fd, uint8_t valveState);
+bool StmActuator_SendSiren(int fd, uint8_t sirenState);
+bool StmActuator_SendReqStatus(int fd);
+bool StmActuator_SendGasEmerg(int fd);
+bool StmActuator_SendMaxEmerg(int fd);
+bool StmActuator_SendSysReset(int fd);
 
 /*
  * STM32로부터 응답 1프레임을 읽어서 파싱.
@@ -78,7 +74,7 @@ bool StmActuatorProtocol_SendSysReset(int fd);
  * CMD_REQ_STATUS 응답(Len=3)이면 outStatus에 값 채움, outCmd에 0x40 세팅.
  * 그 외 ACK(Len=0)면 outCmd에 해당 커맨드만 세팅되고 outStatus는 안 건드림.
  */
-bool StmActuatorProtocol_ReadResponse(int fd, int timeoutMs, uint8_t *outCmd, StmActuatorStatus *outStatus);
+bool StmActuator_ReadResponse(int fd, int timeoutMs, uint8_t *outCmd, StmActuatorStatus *outStatus);
  
 #ifdef __cplusplus
 }

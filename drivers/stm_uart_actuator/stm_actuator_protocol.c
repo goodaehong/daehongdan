@@ -43,7 +43,7 @@ static bool send_packet(int fd, uint8_t cmd, const uint8_t *data, uint8_t dataLe
     return written == idx;
 }
 
-int StmActuatorProtocol_Open(const char *devPath)
+int StmActuator_Open(const char *devPath)
 {
     int fd = open(devPath, O_RDWR | O_NOCTTY);
     if (fd < 0)
@@ -71,7 +71,7 @@ int StmActuatorProtocol_Open(const char *devPath)
     return fd;
 }
 
-void StmActuatorProtocol_Close(int fd)
+void StmActuator_Close(int fd)
 {
     if (fd >= 0)
     {
@@ -79,40 +79,40 @@ void StmActuatorProtocol_Close(int fd)
     }
 }
 
-bool StmActuatorProtocol_SendFan(int fd, uint8_t fanSpeed)
+bool StmActuator_SendFan(int fd, uint8_t fanSpeed)
 {
     uint8_t data[1] = { fanSpeed };
     return send_packet(fd, CMD_FAN_CTRL, data, sizeof(data));
 }
  
-bool StmActuatorProtocol_SendValve(int fd, uint8_t valveState)
+bool StmActuator_SendValve(int fd, uint8_t valveState)
 {
     uint8_t data[1] = { valveState };
     return send_packet(fd, CMD_VALVE_CTRL, data, sizeof(data));
 }
  
-bool StmActuatorProtocol_SendSiren(int fd, uint8_t sirenState)
+bool StmActuator_SendSiren(int fd, uint8_t sirenState)
 {
     uint8_t data[1] = { sirenState };
     return send_packet(fd, CMD_SIREN_CTRL, data, sizeof(data));
 }
  
-bool StmActuatorProtocol_SendReqStatus(int fd)
+bool StmActuator_SendReqStatus(int fd)
 {
     return send_packet(fd, CMD_REQ_STATUS, NULL, 0);
 }
  
-bool StmActuatorProtocol_SendGasEmerg(int fd)
+bool StmActuator_SendGasEmerg(int fd)
 {
     return send_packet(fd, CMD_GAS_EMERG, NULL, 0);
 }
  
-bool StmActuatorProtocol_SendMaxEmerg(int fd)
+bool StmActuator_SendMaxEmerg(int fd)
 {
     return send_packet(fd, CMD_MAX_EMERG, NULL, 0);
 }
  
-bool StmActuatorProtocol_SendSysReset(int fd)
+bool StmActuator_SendSysReset(int fd)
 {
     return send_packet(fd, CMD_SYS_RESET, NULL, 0);
 }
@@ -130,7 +130,7 @@ static bool read_byte_timeout(int fd, uint8_t *out, int timeoutMs)
     return n == 1;
 }
 
-bool StmActuatorProtocol_ReadResponse(int fd, int timeoutMs, uint8_t *outCmd, StmActuatorStatus *outStatus)
+bool StmActuator_ReadResponse(int fd, int timeoutMs, uint8_t *outCmd, StmActuatorStatus *outStatus)
 {
     if (fd < 0)
     {

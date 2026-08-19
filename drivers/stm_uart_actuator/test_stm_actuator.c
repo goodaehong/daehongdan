@@ -39,7 +39,7 @@ static void wait_and_print_response(int fd, const char *label)
 {
     uint8_t cmd;
     StmActuatorStatus status;
-    if (StmActuatorProtocol_ReadResponse(fd, 1000, &cmd, &status))
+    if (StmActuator_ReadResponse(fd, 1000, &cmd, &status))
     {
         printf("[%s] 응답 수신 cmd=0x%02X\n", label, cmd);
         if (cmd == CMD_REQ_STATUS)
@@ -57,7 +57,7 @@ int main(int argc, char *argv[])
 {
     const char *devPath = (argc > 1) ? argv[1] : "/dev/serial0";
  
-    int fd = StmActuatorProtocol_Open(devPath);
+    int fd = StmActuator_Open(devPath);
     if (fd < 0)
     {
         perror("UART open 실패");
@@ -87,7 +87,7 @@ int main(int argc, char *argv[])
             else if (strcmp(arg, "high") == 0) speed = FAN_HIGH;
             else { printf("알 수 없는 fan 값: %s\n", arg); continue; }
  
-            bool ok = StmActuatorProtocol_SendFan(fd, speed);
+            bool ok = StmActuator_SendFan(fd, speed);
             printf("fan %s 전송 %s\n", arg, ok ? "성공" : "실패");
             wait_and_print_response(fd, "fan");
         }
@@ -99,7 +99,7 @@ int main(int argc, char *argv[])
             else if (strcmp(arg, "close") == 0) state = VALVE_CLOSED;
             else { printf("알 수 없는 valve 값: %s\n", arg); continue; }
  
-            bool ok = StmActuatorProtocol_SendValve(fd, state);
+            bool ok = StmActuator_SendValve(fd, state);
             printf("valve %s 전송 %s\n", arg, ok ? "성공" : "실패");
             wait_and_print_response(fd, "valve");
         }
@@ -111,31 +111,31 @@ int main(int argc, char *argv[])
             else if (strcmp(arg, "off") == 0) state = SIREN_OFF;
             else { printf("알 수 없는 siren 값: %s\n", arg); continue; }
  
-            bool ok = StmActuatorProtocol_SendSiren(fd, state);
+            bool ok = StmActuator_SendSiren(fd, state);
             printf("siren %s 전송 %s\n", arg, ok ? "성공" : "실패");
             wait_and_print_response(fd, "siren");
         }
         else if (strcmp(line, "status") == 0)
         {
-            bool ok = StmActuatorProtocol_SendReqStatus(fd);
+            bool ok = StmActuator_SendReqStatus(fd);
             printf("status 요청 전송 %s\n", ok ? "성공" : "실패");
             wait_and_print_response(fd, "status");
         }
         else if (strcmp(line, "gas_emerg") == 0)
         {
-            bool ok = StmActuatorProtocol_SendGasEmerg(fd);
+            bool ok = StmActuator_SendGasEmerg(fd);
             printf("gas_emerg 전송 %s\n", ok ? "성공" : "실패");
             wait_and_print_response(fd, "gas_emerg");
         }
         else if (strcmp(line, "max_emerg") == 0)
         {
-            bool ok = StmActuatorProtocol_SendMaxEmerg(fd);
+            bool ok = StmActuator_SendMaxEmerg(fd);
             printf("max_emerg 전송 %s\n", ok ? "성공" : "실패");
             wait_and_print_response(fd, "max_emerg");
         }
         else if (strcmp(line, "reset") == 0)
         {
-            bool ok = StmActuatorProtocol_SendSysReset(fd);
+            bool ok = StmActuator_SendSysReset(fd);
             printf("reset 전송 %s\n", ok ? "성공" : "실패");
             wait_and_print_response(fd, "reset");
         }
@@ -145,6 +145,6 @@ int main(int argc, char *argv[])
         }
     }
  
-    StmActuatorProtocol_Close(fd);
+    StmActuator_Close(fd);
     return 0;
 }

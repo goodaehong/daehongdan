@@ -156,6 +156,29 @@ MainWindow::MainWindow(QWidget *parent)
                 monitorPage->applyRoiRegionsFromServer(channel, regions);
             });
 
+    // 평면도 "서버로 전송 및 적용" -> set_floor_map. 결과/타임아웃은 FloorMapPage 다이얼로그가
+    // 직접 받아 처리하므로(자체 완결형 UI) MainWindow는 그냥 중계만 한다.
+    connect(floorMapPage, &FloorMapPage::floorMapUploadRequested, this,
+            [this](const QByteArray &pngBytes) { serverLink->sendSetFloorMap(pngBytes); });
+    // floorMapUploadResult는 cmdId가 맨 앞에 있는데(ROI ack와 같은 패턴) FloorMapPage는 업로드를
+    // 한 번에 하나만 진행시켜 cmdId 매칭이 필요 없으므로 여기서 버리고 나머지만 넘긴다.
+    connect(serverLink, &ServerLink::floorMapUploadResult, this,
+            [this](const QString &, bool ok, const QString &reason, int gridSize,
+                   const QVector<QVector<int>> &bitmap, const QVector<FloorMapMarker> &displays,
+                   const QVector<FloorMapMarker> &exits, const QVector<FloorMapRoute> &routes) {
+                floorMapPage->onUploadResult(ok, reason, gridSize, bitmap, displays, exits, routes);
+            });
+    connect(serverLink, &ServerLink::floorMapUploadTimedOut, floorMapPage, &FloorMapPage::onUploadTimedOut);
+    // 접속 직후 query target=floor_map 응답 — 서버에 저장된 결과가 있으면(available) 그대로 반영.
+    // 없으면(신규 설치 등) 아무것도 안 하고 "미등록" 안내 배너를 그대로 둔다.
+    connect(serverLink, &ServerLink::floorMapReceived, this,
+            [this](bool available, int gridSize, const QVector<QVector<int>> &bitmap,
+                   const QVector<FloorMapMarker> &displays, const QVector<FloorMapMarker> &exits,
+                   const QVector<FloorMapRoute> &routes) {
+                if (available)
+                    floorMapPage->applyServerData(gridSize, bitmap, displays, exits, routes);
+            });
+
     // 이벤트로그 자체는 서버가 control 처리 시 db.insertEvent()로 이미 남기므로 Qt가 중복으로
     // 만들지 않는다. 다만 명세서(3-3)대로 성공/실패/타임아웃 각각 화면에 즉시 알림은 띄워야 한다.
     connect(serverLink, &ServerLink::controlResult, this,
@@ -364,6 +387,10 @@ MainWindow::MainWindow(QWidget *parent)
         serverLink->sendQuery("sensor_log", sensorParams);
 
         graphPage->requestCurrentPeriod(); // 그래프 탭도 현재 선택된 기간/날짜로 최초 조회
+
+        // 평면도는 ROI와 달리 서버가 접속 즉시 push하지 않으므로 직접 query — 서버 재시작 후에도
+        // FloorMapStore_Load()로 복원해둔 결과가 있으면 그걸 그대로 받아온다.
+        serverLink->sendQuery("floor_map", QJsonObject());
     });
 
     // 이벤트로그 "조회" 버튼/30초 자동 갱신 — 응답은 위 queryResult 핸들러가 그대로 받아서
