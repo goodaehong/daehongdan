@@ -19,6 +19,7 @@ add_executable(fire_detection
     FireView.cpp
     FireAlarmController.cpp
     FireDetectionRuntime.cpp
+    IgnoreRegionFilter.cpp
     FlameDetector.cpp
     PersonMetadataReceiver.cpp
     SmokeDetector.cpp

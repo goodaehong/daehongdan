@@ -27,6 +27,9 @@
     <ClCompile Include="FireDetectionRuntime.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
+    <ClCompile Include="IgnoreRegionFilter.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
     <ClCompile Include="FlameDetector.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
@@ -63,6 +66,9 @@
       <Filter>헤더 파일</Filter>
     </ClInclude>
     <ClInclude Include="FireDetectionRuntime.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="IgnoreRegionFilter.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
     <ClInclude Include="FlameDetector.h">
