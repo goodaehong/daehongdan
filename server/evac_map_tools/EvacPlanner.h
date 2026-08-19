@@ -3,7 +3,8 @@
 #include <string>
 
 // 격자 한 변의 크기 (비트맵은 GRID_SIZE x GRID_SIZE)
-constexpr int GRID_SIZE = 62;
+// HUB75 테두리가 상하좌우 각 2px씩이라 실제 지도는 60x60만 씀 (STM32 main.c와 반드시 일치해야 함)
+constexpr int GRID_SIZE = 60;
 
 // 좌표 구조체
 struct Point {
