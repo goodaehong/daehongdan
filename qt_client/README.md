@@ -78,7 +78,7 @@ cmake -S qt_client -B qt_client/build -G "MinGW Makefiles" -DVLC_DIR="D:/VLC"
 주소는 `src/core/ServerConfig.h` 한 곳에서 관리한다. 라즈베리파이 IP가 바뀌면 여기만 고치면 된다.
 
 ```cpp
-inline const QString kServerHost = "172.20.32.41";
+inline const QString kServerHost = "172.20.35.185";
 inline const quint16 kServerPort = 9999;
 ```
 

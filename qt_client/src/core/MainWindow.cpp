@@ -26,7 +26,7 @@
 #include <QColor>
 
 namespace {
-const QString kMediaMtxHost = "172.20.32.41"; // MediaMTX가 도는 라즈베리파이 주소 (카메라 IP 아님)
+const QString kMediaMtxHost = "172.20.35.185"; // MediaMTX가 도는 라즈베리파이 주소 (카메라 IP 아님)
 // 감지/센서/제어 JSON 소켓 주소는 ServerConfig.h(ServerConfig::kServerHost/kServerPort)로 옮김 —
 // LoginPage.cpp가 따로 들고 있던 사본과 어긋나면서 "서버 켜져 있는데 로그인 화면에서 연결 실패로
 // 뜨는" 버그가 났던 적이 있어, 두 파일이 같은 상수를 참조하도록 단일화한다.

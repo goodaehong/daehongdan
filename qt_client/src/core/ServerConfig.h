@@ -12,7 +12,7 @@
 // 따로 들고 있다가 한쪽만 갱신되면서 어긋난 적이 있어(로그아웃 후 재로그인 시 "서버 연결 실패"
 // 오탐 원인) 여기 하나로 합친다.
 namespace ServerConfig {
-inline const QString kServerHost = "172.20.32.41";
+inline const QString kServerHost = "172.20.35.185";
 inline const quint16 kServerPort = 9999;
 
 // 서버가 실제로 TLS를 켰는지 여부. (2026-08-14 확인: main 브랜치 서버는 아직 평문 TCP만 지원 —
