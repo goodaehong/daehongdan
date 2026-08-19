@@ -44,7 +44,8 @@
 
 # Kernel Module Compile Results
 *.mod*
-*.cmd
+# 커널 빌드의 숨김 명령 파일만 무시한다.
+.*.cmd
 .tmp_versions/
 modules.order
 Module.symvers
@@ -60,3 +61,50 @@ build_check/
 *.user
 .qtcreator/
 CMakeLists.txt.user*
+drivers/gas_sensor/*.o
+drivers/gas_sensor/*.ko
+drivers/gas_sensor/*.mod
+drivers/gas_sensor/*.mod.c
+drivers/gas_sensor/*.mod.o
+drivers/gas_sensor/*.symvers
+drivers/gas_sensor/*.order
+drivers/gas_sensor/.*.cmd
+drivers/gas_sensor/.tmp_versions/
+drivers/gas_sensor/*.dtbo
+drivers/gas_sensor/Module.symvers
+
+# Windows shell folder settings
+desktop.ini
+# TLS 인증서·키 (개인키는 커밋 금지)
+*.key
+*.crt
+auto.*
+*.dtbo
+
+# drivers/stm_uart_display 테스트용 프로그램 컴파일 산출물 (소스만 추적, 바이너리는 각자 빌드)
+drivers/stm_uart_display/send_test_uart
+drivers/stm_uart_display/sensor_uart_driver
+drivers/stm_uart_display/test_alert_uart
+
+#DB
+*.db
+# 스냅샷 이미지 (실행 중 생성되는 데이터)
+**/snapshots/
+**/snapshots/
+
+# ROI 설정 (현장마다 다름, 실행 중 생성)
+server/roi/roi_config.json
+
+# 평면도 (현장마다 다름, 실행 중 생성)
+server/floormap/uploaded_map.png
+server/floormap/floor_map.json
+
+# 현장마다 다시 생성되는 카메라/좌표 파일
+server/opencv/homography_ch*.yml
+server/opencv/homography_ch*.yml.bak
+server/opencv/homography_ch*.yml.*.bak
+server/opencv/aruco_board_config.txt.*.bak
+server/opencv/camera.env
+**/out/
+**/bin/
+**/obj/
