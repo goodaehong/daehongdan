@@ -62,9 +62,10 @@ static const char* kDevPath = "/dev/stm_display";
 // {x,y} 평탄화 배열로 손으로 옮겨온 것 (임시 테스트용 - 나중엔 EvacPlanner 호출로 대체).
 // 배열 순서 = EvacExits 인덱스(routeIndex) 순서와 반드시 일치해야 함
 struct EvacRoute { const uint8_t* xy; uint8_t count; };
-static const uint8_t kRouteExit1[] = { 11,32, 11,36, 13,36, 13,50, 38,50, 38,60, 48,60, 48,61 };
+// 좌표 범위는 60x60 격자 기준(0~59) - 62x62였을 때 값(48,61)/(61,16)은 범위를 벗어나서 59로 클램프함
+static const uint8_t kRouteExit1[] = { 11,32, 11,36, 13,36, 13,50, 38,50, 38,59, 48,59 };
 static const uint8_t kRouteExit2[] = { 11,32, 11,36, 13,36, 13,48, 0,48 };
-static const uint8_t kRouteExit3[] = { 11,32, 11,35, 13,35, 13,16, 61,16 };
+static const uint8_t kRouteExit3[] = { 11,32, 11,35, 13,35, 13,16, 59,16 };
 static const uint8_t kRouteExit4[] = { 11,32, 11,35, 13,35, 13,15, 15,15, 15,13, 17,13, 17,1, 22,1, 22,0 };
 static const EvacRoute kTestRoutes[] = {
     { kRouteExit1, sizeof(kRouteExit1) / 2 },
