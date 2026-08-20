@@ -28,6 +28,7 @@ MonitorPage::MonitorPage(QWidget *parent)
         videoWidgets[i] = new VideoWidget(i + 1, this);
         videoWidgets[i]->setChannelTarget(channelTargetName(i + 1));
         connect(videoWidgets[i], &VideoWidget::doubleClicked, this, &MonitorPage::showEnlargedView);
+        connect(videoWidgets[i], &VideoWidget::roiRegionsChanged, this, &MonitorPage::roiRegionsChanged);
         grid->addWidget(videoWidgets[i], i / 2, i % 2);
     }
     grid->setColumnStretch(0, 1);
@@ -102,6 +103,13 @@ void MonitorPage::setActuatorRowStatus(const QString &target, const QString &tex
 void MonitorPage::setCameraVisionStatus(bool ch1, bool ch2, bool ch3, bool ch4)
 {
     statusPanel->setCameraVisionStatus(ch1, ch2, ch3, ch4);
+}
+
+void MonitorPage::applyRoiRegionsFromServer(int channel, const QVector<RoiRegion> &regions)
+{
+    if (channel < 1 || channel > 4)
+        return;
+    videoWidgets[channel - 1]->setRoiRegionsFromServer(regions);
 }
 
 void MonitorPage::showEnlargedView(int channel)

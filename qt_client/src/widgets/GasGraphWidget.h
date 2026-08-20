@@ -6,6 +6,14 @@
 #include <QStringList>
 #include <QColor>
 
+// 그래프 위에 겹쳐 그리는 사건 마커(경고/위험 전환 시점). x 위치를 시각이 아니라 0.0~1.0 비율로
+// 받는 이유는, 실제 표본 시각(rows의 t)을 아는 쪽은 GraphPage라서 변환도 거기서 하는 게 맞아서다.
+struct GraphEventMarker {
+    double xRatio = 0.0;  // 0.0=그래프 왼쪽 끝, 1.0=오른쪽 끝
+    bool danger = false;  // true=위험(빨강) / false=경고(노랑)
+    QString label;        // 마커에 마우스 올렸을 때 뜨는 문구
+};
+
 class GasGraphWidget : public QWidget
 {
     Q_OBJECT
@@ -22,6 +30,8 @@ public:
     // warningLevel/dangerLevel 이하 0이면 해당 기준선을 표시하지 않음.
     void setThresholds(double warningLevel, double dangerLevel);
     void setUnit(const QString &unit);
+    // 경고/위험이 발생했던 시점을 그래프 위에 세로선으로 겹쳐 표시한다. 빈 목록이면 아무것도 안 그림.
+    void setEventMarkers(const QVector<GraphEventMarker> &markers);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -39,6 +49,9 @@ private:
     double m_dangerLevel = -1;
     QString m_unit;
     int m_hoverIndex = -1; // 마우스가 올라가 있는 포인트 인덱스. -1이면 강조 없음.
+    QVector<GraphEventMarker> m_markers;
+    // 사건 마커 위에 마우스가 있으면 데이터 포인트 대신 이쪽 문구를 띄운다(둘이 겹치면 마커 우선).
+    int m_hoverMarker = -1;
 };
 
 #endif // GASGRAPHWIDGET_H

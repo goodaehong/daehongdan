@@ -12,6 +12,7 @@ class QPushButton;
 class QTimer;
 class QFrame;
 class GaugeBar;
+class QGraphicsDropShadowEffect;
 
 // 좌측 구역 종합상태 카드: 히어로 글로우 서클 + 위험 감지 센서(가스/불꽃/연기) +
 // 환경(온습도) + 카메라 채널 연결 현황 + 액추에이터 상태 + 수동 제어 + DEMO 상태 시뮬레이션 버튼.
@@ -71,11 +72,18 @@ private:
     void updateModeLabel(QLabel *label, const QString &source);
     // 상태별 버튼 활성/비활성/라벨 갱신 (emergency-mode #6~7). updateZone()에서 매번 호출.
     void updateEmergencyButtons(ZoneState state, bool responseOk);
+    // 해제 버튼의 활성/비활성 스타일만 담당(전환 버튼과 색 규칙이 대칭이라 분리).
+    void setClearButtonActive(bool active);
+    // "⟳ 대응 재실행" 텍스트에 lastLinkReason이 있으면 괄호로 덧붙인다.
+    void updateRetryButtonText();
+    // 대응 실패(주황) 상태에서만 emergencyBlinkTimer가 호출 — 배경색만 두 톤으로 번갈아 칠한다.
+    void applyRetryButtonBlinkStyle();
     // channelConnected/channelVisionOk 조합해서 채널 점 4색 갱신 (emergency-mode #14).
     void refreshChannelColor(int index);
 
     QLabel *heroTitleLabel;
     QLabel *heroCircle;
+    QGraphicsDropShadowEffect *heroGlow;
     QLabel *heroStateLabel;
     QLabel *heroCauseLabel;
     QLabel *heroElapsedLabel;
@@ -105,9 +113,14 @@ private:
 
     QLabel *actuatorLinkLabel; // "● 연결됨"/"● 연결 끊김"/"확인 중" (STM보드(1) 공통)
     QLabel *actuatorLinkInfoIcon; // 위 상태에 마우스 올리면 이유를 툴팁으로 보여주는 "ⓘ" 아이콘
+    QString lastLinkReason;   // STM 링크 끊김 사유 캐시 — "⟳ 대응 재실행" 버튼 문구에도 재사용
+    // 위험 감지 센서(가스/불꽃/연기, ADS1115)와 환경(온습도, DHT22)은 서로 다른 센서라 배지도
+    // 카드별로 분리한다 — 예전엔 하나로 합쳐서 온습도 문제가 엉뚱한 카드(위험 감지 센서)에 떴었다.
+    QLabel *sensorLinkBadge;  // "위험 감지 센서" 카드 헤더 "🟢 연결됨"/"🔴 센서 오류"
+    QLabel *envLinkBadge;     // "환경" 카드 헤더 "🟢 연결됨"/"🟡 온습도 불안정"
     // "자동(평상시)" vs "자동(위험 대응)" 구분에 쓰는 구역 상태 캐시.
     ZoneState lastKnownZoneState = ZoneState::Safe;
-    QString lastKnownCause;   // 비상 모드 전환 시 경고/재실행 상태에서 원인 재사용 (emergency-mode #9)
+    QString lastKnownCause;   // 위험 모드 전환 시 경고/재실행 상태에서 원인 재사용 (emergency-mode #9)
     // 해제 체크리스트 "시스템 확인" 3항목 캐시 (emergency-mode #10). 서버 clearCheck 값 그대로.
     bool lastClearSensor = false, lastClearVision = false, lastClearActuator = false;
     QString lastFanSrc, lastValveSrc, lastSirenSrc; // 마지막 actuator_status의 소스 캐시("auto"/"manual"/"")
@@ -127,7 +140,10 @@ private:
 
     QPushButton *emergencyTriggerButton = nullptr;
     QPushButton *emergencyClearButton = nullptr;
-    
+    // 위험·대응실패 상태에서 전환 버튼을 주황 두 톤으로 번갈아 칠해 "지금 확인해야 할 것"임을 강조.
+    QTimer *emergencyBlinkTimer = nullptr;
+    bool emergencyBlinkOn = true;
+
     QList<QPushButton *> demoStateButtons;
 };
 
