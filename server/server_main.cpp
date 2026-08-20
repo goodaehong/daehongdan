@@ -29,6 +29,7 @@
 #include "db/Database.h"
 #include "audio/speaker_alert.h"   
 #include "clip/clip_recorder.h"    
+#include "calib/calib_store.h"    
 
 // 4채널 프레임 공유 저장소. 채널별 mutex로 워커/센서 스레드 간 경합 방지
 struct FrameStore {
@@ -371,14 +372,6 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
     }
 }
 
-// 채널별 보정 상태. Qt에 보여줄 수 있게 보관한다 (나중에 query로 노출) 
-static std::mutex g_calibMtx;
-static std::string g_calibStatus[4] = {"미확인", "미확인", "미확인", "미확인"};
-
-static void setCalibStatus(int ch, const std::string& s) {
-    std::lock_guard<std::mutex> lk(g_calibMtx);
-    g_calibStatus[ch] = s;
-}
 
 static bool fileExists(const std::string& path) {
     std::ifstream f(path);
@@ -393,7 +386,7 @@ static void loadFactoryMapping(FireDetectionRuntime& runtime, int ch) {
     if (!runtime.loadArucoBoardConfiguration(FIRE_ARUCO_CONFIG_PATH, idx)) {
         std::cout << "[좌표] cam" << ch + 1 << " 미설정 — 감지는 계속, 좌표만 비활성 ("
                   << runtime.arucoMappingError() << ")\n";
-        setCalibStatus(ch, "미설정");
+        CalibStore_SetStage(ch, CalibStage::NoBoard, runtime.arucoMappingError());  
         return;
     }
 
@@ -402,7 +395,7 @@ static void loadFactoryMapping(FireDetectionRuntime& runtime, int ch) {
     if (!fileExists(calib) || !runtime.loadCameraCalibration(calib, idx)) {
         std::cerr << "[좌표] cam" << ch + 1 << " 렌즈 보정값 없음 — 좌표 비활성 ("
                   << runtime.cameraCalibrationError() << ")\n";
-        setCalibStatus(ch, "렌즈 보정값 없음");
+        CalibStore_SetStage(ch, CalibStage::NoLens, runtime.cameraCalibrationError());
         return;
     }
 
@@ -411,12 +404,12 @@ static void loadFactoryMapping(FireDetectionRuntime& runtime, int ch) {
     if (!fileExists(homo) || !runtime.loadStaticHomography(homo, idx)) {
         std::cerr << "[좌표] cam" << ch + 1 << " 보정 미완료 — 좌표 비활성 ("
                   << runtime.arucoMappingError() << ")\n";
-        setCalibStatus(ch, "보정 미완료");
+        CalibStore_SetStage(ch, CalibStage::NoHomography, runtime.arucoMappingError());  
         return;
     }
 
     std::cout << "[좌표] cam" << ch + 1 << " 보정 적용 완료\n";
-    setCalibStatus(ch, "적용됨");
+    CalibStore_SetStage(ch, CalibStage::Ready, "");   
 }                                                                           
 
 
@@ -430,6 +423,7 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
     FireDetectionRuntime runtime;   // 복사 금지 타입 → 채널당 지역변수 1개
     loadFactoryMapping(runtime, ch);   // ArUco 보정 로드. 없으면 좌표만 비활성
     int roiVer = -1;  // ROI 설정 버전. 바뀔 때만 런타임에 반영
+    int calibVer = CalibStore_ReloadVersion(ch);   // Qt 재로드 요청 감시용   
     std::uint64_t frameId = 0;
     bool wasShowingBoxes = false;
     bool prevSmoke = false, prevPerson = false, prevFire = false;   // 로그: 변화 시에만 출력용
@@ -466,6 +460,15 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
             // 이벤트는 예고 없이 터지므로 평소에도 직전 3초를 담아둬야 한다 
             ClipRecorder_Push(ch, frame);         
 
+            // 보정 재로드 요청 확인. 평소엔 정수 하나만 읽고 지나간다           
+            // 보정을 다시 잡을 때마다 서버를 재시작하면 4채널 감지가 전부 끊긴다
+            int cver = CalibStore_ReloadVersion(ch);
+            if (cver != calibVer) {
+                calibVer = cver;
+                std::cout << "[좌표] cam" << ch + 1 << " 보정 재로드 요청 수신\n";
+                loadFactoryMapping(runtime, ch);   // 결과는 CalibStore에 기록됨
+            }                                      
+
             // ROI 갱신 확인. 평소엔 정수 하나만 읽고 지나간다               
             // 화재·연기 엔진이 각각 설정을 받으므로 둘 다 넣어야 한다
             int ver = RoiStore_Version(ch);
@@ -485,6 +488,9 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
             frameId++;
 
             FireRuntimeSnapshot snap = runtime.poll();
+
+            // 마커 개수·좌표 오차는 매 프레임 바뀐다. Qt가 물어볼 때 최신값을 주려고 계속 담아둔다 
+            CalibStore_SetLive(ch, snap.arucoMapping);                                          
 
             // ── 연기 (NCNN) ──
             SmokeRuntimeSnapshot ssnap = smoke.poll(ch);

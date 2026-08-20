@@ -6,8 +6,39 @@
 #include <queue>
 #include <algorithm>
 #include <sstream>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX   // windows.h가 min/max 매크로를 정의해서 std::min/std::max를 깨뜨리는 것 방지
+#endif
+#include <windows.h>
+#else
+#include <unistd.h>
+#include <limits.h>
+#endif
 
 constexpr int OUT_SIZE = GRID_SIZE;
+
+// 실행 파일 자신이 위치한 디렉터리의 절대경로(끝에 구분자 포함)를 반환.
+// 어느 작업 디렉터리(cwd)에서 실행하든 evac_bitmap.txt 등 산출물이 항상
+// 실행 파일과 같은 폴더(=evac_map_tools/)에 생성되게 하기 위함. 실패 시 빈 문자열(=cwd에 저장, 기존 동작).
+static std::string getExecutableDir() {
+#ifdef _WIN32
+    char buf[MAX_PATH];
+    DWORD len = GetModuleFileNameA(NULL, buf, MAX_PATH);
+    if (len == 0 || len == MAX_PATH) return "";
+    std::string path(buf, len);
+    size_t pos = path.find_last_of("\\/");
+    return (pos == std::string::npos) ? "" : path.substr(0, pos + 1);
+#else
+    char buf[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (len <= 0) return "";
+    buf[len] = '\0';
+    std::string path(buf);
+    size_t pos = path.find_last_of('/');
+    return (pos == std::string::npos) ? "" : path.substr(0, pos + 1);
+#endif
+}
 
 // 내부 전용 자료구조
 struct Location {
@@ -287,13 +318,15 @@ std::vector<std::vector<Point>> processFloorPlan(const std::string& imagePath) {
     if (!analyzeFloorPlan(imagePath, fp)) return {};
 
     // 4. 요구사항 파일 저장
-    saveBitmapText(fp.grid, "evac_bitmap.txt");
-    saveDebugText(fp.grid, fp.starts, fp.exits, "evac_debug.txt");
-    saveColorPreview(fp.grid, fp.starts, fp.exits, "evac_preview.png");
+    // 실행 파일이 있는 폴더(=evac_map_tools/) 기준 고정 경로에 저장 -> 어느 cwd에서 실행해도 결과물 위치가 항상 동일함
+    const std::string outDir = getExecutableDir();
+    saveBitmapText(fp.grid, outDir + "evac_bitmap.txt");
+    saveDebugText(fp.grid, fp.starts, fp.exits, outDir + "evac_debug.txt");
+    saveColorPreview(fp.grid, fp.starts, fp.exits, outDir + "evac_preview.png");
 
     // 5. 경로 탐색 및 데이터 저장
     std::vector<Route> finalRoutes = calculateRoutes(fp.grid, fp.starts, fp.exits);
-    saveRoutesText(finalRoutes, "evac_routes.txt");
+    saveRoutesText(finalRoutes, outDir + "evac_routes.txt");
 
     // 6. STM32 전송용으로 좌표만 남긴 2차원 배열 리턴
     std::vector<std::vector<Point>> result;
