@@ -21,7 +21,7 @@ struct Route {
 };
 
 constexpr int kObstacleDilatePx = 0;
-constexpr int kObstacleThreshold = 125;
+constexpr int kObstacleThreshold = 120;   // image_to_bitmap.cpp/STM32 main.c와 동일하게 맞춤 (60x60 기준 검증된 값)
 
 // 마커 색상 정의
 struct Marker { std::string name; cv::Scalar lower; cv::Scalar upper; };

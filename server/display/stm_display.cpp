@@ -91,12 +91,17 @@ bool StmDisplay_SendClear()
     return sent;
 }
 
-bool StmDisplay_SendEvacPath(uint8_t fireX, uint8_t fireY, uint8_t fireRadius,
-                              uint8_t routeIndex,
+bool StmDisplay_SendEvacPath(uint8_t routeIndex,
                               const uint8_t* waypointsXY, uint8_t waypointCount)
 {
-    bool sent = StmDisplayProtocol_SendEvacPath(s_fd, fireX, fireY, fireRadius,
-                                                 routeIndex, waypointsXY, waypointCount);
+    bool sent = StmDisplayProtocol_SendEvacPath(s_fd, routeIndex, waypointsXY, waypointCount);
+    ReconnectIfBroken(sent);
+    return sent;
+}
+
+bool StmDisplay_SendEvacFires(const uint8_t* firesXYR, uint8_t fireCount)
+{
+    bool sent = StmDisplayProtocol_SendEvacFires(s_fd, firesXYR, fireCount);
     ReconnectIfBroken(sent);
     return sent;
 }
