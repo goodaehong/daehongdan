@@ -8,6 +8,7 @@
 #include <chrono>
 #include <ctime>
 #include <cstdlib>
+#include <fstream> 
 #include <sys/stat.h>
 
 #include "opencv/FireDetectionRuntime.h"
@@ -19,6 +20,7 @@
 #include "sensors/sensor_reader.h"
 #include "actuator/actuator_control.h"
 #include "display/stm_display.h"
+#include "../drivers/stm_uart_display/stm_display_protocol.h" 
 #include "judgement.h"
 #include "alarm_state.h"
 #include "qt_link.h"
@@ -26,6 +28,7 @@
 #include "floormap/floormap_store.h"             
 #include "db/Database.h"
 #include "audio/speaker_alert.h"   
+#include "clip/clip_recorder.h"    
 
 // 4채널 프레임 공유 저장소. 채널별 mutex로 워커/센서 스레드 간 경합 방지
 struct FrameStore {
@@ -36,12 +39,23 @@ struct FrameStore {
     std::atomic<int> frameH[4]{};
 };
 
+// 화재 하나의 평면도 좌표. 전광판 표시·경로 필터링용                      
+struct FireCell {
+    int x = 0, y = 0, radius = 0;
+};
+
 // 채널별 최신 감지 상태. 워커가 갱신, 판단(센서 스레드)이 읽음
 struct DetectionState {
     std::atomic<bool> fire{false};
     std::atomic<bool> smoke{false};
     std::atomic<long> lastInferTs{0};     // 마지막 추론 결과 시각 (visionOk 판정용) 
-};
+
+    // 이 채널에서 잡힌 화재들. 떨어진 불은 각각 경로를 막으므로 전부 보관한다
+    // (개수가 변해서 atomic으로 못 다룸 — 잠금으로 처리)
+    std::mutex fireMtx;
+    std::vector<FireCell> fires;
+};                                                                    
+
 DetectionState detState[4];
 
 Database g_db;   // 전역 DB. main에서 open
@@ -84,12 +98,93 @@ static bool responseApplied(const Response& t, const ActuatorSnapshot& a) {
     return true;
 }                                                                   
 
+// 4채널의 화재 좌표를 한 목록으로 모은다. 전광판 표시와 경로 필터링 둘 다    
+// 화재 전부를 봐야 해서, 채널을 가리지 않고 합친다
+static std::vector<FireCell> collectFires() {
+    std::vector<FireCell> all;
+    for (int ch = 0; ch < 4; ch++) {
+        std::lock_guard<std::mutex> lk(detState[ch].fireMtx);
+        all.insert(all.end(), detState[ch].fires.begin(), detState[ch].fires.end());
+    }
+    return all;
+}
+
+// 목록이 같은지 비교. 순서까지 같아야 같은 것으로 본다
+// (채널 순서로 모으므로 같은 상황이면 순서도 같다)
+static bool sameFires(const std::vector<FireCell>& a, const std::vector<FireCell>& b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); i++)
+        if (a[i].x != b[i].x || a[i].y != b[i].y || a[i].radius != b[i].radius)
+            return false;
+    return true;
+}
+
+// 새 상태가 이만큼 유지돼야 "바뀐 걸로" 친다. 감지 쪽 평활화로도 격자 셀
+// 경계 떨림은 안 잡혀서, 안 두면 매초 출구 수만큼 패킷이 나간다
+static const int FIRE_POS_HOLD_SEC = 3;                                     
+
+// 실물 전광판이 평면도의 몇 번 전광판인지. 평면도에서 전광판이 여러 개     
+// 잡혀도 실물은 하나라, 어느 자리인지 사람이 정해줘야 한다
+static const int EVAC_DISPLAY_ID = 1;
+
+// 화재 위치와 대피경로를 전광판으로 보낸다.                                 
+// 화재 목록은 한 패킷(0xB2), 경로는 출구마다 한 패킷(0xB1)씩.
+// 패킷 사이에 텀을 두는 이유 — 연달아 쏘면 STM 수신 버퍼가 넘쳐 뒤 패킷이 깨짐
+static void sendEvacPaths(const std::vector<FireCell>& fires) {
+    // 화재 목록 먼저. 경로가 없어도 화재 표시는 갱신해야 한다
+    std::vector<uint8_t> firesXYR;
+    firesXYR.reserve(fires.size() * 3);
+    for (const auto& f : fires) {
+        if (firesXYR.size() / 3 >= STM_DISPLAY_EVAC_MAX_FIRES) {
+            std::cerr << "[대피경로] 화재가 " << fires.size() << "곳 — 최대 "
+                      << STM_DISPLAY_EVAC_MAX_FIRES << "곳까지만 전송\n";
+            break;
+        }
+        firesXYR.push_back((uint8_t)f.x);
+        firesXYR.push_back((uint8_t)f.y);
+        firesXYR.push_back((uint8_t)f.radius);
+    }
+    if (!StmDisplay_SendEvacFires(firesXYR.data(), (uint8_t)(firesXYR.size() / 3)))
+        std::cerr << "[대피경로] 화재 위치 전송 실패\n";
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+    if (!FloorMapStore_HasRoutes()) {
+        std::cerr << "[대피경로] 평면도 미등록 — 경로 전송 생략\n";
+        return;
+    }
+
+    for (const auto& r : FloorMapStore_RoutesFor(EVAC_DISPLAY_ID)) {
+        // EvacPlanner는 {y,x} 순서, 전광판은 {x,y} 순서 — 뒤집어서 평탄화
+        std::vector<uint8_t> xy;
+        xy.reserve(r.waypoints.size() * 2);
+        for (const Point& p : r.waypoints) {
+            xy.push_back((uint8_t)p.x);
+            xy.push_back((uint8_t)p.y);
+        }
+        // routeIndex는 0부터. EvacPlanner가 찾은 출구 순서와 맞아야 한다
+        if (!StmDisplay_SendEvacPath((uint8_t)(r.exitId - 1),
+                                     xy.data(), (uint8_t)r.waypoints.size()))
+            std::cerr << "[대피경로] 출구 " << r.exitId << " 전송 실패 (웨이포인트 "
+                      << r.waypoints.size() << "개, 최대 "
+                      << STM_DISPLAY_EVAC_MAX_WAYPOINTS << ")\n";
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+}                                                                         
+            
+
 // ── 센서 스레드: 1초마다 읽기 → 판단 → 대응 → 기록 → 전송 ──
 void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
     int tick = 0;
     SensorReading lastGood{};      // 마지막으로 정상 읽은 값               
     long lastGoodTs = 0;           // 그 값을 읽은 시각 (0 = 아직 없음)
     const int STALE_SEC = 10;      // 이보다 오래되면 Qt에 신뢰 불가로 알림
+
+    // 전광판 대피경로 전송 상태                                              
+    std::vector<FireCell> sentFires;      // 마지막으로 전광판에 보낸 화재들
+    std::vector<FireCell> pendingFires;   // 유지 시간을 재는 중인 후보
+    long pendingSince = 0;                // 그 후보가 처음 나타난 시각
+    bool hasSent = false;                 // 한 번이라도 보냈나 (최초 전송 판단용) 
 
     while (true) {
         long now = std::time(nullptr);   // 아래에 있던 선언을 여기로 올림   
@@ -144,13 +239,14 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
         // 경고 진입 = 기록 + 스냅샷 (액추에이터 대응은 없음)
         if (o.warnEntered) {
             std::string snap = saveSnapshot(store, detCh, "A", now);
+            ClipRecorder_Start(detCh, "A", now, o.incidentId);         
             g_db.insertEvent(now, "A", "warning", o.j.state, o.j.cause,
                              causeToCombo(o.j.cause), "auto", "", "",
                              s.gasPpm, s.smokePpm, "진행중", 0, snap, o.incidentId, "");
         }
 
         // 위험 진입 또는 원인 변경 = 자동 대응 + 전광판 + 기록
-        // 수동 전환으로 위험이 된 경우는 아래 비상 블록이 처리하므로 건너뛴다  // <- 처음
+        // 수동 전환으로 위험이 된 경우는 아래 비상 블록이 처리하므로 건너뛴다 
         if (o.dangerEntered && !o.emergEntered) { 
             std::string src = "자동:" + o.j.cause;
             Response r = decideResponse(o.j.cause);
@@ -159,9 +255,14 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
             QtLink_SetTarget(r);                       // responseOk 비교 기준 갱신
             QtLink_SendActuator(link, Actuator_GetState());
             StmDisplay_SendAlert(o.j.cause, 1);
-             SpeakerAlert_Start();   // 대피 안내 음성 (사이렌은 STM 부저로 별개)    
+            // 대피 화면으로 바뀌는 순간 경로부터 보낸다. 화재 위치는 유지 조건    
+            // 때문에 몇 초 뒤에나 확정돼서, 그 사이 지도만 있고 경로가 빈다
+            sendEvacPaths({});
+            sentFires.clear();   // 다음 tick에 화재가 잡히면 정상 흐름으로 갱신됨   
+            SpeakerAlert_Start();   // 대피 안내 음성 (사이렌은 STM 부저로 별개)    
 
             std::string snap = saveSnapshot(store, detCh, "A", now);
+            ClipRecorder_Start(detCh, "A", now, o.incidentId);
             g_db.insertEvent(now, "A", "danger", o.j.state, o.j.cause,
                              causeToCombo(o.j.cause), "auto", respToText(r), "",
                              s.gasPpm, s.smokePpm, "진행중", 0, snap, o.incidentId,
@@ -186,7 +287,7 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
                              s.gasPpm, s.smokePpm, "해결됨", o.durationMs, "", o.incidentId, "");
         }
 
-        // ── 수동 비상 모드 (관리자가 Qt에서 전환 / 대응 재실행) ──        // <- 처음
+        // ── 수동 비상 모드 (관리자가 Qt에서 전환 / 대응 재실행) ──       
         // 둘 다 "현재 원인에 맞는 대응 실행"으로 동작이 같다.
         // 이미 위험이면 상태 변화 없이 대응만 다시 나간다
         if (o.emergEntered) {
@@ -196,9 +297,12 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
             QtLink_SetTarget(r);   
             QtLink_SendActuator(link, Actuator_GetState());
             StmDisplay_SendAlert(o.j.cause, 1);
+            sendEvacPaths({});   // 자동 전환과 같은 이유 — 경로부터 먼저         
+            sentFires.clear();    
             SpeakerAlert_Start();
 
             std::string snap = saveSnapshot(store, detCh, "A", now);
+            ClipRecorder_Start(detCh, "A", now, o.incidentId); 
             // 재실행은 상태가 안 바뀌는 조치라 category를 나눈다 (전환 횟수 집계에 섞이면 안 됨) 
             g_db.insertEvent(now, "A", o.emergReapply ? "emergency_reapply" : "emergency", 
                              o.j.state, o.j.cause,
@@ -209,6 +313,23 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
 
         QtLink_SendSensor(link, s, o,st);
         StmDisplay_SendUpdate(s, o.j.state);
+
+        // ── 전광판 대피경로: 화재 위치가 바뀌었을 때만 보낸다 ──           
+        // 매초 보내면 출구 수만큼 패킷 + 대기가 반복되고 화면도 깜빡인다
+        std::vector<FireCell> nowFires = collectFires();
+        if (!sameFires(nowFires, sentFires)) {
+            if (!sameFires(nowFires, pendingFires)) {
+                pendingFires = nowFires;    // 새 후보 등장 → 유지 시간 다시 잼
+                pendingSince = now;
+            } else if (now - pendingSince >= FIRE_POS_HOLD_SEC) {
+                sendEvacPaths(nowFires);                                    
+
+                sentFires = nowFires;
+                hasSent = true;
+                std::cout << "[대피경로] 화재 " << sentFires.size() << "곳 갱신\n";
+            }
+        }                                                              
+
         // 전광판 ACK(0xB0)로 통신 상태 확인. 매초 찍으면 시끄러우니 바뀌는 순간만 
         // (SendUpdate 안에서 매초 갱신되므로 별도 폴링 불필요)
         static bool prevDisplayOk = true;
@@ -250,6 +371,55 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
     }
 }
 
+// 채널별 보정 상태. Qt에 보여줄 수 있게 보관한다 (나중에 query로 노출) 
+static std::mutex g_calibMtx;
+static std::string g_calibStatus[4] = {"미확인", "미확인", "미확인", "미확인"};
+
+static void setCalibStatus(int ch, const std::string& s) {
+    std::lock_guard<std::mutex> lk(g_calibMtx);
+    g_calibStatus[ch] = s;
+}
+
+static bool fileExists(const std::string& path) {
+    std::ifstream f(path);
+    return f.good();
+}
+
+// 채널별 ArUco 보정 파일 3종을 읽어 좌표 변환을 켠다.
+// 하나라도 없으면 좌표만 끄고 화재·연기 감지는 그대로 돈다 (gridValid=false로 전송)
+static void loadFactoryMapping(FireDetectionRuntime& runtime, int ch) {
+    const std::size_t idx = (std::size_t)ch;
+
+    if (!runtime.loadArucoBoardConfiguration(FIRE_ARUCO_CONFIG_PATH, idx)) {
+        std::cout << "[좌표] cam" << ch + 1 << " 미설정 — 감지는 계속, 좌표만 비활성 ("
+                  << runtime.arucoMappingError() << ")\n";
+        setCalibStatus(ch, "미설정");
+        return;
+    }
+
+    const std::string calib = std::string(FIRE_CAMERA_CALIBRATION_DIR)
+                            + "/camera_calibration_ch" + std::to_string(ch + 1) + ".yml";
+    if (!fileExists(calib) || !runtime.loadCameraCalibration(calib, idx)) {
+        std::cerr << "[좌표] cam" << ch + 1 << " 렌즈 보정값 없음 — 좌표 비활성 ("
+                  << runtime.cameraCalibrationError() << ")\n";
+        setCalibStatus(ch, "렌즈 보정값 없음");
+        return;
+    }
+
+    const std::string homo = std::string(FIRE_STATIC_HOMOGRAPHY_DIR)
+                           + "/homography_ch" + std::to_string(ch + 1) + ".yml";
+    if (!fileExists(homo) || !runtime.loadStaticHomography(homo, idx)) {
+        std::cerr << "[좌표] cam" << ch + 1 << " 보정 미완료 — 좌표 비활성 ("
+                  << runtime.arucoMappingError() << ")\n";
+        setCalibStatus(ch, "보정 미완료");
+        return;
+    }
+
+    std::cout << "[좌표] cam" << ch + 1 << " 보정 적용 완료\n";
+    setCalibStatus(ch, "적용됨");
+}                                                                           
+
+
 // ── 채널 워커: RTSP 연결 → 프레임 읽기 → 감지 → 전송. 끊기면 재연결 ──
 void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke) {
     std::string url = "rtsp://localhost:8554/cam" + std::to_string(ch + 1);
@@ -258,6 +428,7 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
     person.start(url);              // 카메라 WiseAI 사람 메타데이터 수신 (FFmpeg)
 
     FireDetectionRuntime runtime;   // 복사 금지 타입 → 채널당 지역변수 1개
+    loadFactoryMapping(runtime, ch);   // ArUco 보정 로드. 없으면 좌표만 비활성
     int roiVer = -1;  // ROI 설정 버전. 바뀔 때만 런타임에 반영
     std::uint64_t frameId = 0;
     bool wasShowingBoxes = false;
@@ -291,6 +462,9 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
             store.lastFrameTs[ch] = std::time(nullptr);   // 감지 생존 확인용
             store.frameW[ch] = frame.cols;                                         
             store.frameH[ch] = frame.rows;
+
+            // 이벤트는 예고 없이 터지므로 평소에도 직전 3초를 담아둬야 한다 
+            ClipRecorder_Push(ch, frame);         
 
             // ROI 갱신 확인. 평소엔 정수 하나만 읽고 지나간다               
             // 화재·연기 엔진이 각각 설정을 받으므로 둘 다 넣어야 한다
@@ -352,12 +526,21 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
                 std::vector<DetBox> boxes;
                 if (snap.boxIsFresh) {
                     bool hasFire = false;
+                    std::vector<FireCell> fires;   // 이 프레임의 화재 좌표들    
                     for (const auto& b : snap.detection.boxes) {
                         if (b.type == DetectionType::FIRE) hasFire = true;
+                        // 떨어진 불은 각각 경로를 막으므로 전부 모은다
+                        if (b.type == DetectionType::FIRE && b.gridPositionValid)
+                            fires.push_back({ b.gridX, b.gridY, b.displayRadiusCells });
+                                                                                                                            
                         boxes.push_back({ b.box.x, b.box.y, b.box.width, b.box.height,
                                           b.type == DetectionType::FIRE ? "FIRE" : "SMOKE",
                                           (float)b.score });
                     }
+                    {   // 감지 스레드가 쓰고 센서 스레드가 읽는다                 // <- 처음
+                        std::lock_guard<std::mutex> lk(detState[ch].fireMtx);
+                        detState[ch].fires = std::move(fires);
+                    }                                                             // <- 끝
                     // 화재 상태는 화재 결과가 왔을 때만 갱신. 연기 결과에 같이 지우면
                     // 감지 중인 화재가 연기 추론 주기(1초)마다 꺼진다
                     detState[ch].fire = hasFire && snap.alarm.alarmActive;
@@ -384,6 +567,10 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
                 QtLink_SendDetection(link, ch, 0, frame.cols, frame.rows, false, {});
                 wasShowingBoxes = false;
                 detState[ch].fire = false;
+                {   // 불이 꺼지면 좌표도 비운다. 안 그러면 마지막 위치가 계속 남음 
+                    std::lock_guard<std::mutex> lk(detState[ch].fireMtx);
+                    detState[ch].fires.clear();
+                }   
             }
         }
 
@@ -405,6 +592,10 @@ int main() {
     }
     if (!g_db.open(DB_PATH))
         std::cerr << "[DB] 초기화 실패 — DB 없이 계속 진행\n";
+    // 녹화가 끝나는 건 13초 뒤 저장 스레드다. 그때 DB 행에 경로만 채워 넣는다   
+    ClipRecorder_Init([](long incidentId, long ts, const std::string& path) {
+        g_db.updateClipPath(incidentId, ts, path);
+    });                                                                                                                   
     RoiStore_Load();   // 저장된 ROI 복원. 파일 없으면 빈 상태로 시작  
     FloorMapStore_Load();   // 저장된 평면도 변환 결과 복원 
     if (!Actuator_Init("/dev/stm_actuator"))          // STM 액추에이터 보드 (USB) (심볼릭링크)
@@ -417,6 +608,7 @@ int main() {
     SpeakerAlert_Stop();      // 이전 실행이 재생 중 종료됐을 수 있으므로 정리   
 
     AlarmState alarm;
+    alarm.setIncidentSeqStart(g_db.maxIncidentId());   // 재시작해도 번호가 안 겹치게
     FrameStore store;
 
     SmokeDetectionRuntime smoke(4,
@@ -436,7 +628,8 @@ int main() {
         cams[i] = std::thread(worker, i, std::ref(store), std::ref(*link), std::ref(smoke));
     for (int i = 0; i < 4; i++)
         cams[i].join();
-
+    
+    ClipRecorder_Shutdown();   // 녹화 중이던 것도 모인 데까지 저장하고 스레드 정리  
     link->stop();
     delete link;
     return 0;

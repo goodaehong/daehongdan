@@ -1,9 +1,11 @@
 #include "EvacPlanner.h"
 #include <opencv2/opencv.hpp>
+#include <cstdint>
 #include <fstream>
 #include <iostream>
 #include <queue>
 #include <algorithm>
+#include <sstream>
 
 constexpr int OUT_SIZE = GRID_SIZE;
 
@@ -21,7 +23,7 @@ struct Route {
 };
 
 constexpr int kObstacleDilatePx = 0;
-constexpr int kObstacleThreshold = 125;
+constexpr int kObstacleThreshold = 120;   // image_to_bitmap.cpp/STM32 main.c와 동일하게 맞춤 (60x60 기준 검증된 값)
 
 // 마커 색상 정의
 struct Marker { std::string name; cv::Scalar lower; cv::Scalar upper; };
@@ -327,4 +329,80 @@ std::vector<Point> getEvacExits(const std::string& imagePath) {
     points.reserve(fp.exits.size());
     for (const auto& e : fp.exits) points.push_back(e.p);
     return points;
+}
+
+// --- main.c 자동 반영: 비트맵/전광판/출구를 STM32 C 배열 텍스트로 직렬화 ---
+
+// 0/1 격자를 "static const uint8_t HUB75_EvacMap[N][N] = {...};" 텍스트로 직렬화
+static std::string gridToCArray(const std::vector<std::vector<int>>& grid) {
+    std::ostringstream out;
+    out << "// 0=빈공간(통행가능), 1=장애물(벽/기계/구조물 전부 포함, 구분 없음) - 전광판/출구 위치는 별도 배열(EvacDisplays/EvacExits) 참고\n";
+    out << "static const uint8_t HUB75_EvacMap[" << OUT_SIZE << "][" << OUT_SIZE << "] = {\n";
+    for (int y = 0; y < OUT_SIZE; y++) {
+        out << "  {";
+        for (int x = 0; x < OUT_SIZE; x++) {
+            out << grid[y][x];
+            if (x != OUT_SIZE - 1) out << ",";
+        }
+        out << "},\n";
+    }
+    out << "};\n";
+    return out.str();
+}
+
+// 마커 좌표 목록(전광판/출구)을 {x,y} 쌍 배열로 직렬화 (Point는 {y,x}라 여기서 뒤집음 - main.c는 {x,y} 순서를 씀)
+static std::string pointsToCArray(const std::vector<Location>& locs, const std::string& varName, const std::string& countName) {
+    std::ostringstream out;
+    out << "static const uint8_t " << varName << "[][2] = {\n";
+    for (const auto& l : locs)
+        out << "  {" << l.p.x << "," << l.p.y << "},\n";
+    out << "};\n";
+    out << "#define " << countName << " " << locs.size() << "\n";
+    return out.str();
+}
+
+// main.c의 "/* USER CODE BEGIN EVAC_DATA */ ~ /* USER CODE END EVAC_DATA */" 사이를
+// arrayText로 통째로 교체. 마커를 못 찾으면 손대지 않고 false만 반환.
+static bool patchMainC(const std::string& mainCPath, const std::string& arrayText) {
+    std::ifstream in(mainCPath);
+    if (!in) {
+        std::cerr << "[Error] main.c를 못 읽음: " << mainCPath << "\n";
+        return false;
+    }
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    std::string content = ss.str();
+    in.close();
+
+    const std::string beginMarker = "/* USER CODE BEGIN EVAC_DATA */";
+    const std::string endMarker   = "/* USER CODE END EVAC_DATA */";
+    size_t beginPos = content.find(beginMarker);
+    size_t endPos   = content.find(endMarker);
+    if (beginPos == std::string::npos || endPos == std::string::npos || endPos < beginPos) {
+        std::cerr << "[Error] main.c에서 EVAC_DATA 마커를 못 찾음 - 수동으로 반영해야 함\n";
+        return false;
+    }
+
+    size_t insertStart = beginPos + beginMarker.size();
+    std::string newContent = content.substr(0, insertStart) + "\n" + arrayText + content.substr(endPos);
+
+    std::ofstream out(mainCPath);
+    out << newContent;
+    return true;
+}
+
+bool exportToMainC(const std::string& imagePath, const std::string& mainCPath) {
+    FloorPlan fp;
+    if (!analyzeFloorPlan(imagePath, fp)) return false;
+
+    std::ostringstream out;
+    out << gridToCArray(fp.grid) << "\n";
+    out << pointsToCArray(fp.starts, "EvacDisplays", "EVAC_DISPLAY_COUNT") << "\n";
+    out << pointsToCArray(fp.exits, "EvacExits", "EVAC_EXIT_COUNT") << "\n";
+
+    if (!patchMainC(mainCPath, out.str())) return false;
+
+    std::cout << "[시스템] main.c 갱신 완료: " << mainCPath
+               << " (전광판 " << fp.starts.size() << "개, 출구 " << fp.exits.size() << "개)\n";
+    return true;
 }

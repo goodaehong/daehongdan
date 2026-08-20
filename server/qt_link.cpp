@@ -3,6 +3,7 @@
 #include "roi/roi_store.h"   
 #include "floormap/floormap_store.h"  
 #include "audio/speaker_alert.h" 
+#include "clip/clip_recorder.h" 
 #include <sstream>
 #include <iomanip>
 #include <iostream>
@@ -269,6 +270,31 @@ static std::string floorMapResult(const std::string& reqId) {
     return oss.str();
 }                                                                        
 
+// query target="clip" 응답. mp4를 base64로 실어 보낸다.                 
+// 로그 상세에서 재생 버튼을 눌렀을 때만 오는 요청 — 목록 조회엔 안 실린다
+static std::string clipResult(const std::string& reqId, const std::string& path) {
+    std::ostringstream oss;
+    oss << "{\"type\":\"query_result\",\"reqId\":\"" << jsonEscape(reqId)
+        << "\",\"target\":\"clip\"";
+
+    // 경로는 Qt가 보낸 값이다. 그대로 열면 서버의 아무 파일이나 새어나간다.
+    // 서버가 만든 클립 폴더 안인지만 확인한다
+    const std::string dir = CLIP_DIR;
+    if (path.size() <= dir.size() || path.compare(0, dir.size(), dir) != 0
+        || path.find("..") != std::string::npos) {
+        oss << ",\"result\":\"error\",\"reason\":\"허용되지 않은 경로\"}";
+        return oss.str();
+    }
+
+    std::string data = ClipRecorder_ReadBase64(path);
+    if (data.empty()) oss << ",\"result\":\"empty\"";
+    else oss << ",\"result\":\"ok\",\"format\":\"mp4\""
+             << ",\"path\":\"" << jsonEscape(path) << "\""
+             << ",\"data\":\"" << data << "\"";
+    oss << "}";
+    return oss.str();
+}                                                            
+
 // ── 수신 스레드: Qt→서버 방향 ──
 // \n 프레이밍·대기는 Link가 처리하므로 여기선 한 줄씩 받아 라우팅만
 void QtLink_RecvWorker(Link& link, AlarmState& alarm, Database& db) {
@@ -291,7 +317,10 @@ void QtLink_RecvWorker(Link& link, AlarmState& alarm, Database& db) {
                 link.send(ignoreRegionsResult(jsonInt(line, "channel", 1) - 1,
                                               jsonStr(line, "reqId")));
             else if (jsonStr(line, "target") == "floor_map")                         
-                link.send(floorMapResult(jsonStr(line, "reqId")));                   
+                link.send(floorMapResult(jsonStr(line, "reqId"))); 
+            else if (jsonStr(line, "target") == "clip")                 
+                link.send(clipResult(jsonStr(line, "reqId"),
+                                     jsonStr(line, "path")));                               
 
             else
                 link.send(handleQuery(db, line));

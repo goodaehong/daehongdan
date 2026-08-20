@@ -35,12 +35,20 @@ public:
     // 거절 없음 — 켜는 방향은 막지 않는다. 실제 실행은 다음 tick의 update()
     void requestEmergency(bool on, const std::string& cause, const std::string& admin);
 
+    // 사태 번호는 메모리 카운터라 재시작하면 1부터 다시 나와 옛 로그와 겹친다.
+    // 서버 시작 시 DB의 마지막 번호를 넣어 그 다음부터 발급하게 한다
+    void setIncidentSeqStart(long lastId) {
+        if (lastId > incidentSeq_) incidentSeq_ = lastId;
+    }      
+
 private:
     static constexpr int WARN_TIMEOUT = 10;   // 무응답 자동 전환까지 (초)
 
     long warnStartTs_  = -1;      // 경고 진입 시각 (-1 = 타이머 비활성)
     std::atomic<bool> ack_{false};// 관리자 확인 수신 플래그
     bool ackLogged_    = false;   // 확인 로그 중복 방지
+    bool warnClearLogged_ = false;   // "해제됨" 로그 중복 방지 (깜빡임 도배)
+    std::string warnCause_;          // 경고 진입 시 원인. 깜빡임 중 상태 유지에 씀 
     bool forcedDanger_ = false;   // 무응답으로 강제 위험 전환된 상태
 
     long incidentId_      = 0;    // 현재 사태 번호

@@ -56,6 +56,7 @@ static std::string queryEventLog(Database& db, const std::string& reqId,
             << ",\"status\":\""       << jsonEscape(r.status)       << "\""
             << ",\"durationMs\":" << r.durationMs
             << ",\"snapshotPath\":\"" << jsonEscape(r.snapshotPath) << "\""
+            << ",\"clipPath\":\"" << jsonEscape(r.clipPath) << "\"" 
             << ",\"incidentId\":" << r.incidentId
             << "}";
     }

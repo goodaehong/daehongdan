@@ -114,9 +114,7 @@ bool StmDisplayProtocol_SendClear(int fd)
     return SendPacket(fd, STM_DISPLAY_CMD_CLEAR, NULL, 0);
 }
 
-bool StmDisplayProtocol_SendEvacPath(int fd,
-                                      uint8_t fireX, uint8_t fireY, uint8_t fireRadius,
-                                      uint8_t routeIndex,
+bool StmDisplayProtocol_SendEvacPath(int fd, uint8_t routeIndex,
                                       const uint8_t *waypointsXY, uint8_t waypointCount)
 {
     if (fd < 0)
@@ -128,17 +126,37 @@ bool StmDisplayProtocol_SendEvacPath(int fd,
         return false;   /* STM32 packetData 버퍼를 넘어가는 크기는 애초에 안 보냄 */
     }
 
-    /* data[0..4] = fireX,fireY,fireRadius,routeIndex,waypointCount, 그 뒤로 {x,y} 반복
+    /* data[0..1] = routeIndex,waypointCount, 그 뒤로 {x,y} 반복
        - main.c HandlePacket()의 CMD_EVAC_PATH 파싱 순서와 정확히 일치해야 함 */
-    uint8_t data[5 + STM_DISPLAY_EVAC_MAX_WAYPOINTS * 2];
-    data[0] = fireX;
-    data[1] = fireY;
-    data[2] = fireRadius;
-    data[3] = routeIndex;
-    data[4] = waypointCount;
-    memcpy(&data[5], waypointsXY, (size_t)waypointCount * 2);
+    uint8_t data[2 + STM_DISPLAY_EVAC_MAX_WAYPOINTS * 2];
+    data[0] = routeIndex;
+    data[1] = waypointCount;
+    memcpy(&data[2], waypointsXY, (size_t)waypointCount * 2);
 
-    return SendPacket(fd, STM_DISPLAY_CMD_EVAC_PATH, data, (uint8_t)(5 + waypointCount * 2));
+    return SendPacket(fd, STM_DISPLAY_CMD_EVAC_PATH, data, (uint8_t)(2 + waypointCount * 2));
+}
+
+bool StmDisplayProtocol_SendEvacFires(int fd, const uint8_t *firesXYR, uint8_t fireCount)
+{
+    if (fd < 0)
+    {
+        return false;
+    }
+    if (fireCount > STM_DISPLAY_EVAC_MAX_FIRES)
+    {
+        return false;
+    }
+
+    /* data[0] = fireCount, 그 뒤로 {x,y,radius} 반복
+       - main.c HandlePacket()의 CMD_EVAC_FIRES 파싱 순서와 정확히 일치해야 함 */
+    uint8_t data[1 + STM_DISPLAY_EVAC_MAX_FIRES * 3];
+    data[0] = fireCount;
+    if (fireCount > 0)
+    {
+        memcpy(&data[1], firesXYR, (size_t)fireCount * 3);
+    }
+
+    return SendPacket(fd, STM_DISPLAY_CMD_EVAC_FIRES, data, (uint8_t)(1 + fireCount * 3));
 }
 
 /* poll()로 timeoutMs 안에 데이터 들어오길 기다렸다가 1바이트 읽음. 못 받으면 false */
