@@ -3,16 +3,16 @@
 평면도 이미지(PNG)를 STM32 HUB75 디스플레이용 **60x60 대피도 비트맵**과 **전광판별 대피 경로**로 변환하는 서버측 라이브러리 + 실행 예제.
 서버(라즈베리파이 등)에서 이미지를 한 번 처리해 비트맵과 경로 좌표를 만들고, 그 결과를 STM32로 내려보내는 구조임.
 
-> HUB75 패널 물리 해상도는 64x64. 테두리를 지도 데이터로 안 쓰고 빨간 점멸 경고 테두리용으로 비워두는 건 기존과 동일하되, 실제 맵 크기는 감지 좌표계(`server/opencv/GridCoordinateMapper.h`)와 통일해서 60x60으로 확정(2026-08-19). 테두리를 정확히 몇 px 쓸지·화면 중앙 정렬 오프셋은 STM32 쪽 렌더링 코드(`stm32_firmware/display_board`)가 맞춰야 함 — 이 문서 작성 시점 기준 그쪽은 아직 62 기준 코드로 안 바뀜.
+> HUB75 패널 물리 해상도는 64x64지만, 테두리 2px(상하좌우 각 2줄, `HUB75_Shape13` 실측 확인)는 지도 데이터로 안 쓰고 빨간 점멸 경고 테두리용으로 비워둠 → 실제 맵은 60x60. 화면에 그릴 땐 STM32 쪽에서 좌표에 +2 오프셋을 줘서 패널 중앙에 그려야 함(`stm32_firmware/display_board`에 이미 반영됨).
 
 ## 0. 파일 구성
 
 | 파일 | 역할 |
 |---|---|
-| `EvacPlanner.h` / `EvacPlanner.cpp` | 핵심 라이브러리. 이미지 → 비트맵 → BFS 경로 탐색 |
-| `server.cpp` | 사용 예제 겸 실행 진입점. 결과를 콘솔에 출력 |
+| `EvacPlanner.h` / `EvacPlanner.cpp` | 핵심 라이브러리. 이미지 → 비트맵 → BFS 경로 탐색 → (선택) STM32 `main.c` 자동 반영 |
+| `server.cpp` | 사용 예제 겸 실행 진입점. `./evac_server [이미지] [main.c 경로]` |
 | `Makefile` | 리눅스 빌드 |
-| `map.png` | 입력 평면도 샘플 |
+| `map.png` | 입력 평면도 샘플 (벽 두껍게 보정한 최종본) |
 
 ## 1. 원본 이미지 준비 규칙
 
@@ -51,10 +51,14 @@ make clean_data   # 실행하며 생성된 txt/png 산출물 삭제
 ## 3. 실행
 
 ```
-./evac_server
+./evac_server [이미지경로] [main.c 경로]
 ```
 
-입력 이미지 경로는 현재 `server.cpp`에 `map.png`로 하드코딩돼 있음. 다른 이미지를 쓰려면 그 부분을 바꾸면 됨.
+- 이미지경로 생략 시 `map.png` 사용
+- `main.c` 경로를 추가로 주면, **같은 이미지 분석 결과로 STM32 `main.c`의 `EVAC_DATA` 구역(`HUB75_EvacMap`/`EvacDisplays`/`EvacExits`)까지 자동으로 반영**됨 (`exportToMainC()`, 4번 API 참고). 마커(`USER CODE BEGIN/END EVAC_DATA`)를 못 찾으면 아무것도 안 건드리고 실패 로그만 찍음.
+  ```
+  ./evac_server map.png ../../stm32_firmware/display_board/Core/Src/main.c
+  ```
 
 실행하면 같은 폴더에 4개 파일이 생성됨:
 
@@ -85,6 +89,10 @@ std::vector<std::vector<int>> getEvacBitmap(const std::string& imagePath);
 // 전광판 / 출구 좌표만 필요할 때 (Qt 등, 파일 저장 없음)
 std::vector<Point> getEvacDisplays(const std::string& imagePath);
 std::vector<Point> getEvacExits(const std::string& imagePath);
+
+// 비트맵/전광판/출구를 STM32 main.c의 EVAC_DATA 구역에 C 배열로 자동 반영.
+// main.c에서 마커를 못 찾으면 false(수동 반영 필요하다는 뜻).
+bool exportToMainC(const std::string& imagePath, const std::string& mainCPath);
 ```
 
 ### `processFloorPlan()` 리턴값
@@ -100,6 +108,11 @@ std::vector<Point> getEvacExits(const std::string& imagePath);
 - 이미지 로드 실패 시 빈 vector.
 - 바깥 테두리는 출구 좌표를 제외하고 전부 벽(1)으로 막혀 있음.
 
+### `exportToMainC()`
+
+- 내부적으로 위 세 함수와 같은 이미지 분석(`analyzeFloorPlan()`)을 재사용 — 별도 도구 없이 이 라이브러리 하나로 STM32 컴파일타임 반영까지 끝남.
+- 성공/실패만 반환(`bool`). 실패 사유(이미지 로드 실패, 마커 없음)는 stderr에 로그로 찍힘.
+
 ### `getEvacDisplays()` / `getEvacExits()` 리턴값
 
 - 전광판/출구 좌표 목록. `Point{y, x}`.
@@ -111,17 +124,17 @@ std::vector<Point> getEvacExits(const std::string& imagePath);
 
 ## 5. 좌표계 / STM32 측 처리
 
-- **좌표는 `{y, x}` 순서**임 (`Point.y`가 행, `Point.x`가 열). 배열 접근도 `bitmap[y][x]`. 값 범위 0~61.
+- **좌표는 `{y, x}` 순서**임 (`Point.y`가 행, `Point.x`가 열). 배열 접근도 `bitmap[y][x]`. 값 범위 0~59.
 - 이동은 4방향(상하좌우) 기준. 대각선 이동 가정 안 함 → 모든 경로 구간은 수평 아니면 수직임.
 - **경로는 꺾이는 지점만 전송됨.** 직선 구간의 중간 좌표는 빼고 시작/끝만 보내므로, STM32가 연속한 두 waypoint 사이를 직접 이어 그려야 함. 브레젠험 알고리즘을 써도 되고, 어차피 수평/수직뿐이라 한 축만 증가시키는 단순 for문으로도 충분함. 패킷이 작아져 화재 시 UART 트래픽/지연이 줄어드는 게 목적.
 - 전광판 좌표는 벽 셀이 아니라 **벽에 인접한 통행 가능한 칸**에 찍힘.
-- 출구 좌표는 항상 `y==0`, `y==61`, `x==0`, `x==61` 중 하나 (바깥 경계선 위).
-- **실제 64x64 물리 패널에 그릴 땐 좌표에 +1을 더해서 그려야 함** (예: `HUB75_SetPixel(x+1, y+1, ...)`) — 맨 바깥 1px 링이 빨간 점멸 경고 테두리 자리이기 때문.
+- 출구 좌표는 항상 `y==0`, `y==59`, `x==0`, `x==59` 중 하나 (바깥 경계선 위).
+- **실제 64x64 물리 패널에 그릴 땐 좌표에 +2를 더해서 그려야 함** (예: `HUB75_SetPixel(x+2, y+2, ...)`) — 맨 바깥 2px 링이 빨간 점멸 경고 테두리 자리이기 때문.
 
 ## 6. 알고리즘 / 확장 계획 참고
 
 - 경로 탐색은 전광판마다 BFS를 한 번 돌려 모든 출구까지의 최단 경로를 뽑는 방식 (그리드가 60x60 균일 비용이라 BFS가 Dijkstra/A*보다 단순하고 충분함).
-- 화재/위험구역 표시는 아직 미구현. 기존 알림 패킷(CMD 0x90)의 `zoneID` 필드(카메라 채널 `detCh` 매핑)를 재사용해서, 특정 구역을 동적으로 장애물 취급하는 방식으로 확장할 계획.
+- **화재/위험구역 표시는 구현됨** — 단, 이 라이브러리(`EvacPlanner`)가 아니라 UART 프로토콜(`drivers/stm_uart_display/stm_display_protocol.h`) 쪽에 있음. `CMD_EVAC_PATH`(0xB1, 경로 전용)와 별개로 `CMD_EVAC_FIRES`(0xB2)로 화재 좌표를 최대 6개까지 배열로 STM32에 보낼 수 있고, STM32가 자홍색(현재는 빨강으로 변경됨)으로 반경만큼 표시함. `EvacPlanner`가 계산한 격자 좌표계(60x60, `{y,x}`)를 그대로 화재 좌표에도 써서 경로/화재/벽이 전부 같은 좌표계를 공유함. `EvacPlanner` 자체는 화재를 반영해 경로를 우회 계산하진 않음(화재 표시와 경로 계산은 독립적) — 서버(`server_main.cpp`)가 필요하면 직접 필터링해야 함.
 
 ## 7. 재생성이 필요한 경우
 

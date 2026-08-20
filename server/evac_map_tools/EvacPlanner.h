@@ -32,3 +32,9 @@ std::vector<Point> getEvacDisplays(const std::string& imagePath);
 // 출구 좌표들. 항상 바깥 경계선 위(y==0 || y==GRID_SIZE-1 || x==0 || x==GRID_SIZE-1).
 // 순서는 processFloorPlan()의 경로 순서와 동일 (출구 j = exits[j]).
 std::vector<Point> getEvacExits(const std::string& imagePath);
+
+// 비트맵/전광판/출구 좌표를 STM32 main.c의
+// "USER CODE BEGIN EVAC_DATA" ~ "USER CODE END EVAC_DATA" 사이에 C 배열로 자동 반영.
+// (HUB75_EvacMap[GRID_SIZE][GRID_SIZE], EvacDisplays[][2], EvacExits[][2] 전부 갱신)
+// main.c에서 그 마커를 못 찾으면 아무것도 안 건드리고 false 리턴 (수동 반영 필요하다는 뜻).
+bool exportToMainC(const std::string& imagePath, const std::string& mainCPath);
