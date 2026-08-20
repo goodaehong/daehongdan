@@ -13,6 +13,7 @@ struct EventRow {
     std::string status;
     long durationMs = 0;
     std::string snapshotPath;
+    std::string clipPath;
     long incidentId = 0;
 };      
 
@@ -56,7 +57,15 @@ public:
                      long incidentId = 0,
                      const std::string& detail = "");
 
-    void resolveIncident(long incidentId, long durationMs);  
+    void resolveIncident(long incidentId, long durationMs); 
+    
+    // DB에 남아 있는 가장 큰 사태 번호. 서버 시작 시 여기서 이어 발급한다   
+    long maxIncidentId();                                                  
+
+    // 클립 저장이 끝난 뒤 그 사태의 행들에 mp4 경로를 채운다.            
+    // 녹화가 13초 걸려서 insertEvent 시점엔 아직 파일이 없다
+    void updateClipPath(long incidentId, long clipTs,               
+                        const std::string& clipPath);  
 
     // ── 조회 ──                                                         
     // 기간 내 이벤트를 최신순으로. 필터(구역·심각도 등)는 Qt가 처리한다

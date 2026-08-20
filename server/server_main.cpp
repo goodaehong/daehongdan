@@ -28,6 +28,7 @@
 #include "floormap/floormap_store.h"             
 #include "db/Database.h"
 #include "audio/speaker_alert.h"   
+#include "clip/clip_recorder.h"    
 
 // 4채널 프레임 공유 저장소. 채널별 mutex로 워커/센서 스레드 간 경합 방지
 struct FrameStore {
@@ -238,6 +239,7 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
         // 경고 진입 = 기록 + 스냅샷 (액추에이터 대응은 없음)
         if (o.warnEntered) {
             std::string snap = saveSnapshot(store, detCh, "A", now);
+            ClipRecorder_Start(detCh, "A", now, o.incidentId);         
             g_db.insertEvent(now, "A", "warning", o.j.state, o.j.cause,
                              causeToCombo(o.j.cause), "auto", "", "",
                              s.gasPpm, s.smokePpm, "진행중", 0, snap, o.incidentId, "");
@@ -260,6 +262,7 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
             SpeakerAlert_Start();   // 대피 안내 음성 (사이렌은 STM 부저로 별개)    
 
             std::string snap = saveSnapshot(store, detCh, "A", now);
+            ClipRecorder_Start(detCh, "A", now, o.incidentId);
             g_db.insertEvent(now, "A", "danger", o.j.state, o.j.cause,
                              causeToCombo(o.j.cause), "auto", respToText(r), "",
                              s.gasPpm, s.smokePpm, "진행중", 0, snap, o.incidentId,
@@ -299,6 +302,7 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
             SpeakerAlert_Start();
 
             std::string snap = saveSnapshot(store, detCh, "A", now);
+            ClipRecorder_Start(detCh, "A", now, o.incidentId); 
             // 재실행은 상태가 안 바뀌는 조치라 category를 나눈다 (전환 횟수 집계에 섞이면 안 됨) 
             g_db.insertEvent(now, "A", o.emergReapply ? "emergency_reapply" : "emergency", 
                              o.j.state, o.j.cause,
@@ -459,6 +463,9 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
             store.frameW[ch] = frame.cols;                                         
             store.frameH[ch] = frame.rows;
 
+            // 이벤트는 예고 없이 터지므로 평소에도 직전 3초를 담아둬야 한다 
+            ClipRecorder_Push(ch, frame);         
+
             // ROI 갱신 확인. 평소엔 정수 하나만 읽고 지나간다               
             // 화재·연기 엔진이 각각 설정을 받으므로 둘 다 넣어야 한다
             int ver = RoiStore_Version(ch);
@@ -585,6 +592,10 @@ int main() {
     }
     if (!g_db.open(DB_PATH))
         std::cerr << "[DB] 초기화 실패 — DB 없이 계속 진행\n";
+    // 녹화가 끝나는 건 13초 뒤 저장 스레드다. 그때 DB 행에 경로만 채워 넣는다   
+    ClipRecorder_Init([](long incidentId, long ts, const std::string& path) {
+        g_db.updateClipPath(incidentId, ts, path);
+    });                                                                                                                   
     RoiStore_Load();   // 저장된 ROI 복원. 파일 없으면 빈 상태로 시작  
     FloorMapStore_Load();   // 저장된 평면도 변환 결과 복원 
     if (!Actuator_Init("/dev/stm_actuator"))          // STM 액추에이터 보드 (USB) (심볼릭링크)
@@ -597,6 +608,7 @@ int main() {
     SpeakerAlert_Stop();      // 이전 실행이 재생 중 종료됐을 수 있으므로 정리   
 
     AlarmState alarm;
+    alarm.setIncidentSeqStart(g_db.maxIncidentId());   // 재시작해도 번호가 안 겹치게
     FrameStore store;
 
     SmokeDetectionRuntime smoke(4,
@@ -616,7 +628,8 @@ int main() {
         cams[i] = std::thread(worker, i, std::ref(store), std::ref(*link), std::ref(smoke));
     for (int i = 0; i < 4; i++)
         cams[i].join();
-
+    
+    ClipRecorder_Shutdown();   // 녹화 중이던 것도 모인 데까지 저장하고 스레드 정리  
     link->stop();
     delete link;
     return 0;
