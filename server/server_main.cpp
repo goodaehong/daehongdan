@@ -8,6 +8,7 @@
 #include <chrono>
 #include <ctime>
 #include <cstdlib>
+#include <fstream> 
 #include <sys/stat.h>
 
 #include "opencv/FireDetectionRuntime.h"
@@ -125,23 +126,31 @@ static const int FIRE_POS_HOLD_SEC = 3;
 // 잡혀도 실물은 하나라, 어느 자리인지 사람이 정해줘야 한다
 static const int EVAC_DISPLAY_ID = 1;
 
-// 대피경로를 전광판으로 보낸다. 출구마다 패킷 하나씩, 사이에 텀을 둔다
-// (연달아 쏘면 STM 수신 버퍼가 넘쳐 뒤 패킷이 깨짐 — 광렬님이 실제로 겪은 문제)
+// 화재 위치와 대피경로를 전광판으로 보낸다.                                 
+// 화재 목록은 한 패킷(0xB2), 경로는 출구마다 한 패킷(0xB1)씩.
+// 패킷 사이에 텀을 두는 이유 — 연달아 쏘면 STM 수신 버퍼가 넘쳐 뒤 패킷이 깨짐
 static void sendEvacPaths(const std::vector<FireCell>& fires) {
+    // 화재 목록 먼저. 경로가 없어도 화재 표시는 갱신해야 한다
+    std::vector<uint8_t> firesXYR;
+    firesXYR.reserve(fires.size() * 3);
+    for (const auto& f : fires) {
+        if (firesXYR.size() / 3 >= STM_DISPLAY_EVAC_MAX_FIRES) {
+            std::cerr << "[대피경로] 화재가 " << fires.size() << "곳 — 최대 "
+                      << STM_DISPLAY_EVAC_MAX_FIRES << "곳까지만 전송\n";
+            break;
+        }
+        firesXYR.push_back((uint8_t)f.x);
+        firesXYR.push_back((uint8_t)f.y);
+        firesXYR.push_back((uint8_t)f.radius);
+    }
+    if (!StmDisplay_SendEvacFires(firesXYR.data(), (uint8_t)(firesXYR.size() / 3)))
+        std::cerr << "[대피경로] 화재 위치 전송 실패\n";
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
     if (!FloorMapStore_HasRoutes()) {
-        std::cerr << "[대피경로] 평면도 미등록 — 전송 생략\n";
+        std::cerr << "[대피경로] 평면도 미등록 — 경로 전송 생략\n";
         return;
     }
-
-    // 지금 프로토콜은 화재를 하나만 받는다. 여럿이면 반경이 가장 큰 것
-    // (다중 화재 지원되면 목록 전체를 보내는 것으로 교체)
-    const FireCell* big = nullptr;
-    for (const auto& f : fires)
-        if (!big || f.radius > big->radius) big = &f;
-
-    uint8_t fx = big ? (uint8_t)big->x : STM_DISPLAY_FIRE_NONE;
-    uint8_t fy = big ? (uint8_t)big->y : STM_DISPLAY_FIRE_NONE;
-    uint8_t fr = big ? (uint8_t)big->radius : 0;
 
     for (const auto& r : FloorMapStore_RoutesFor(EVAC_DISPLAY_ID)) {
         // EvacPlanner는 {y,x} 순서, 전광판은 {x,y} 순서 — 뒤집어서 평탄화
@@ -152,7 +161,7 @@ static void sendEvacPaths(const std::vector<FireCell>& fires) {
             xy.push_back((uint8_t)p.y);
         }
         // routeIndex는 0부터. EvacPlanner가 찾은 출구 순서와 맞아야 한다
-        if (!StmDisplay_SendEvacPath(fx, fy, fr, (uint8_t)(r.exitId - 1),
+        if (!StmDisplay_SendEvacPath((uint8_t)(r.exitId - 1),
                                      xy.data(), (uint8_t)r.waypoints.size()))
             std::cerr << "[대피경로] 출구 " << r.exitId << " 전송 실패 (웨이포인트 "
                       << r.waypoints.size() << "개, 최대 "
@@ -160,7 +169,8 @@ static void sendEvacPaths(const std::vector<FireCell>& fires) {
 
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
-}                                                                          
+}                                                                         
+            
 
 // ── 센서 스레드: 1초마다 읽기 → 판단 → 대응 → 기록 → 전송 ──
 void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
@@ -357,6 +367,55 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
     }
 }
 
+// 채널별 보정 상태. Qt에 보여줄 수 있게 보관한다 (나중에 query로 노출) 
+static std::mutex g_calibMtx;
+static std::string g_calibStatus[4] = {"미확인", "미확인", "미확인", "미확인"};
+
+static void setCalibStatus(int ch, const std::string& s) {
+    std::lock_guard<std::mutex> lk(g_calibMtx);
+    g_calibStatus[ch] = s;
+}
+
+static bool fileExists(const std::string& path) {
+    std::ifstream f(path);
+    return f.good();
+}
+
+// 채널별 ArUco 보정 파일 3종을 읽어 좌표 변환을 켠다.
+// 하나라도 없으면 좌표만 끄고 화재·연기 감지는 그대로 돈다 (gridValid=false로 전송)
+static void loadFactoryMapping(FireDetectionRuntime& runtime, int ch) {
+    const std::size_t idx = (std::size_t)ch;
+
+    if (!runtime.loadArucoBoardConfiguration(FIRE_ARUCO_CONFIG_PATH, idx)) {
+        std::cout << "[좌표] cam" << ch + 1 << " 미설정 — 감지는 계속, 좌표만 비활성 ("
+                  << runtime.arucoMappingError() << ")\n";
+        setCalibStatus(ch, "미설정");
+        return;
+    }
+
+    const std::string calib = std::string(FIRE_CAMERA_CALIBRATION_DIR)
+                            + "/camera_calibration_ch" + std::to_string(ch + 1) + ".yml";
+    if (!fileExists(calib) || !runtime.loadCameraCalibration(calib, idx)) {
+        std::cerr << "[좌표] cam" << ch + 1 << " 렌즈 보정값 없음 — 좌표 비활성 ("
+                  << runtime.cameraCalibrationError() << ")\n";
+        setCalibStatus(ch, "렌즈 보정값 없음");
+        return;
+    }
+
+    const std::string homo = std::string(FIRE_STATIC_HOMOGRAPHY_DIR)
+                           + "/homography_ch" + std::to_string(ch + 1) + ".yml";
+    if (!fileExists(homo) || !runtime.loadStaticHomography(homo, idx)) {
+        std::cerr << "[좌표] cam" << ch + 1 << " 보정 미완료 — 좌표 비활성 ("
+                  << runtime.arucoMappingError() << ")\n";
+        setCalibStatus(ch, "보정 미완료");
+        return;
+    }
+
+    std::cout << "[좌표] cam" << ch + 1 << " 보정 적용 완료\n";
+    setCalibStatus(ch, "적용됨");
+}                                                                           
+
+
 // ── 채널 워커: RTSP 연결 → 프레임 읽기 → 감지 → 전송. 끊기면 재연결 ──
 void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke) {
     std::string url = "rtsp://localhost:8554/cam" + std::to_string(ch + 1);
@@ -365,6 +424,7 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
     person.start(url);              // 카메라 WiseAI 사람 메타데이터 수신 (FFmpeg)
 
     FireDetectionRuntime runtime;   // 복사 금지 타입 → 채널당 지역변수 1개
+    loadFactoryMapping(runtime, ch);   // ArUco 보정 로드. 없으면 좌표만 비활성
     int roiVer = -1;  // ROI 설정 버전. 바뀔 때만 런타임에 반영
     std::uint64_t frameId = 0;
     bool wasShowingBoxes = false;
