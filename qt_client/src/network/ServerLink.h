@@ -8,6 +8,7 @@
 #include <QSslError>
 #include "../core/DetectionTypes.h"
 #include "../core/FloorMapTypes.h"
+#include "../core/ArucoTypes.h"
 
 class QSslSocket;
 class QTimer;
@@ -52,6 +53,12 @@ public:
     // floorMapUploadResult/floorMapUploadTimedOut 매칭. 이미지 저장 + EvacPlanner 변환까지
     // 걸리는 작업이라 control(3초)보다 타임아웃을 길게 둔다.
     QString sendSetFloorMap(const QByteArray &pngBytes);
+
+    // ArUco 좌표 보정 설정 저장. 반환값 cmdId로 arucoConfigAck 매칭.
+    QString sendSetArucoConfig(int channel, const ArucoChannelConfig &config);
+    // 해당 채널 Homography 보정 실행 요청(서버가 서브프로세스로 계산, 수십 초 걸릴 수 있음).
+    // 반환값 cmdId로 arucoCalibrationResult/arucoCalibrationTimedOut 매칭.
+    QString sendStartArucoCalibration(int channel);
 
 signals:
     void connectionStateChanged(bool connected);
@@ -114,6 +121,22 @@ signals:
                            const QVector<FloorMapMarker> &displays, const QVector<FloorMapMarker> &exits,
                            const QVector<FloorMapRoute> &routes);
 
+    // set_aruco_config 응답. reason은 실패했을 때만 채워진다.
+    void arucoConfigAck(const QString &cmdId, int channel, bool ok, const QString &reason);
+    // query target=aruco_config 응답. config.configured가 false면 저장된 설정 없음.
+    void arucoConfigReceived(int channel, const ArucoChannelConfig &config);
+    // query target=aruco_status 응답 — 4채널 전부 한 번에.
+    void arucoStatusReceived(const QVector<ArucoChannelStatus> &channels);
+    // start_aruco_calibration 응답(aruco_calibration_result). ok=false면 accepted/detected/rms는
+    // 의미 없음. detected는 v1 기준 "개수만"(어떤 ID인지는 아직 서버가 안 줌).
+    void arucoCalibrationResult(const QString &cmdId, int channel, bool ok, const QString &reason,
+                                 int acceptedMarkers, int detectedMarkers, double rmsPx);
+    void arucoCalibrationTimedOut(const QString &cmdId, int channel);
+
+    // query target=clip 응답. result: "ok"(data에 mp4 바이트) / "empty"(아직 저장 중,
+    // 이벤트 후 약 15초 이내) / "error". ok가 아니면 data는 비어있다.
+    void clipReceived(const QString &reqId, const QString &result, const QByteArray &data);
+
 private slots:
     void onReadyRead();
     // 자체서명 인증서라 항상 발생하는 "신뢰할 수 없는 발급자" 에러를, 지문이 맞는 경우에만 무시한다.
@@ -133,6 +156,8 @@ private:
     QMap<QString, QTimer *> pendingEmergencyCommands;
     // 평면도 업로드도 별개 맵 — UI가 한 번에 하나만 올리게 막지만, cmdId 매칭 규칙은 동일하게 맞춘다.
     QMap<QString, QTimer *> pendingFloorMapUploads;
+    // ArUco 보정도 서버가 수십 초 걸릴 수 있는 서브프로세스라 별도 타임아웃 관리.
+    QMap<QString, QTimer *> pendingArucoCalibrations;
     int cmdCounter = 0;
 };
 

@@ -51,6 +51,7 @@ qt_add_executable(qt_dashboard
     src/core/ZoneTypes.h
     src/core/DetectionTypes.h
     src/core/FloorMapTypes.h
+    src/core/ArucoTypes.h
     src/core/ServerConfig.h
     src/pages/LoginPage.cpp
     src/pages/LoginPage.h
@@ -78,6 +79,8 @@ qt_add_executable(qt_dashboard
     src/widgets/WarningAlertDialog.h
     src/widgets/DangerGlowOverlay.cpp
     src/widgets/DangerGlowOverlay.h
+    src/widgets/ArucoCalibrationDialog.cpp
+    src/widgets/ArucoCalibrationDialog.h
     src/network/StreamReceiver.cpp
     src/network/StreamReceiver.h
     src/network/ServerLink.cpp
