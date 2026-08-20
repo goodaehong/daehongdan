@@ -47,21 +47,26 @@ AlarmOutcome AlarmState::update(const Judgement& in, long nowTs) {
         }
     }
 
-    // ── 경고 무응답 타이머: warning 지속 중 관리자 미확인 시 위험 강제 전환 ──
-    if (o.j.state == "warning") {
-        if (warnStartTs_ < 0) {          // warning 진입 순간
-            warnStartTs_  = nowTs;
-            ack_          = false;       // 새 경고 시작 → 이전 ack 무효화
-            ackLogged_    = false;
-            forcedDanger_ = false;
-            if (incidentId_ == 0) {              // 새 사태일 때만 기록·로그      
-                incidentId_      = ++incidentSeq_;
-                incidentStartTs_ = nowTs;
-                o.warnEntered = true;
-                std::cout << "[경고] " << o.j.cause << " 발생 → 관리자 알림 ("
-                          << WARN_TIMEOUT << "초 대기)\n";
-            }                                                               
+        // ── 경고 무응답 타이머: warning 지속 중 관리자 미확인 시 위험 강제 전환 ──  
+    if (o.j.state == "warning" && warnStartTs_ < 0) {   // warning 진입 순간
+        warnStartTs_  = nowTs;
+        warnCause_    = o.j.cause;   // 깜빡여 safe가 됐을 때 되살릴 원인 
+        ack_          = false;       // 새 경고 시작 → 이전 ack 무효화
+        ackLogged_    = false;
+        forcedDanger_ = false;
+        if (incidentId_ == 0) {              // 새 사태일 때만 기록·로그
+            incidentId_      = ++incidentSeq_;
+            incidentStartTs_ = nowTs;
+            o.warnEntered = true;
+            std::cout << "[경고] " << o.j.cause << " 발생 → 관리자 알림 ("
+                      << WARN_TIMEOUT << "초 대기)\n";
         }
+    }
+
+    // 카운트다운은 "지금 경고 상태인가"가 아니라 "경고 타이머가 도는가"로 낸다.
+    // 감지가 깜빡여 잠깐 safe가 되면 숫자가 안 나가서 Qt 팝업이 10→5로 튀었다.
+    // 타이머(warnStartTs_)는 이미 깜빡임에 안 흔들리므로 조건만 바꾸면 된다
+    if (warnStartTs_ >= 0 && o.j.state != "danger") {
         if (ack_.load()) {
             if (!ackLogged_) {           // 한 번만
                 std::cout << "[경고] 관리자 확인함 → 자동 전환 취소\n";
@@ -70,20 +75,41 @@ AlarmOutcome AlarmState::update(const Judgement& in, long nowTs) {
             o.warnRemain = 0;            // 관리자 확인함 → 카운트다운 종료(전환 안 함)
         } else {
             o.warnRemain = WARN_TIMEOUT - (int)(nowTs - warnStartTs_);
-            if (o.warnRemain <= 0) {     // 무응답 → 강제 위험 전환
+            if (o.warnRemain <= 0) {
                 o.warnRemain = 0;
-                if (!forcedDanger_)      // 전환되는 순간만 (한 번)
-                    std::cout << "[경고] " << WARN_TIMEOUT << "초 무응답 → 강제 위험 전환!\n";
-                forcedDanger_ = true;
+                // 승격은 실제로 경고 상태일 때만. 깜빡여서 safe인 순간에
+                // 올려버리면 감지가 없는데 위험이 되어버린다
+                if (o.j.state == "warning") {
+                    if (!forcedDanger_)      // 전환되는 순간만 (한 번)
+                        std::cout << "[경고] " << WARN_TIMEOUT
+                                  << "초 무응답 → 강제 위험 전환!\n";
+                    forcedDanger_ = true;
+                }
             }
         }
-    } else {
-        if (warnStartTs_ >= 0 && o.j.state == "safe" && !forcedDanger_ && !latched_)  // 래치 중엔 해제 로그 금지
+    }
+
+    if (o.j.state != "warning") {
+        if (warnStartTs_ >= 0 && o.j.state == "safe" && !forcedDanger_ && !latched_
+            && !warnClearLogged_) {          // 깜빡일 때마다 도배되지 않게 한 번만
             std::cout << "[경고] 해제됨 (감지 사라짐)\n";
-        // warnStartTs_는 여기서 리셋하지 않는다. 깜빡일 때마다 10초가 초기화되면 
+            warnClearLogged_ = true;
+        }
+        // warnStartTs_는 여기서 리셋하지 않는다. 깜빡일 때마다 10초가 초기화되면
         // 실제 화재도 위험으로 못 올라간다. 사태가 종료될 때 같이 리셋한다
         if (o.j.state == "safe") forcedDanger_ = false;   // 안전 복귀 시 강제상태 해제
-    }
+    } else {
+        warnClearLogged_ = false;            // 경고로 돌아오면 다음 해제 로그 허용
+    }                     
+    
+    // 경고 타이머가 도는 동안은 감지가 깜빡여도 경고 상태를 유지한다.        
+    // 한두 프레임 끊겼다고 안전이 된 게 아니고, safe로 떨어지면 Qt 팝업이
+    // 닫혔다 열리고 전광판·기록도 같이 흔들린다.
+    // 진짜로 꺼진 경우는 아래 사태 해제 판정(안전 지속)이 타이머를 끈다
+    if (warnStartTs_ >= 0 && o.j.state == "safe") {
+        o.j.state = "warning";
+        o.j.cause = warnCause_;
+    }                                                                    
 
     // 강제 전환: 자연 판단이 warning이어도 danger로 승격 (경고 원인에 맞춰)
     if (forcedDanger_ && o.j.state == "warning") {
@@ -132,8 +158,10 @@ AlarmOutcome AlarmState::update(const Judgement& in, long nowTs) {
     }
 
     // 안전이 잠깐 스쳐도 사태를 닫지 않는다. 감지가 깜빡이면 한 사건이 여러 건으로 쪼개짐 
-    if (o.j.state == "safe") { if (safeSinceTs_ == 0) safeSinceTs_ = nowTs; }
-    else                       safeSinceTs_ = 0;
+    // 기준은 자연 판단(naturalState) — 위에서 경고·래치로 상태를 붙잡아두기 때문에 
+    // o.j.state로 보면 안전이 영영 안 쌓여 사태가 안 닫힌다
+    if (o.naturalState == "safe") { if (safeSinceTs_ == 0) safeSinceTs_ = nowTs; }
+    else                            safeSinceTs_ = 0;                             
     bool safeHeld = (safeSinceTs_ != 0 && nowTs - safeSinceTs_ >= RELEASE_HOLD);
 
     // 사태 종료: 위험까지 갔으면 수동 해제로만, 경고만이었으면 안전이 지속될 때
