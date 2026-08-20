@@ -7,6 +7,7 @@
 #include <QMap>
 #include <QSslError>
 #include "../core/DetectionTypes.h"
+#include "../core/FloorMapTypes.h"
 
 class QSslSocket;
 class QTimer;
@@ -46,6 +47,11 @@ public:
     // 감시 제외(ROI) 영역을 서버에 반영. channel은 1-based. overlapThreshold는 서버가 전역 0.5로
     // 고정 운용하기로 해서(PR #49 회신) 기본값만 그대로 실어 보낸다. 반환값 cmdId로 ignoreRegionsAck 매칭.
     QString sendSetIgnoreRegions(int channel, const QVector<RoiRegion> &regions, double overlapThreshold = 0.5);
+
+    // 평면도 원본 이미지(PNG 바이트, 최대 6MB) 업로드 + 변환 요청. 반환값 cmdId로
+    // floorMapUploadResult/floorMapUploadTimedOut 매칭. 이미지 저장 + EvacPlanner 변환까지
+    // 걸리는 작업이라 control(3초)보다 타임아웃을 길게 둔다.
+    QString sendSetFloorMap(const QByteArray &pngBytes);
 
 signals:
     void connectionStateChanged(bool connected);
@@ -97,6 +103,17 @@ signals:
     // Qt 입장에서 둘을 구분할 필요가 없어(그냥 최신값으로 화면에 반영하면 됨) 시그널 하나로 합쳤다.
     void ignoreRegionsReceived(int channel, double overlapThreshold, const QVector<RoiRegion> &regions);
 
+    // set_floor_map 응답(floor_map_result). ok=false면 gridSize 이하 필드는 비어있다(reason 참고).
+    void floorMapUploadResult(const QString &cmdId, bool ok, const QString &reason,
+                               int gridSize, const QVector<QVector<int>> &bitmap,
+                               const QVector<FloorMapMarker> &displays, const QVector<FloorMapMarker> &exits,
+                               const QVector<FloorMapRoute> &routes);
+    void floorMapUploadTimedOut(const QString &cmdId);
+    // query target=floor_map 응답. available=false면 서버에 저장된 변환 결과가 아직 없음(result:"empty").
+    void floorMapReceived(bool available, int gridSize, const QVector<QVector<int>> &bitmap,
+                           const QVector<FloorMapMarker> &displays, const QVector<FloorMapMarker> &exits,
+                           const QVector<FloorMapRoute> &routes);
+
 private slots:
     void onReadyRead();
     // 자체서명 인증서라 항상 발생하는 "신뢰할 수 없는 발급자" 에러를, 지문이 맞는 경우에만 무시한다.
@@ -114,6 +131,8 @@ private:
     QMap<QString, QTimer *> pendingCommands;
     // control과 별개 맵을 써서 evacuation_ack/타임아웃을 다른 시그널로 명확히 구분해 내보낸다.
     QMap<QString, QTimer *> pendingEmergencyCommands;
+    // 평면도 업로드도 별개 맵 — UI가 한 번에 하나만 올리게 막지만, cmdId 매칭 규칙은 동일하게 맞춘다.
+    QMap<QString, QTimer *> pendingFloorMapUploads;
     int cmdCounter = 0;
 };
 

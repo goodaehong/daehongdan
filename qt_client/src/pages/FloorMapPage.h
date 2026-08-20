@@ -10,6 +10,7 @@ class QLabel;
 class QPushButton;
 class QDialog;
 class QTimer;
+class QStackedWidget;
 class FloorMapGridWidget;
 
 // 메뉴 "평면도" 탭: 기본 화면은 변환된 대피도 + 전광판 클릭 시 경로 표시(운영용).
@@ -24,18 +25,28 @@ public:
     // 평면도가 아직 한 번도 설정 안 됐으면 false — MainWindow가 메뉴 탭 배지 표시에 쓴다.
     bool isConfigured() const { return hasData; }
 
+public slots:
+    // query target=floor_map 응답(available=true) 또는 접속 직후 서버가 저장된 결과를 돌려줬을 때
+    // MainWindow가 호출. 업로드 다이얼로그와 무관하게 그냥 화면에 반영만 한다.
+    void applyServerData(int gridSize, const QVector<QVector<int>> &bitmap,
+                          const QVector<FloorMapMarker> &displays, const QVector<FloorMapMarker> &exits,
+                          const QVector<FloorMapRoute> &routes);
+    // set_floor_map 업로드 응답. 다이얼로그가 이미 닫혔어도(취소 등) 안전하게 무시한다.
+    void onUploadResult(bool ok, const QString &reason, int gridSize, const QVector<QVector<int>> &bitmap,
+                         const QVector<FloorMapMarker> &displays, const QVector<FloorMapMarker> &exits,
+                         const QVector<FloorMapRoute> &routes);
+    void onUploadTimedOut();
+
 signals:
     // 설정 상태가 바뀔 때마다(최초 등록 등) 발생. MainWindow가 탭 배지 갱신에 사용.
     void configuredChanged(bool configured);
+    // "이 이미지로 적용" 클릭 시 발생. MainWindow가 받아서 serverLink->sendSetFloorMap()으로 넘긴다.
+    void floorMapUploadRequested(const QByteArray &pngBytes);
 
 private:
     void openSetupPanel();
-    // evac_map_tools가 실제 우리 평면도(map.png)를 변환해 낸 결과(비트맵+전광판+출구+경로)를
-    // 그대로 미리 넣어둔 것 — 손으로 지어낸 예시가 아니라 진짜 계산 결과다. 다만 서버 query/push
-    // 프로토콜이 아직 없어서 "지금 고른 이미지"에 반응하는 게 아니라 이 고정된 결과만 보여준다.
-    // 서버 연동되면 이 함수 몸통이 서버 응답 파싱으로 통째로 교체된다.
-    void applyPrecomputedConversion(const QImage &originalImage);
     void updateEmptyState();
+    void setDialogBusy(bool busy, const QString &statusText);
 
     FloorMapGridWidget *gridWidget = nullptr;
     QLabel *emptyStateLabel = nullptr;
@@ -46,6 +57,14 @@ private:
     QDialog *setupDialog = nullptr;
     QLabel *originalPreviewLabel = nullptr;
     QLabel *convertedPreviewLabel = nullptr;
+    // 변환 성공 시 convertedPreviewLabel(상태 텍스트) 대신 이걸 보여준다 — 변환 전/후를
+    // 같은 다이얼로그 안에서 직접 비교할 수 있게.
+    QStackedWidget *convertedStack = nullptr;
+    FloorMapGridWidget *convertedPreviewGrid = nullptr;
+    QPushButton *pickButton = nullptr;
+    QPushButton *applyButton = nullptr;
+    // 변환 성공 후에만 보이는 닫기 버튼 — 자동으로 닫지 않고 결과를 확인한 뒤 직접 닫게 한다.
+    QPushButton *closeButton = nullptr;
     QImage pendingOriginalImage;
 
     bool hasData = false;

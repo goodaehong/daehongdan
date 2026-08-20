@@ -11,6 +11,8 @@
 #include <QMessageBox>
 #include <QFrame>
 #include <QStringList>
+#include <QBuffer>
+#include <QStackedWidget>
 
 namespace {
 const QString kTextPrimary = "#f5f5fa";
@@ -19,91 +21,9 @@ const QString kCardBg = "#14141f";
 const QString kCardBorder = "#232333";
 const QString kAccent = "#8b7cf6";
 
-// 서버가 base64 전송 줄 길이를 8MB로 제한할 예정(대홍 회신) — base64는 원본의 약 1.33배이므로
+// 서버가 base64 전송 줄 길이를 8MB로 제한(PR #56). base64는 원본의 약 1.33배이므로
 // 원본 기준 6MB를 상한으로 둔다.
 constexpr qint64 kMaxUploadBytes = 6LL * 1024 * 1024;
-
-// 실제 우리 평면도(map.png)를 태호님의 evac_map_tools(EvacPlanner)로 변환해서 나온 진짜 결과.
-// evac_bitmap.txt / evac_routes.txt 출력을 그대로 옮겨왔다 — 서버 연동 전이라 하드코딩만 됐을 뿐,
-// 격자·전광판·출구·경로 값 자체는 손으로 지어낸 예시가 아니다.
-constexpr int kGridSize = 62;
-
-// evac_bitmap.txt 62줄을 그대로 옮겨온 것 — 한 줄 = 공백으로 구분된 0/1 62개.
-QVector<QVector<int>> realFloorMapBitmap()
-{
-    static const char *kRows[kGridSize] = {
-        "1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 1 1 1 1 1 1 0 0 0 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 1 1 1 1 1 1 0 0 0 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 1 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 0 1",
-        "1 0 1 1 1 1 1 1 0 0 0 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 1 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 0 1",
-        "1 0 1 1 1 1 1 1 0 0 0 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 0 0 1 1 1 1 0 1 1 1 1 0 1 1 1 0 0 1 1 1 0 1 1 1 0 1",
-        "1 0 1 1 1 1 1 1 0 0 0 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 0 0 1 1 1 0 0 1 1 1 0 1 1 1 0 1",
-        "1 0 1 1 1 1 1 1 0 0 0 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 0 0 1 1 1 0 0 1 1 1 0 1 1 1 0 1",
-        "1 0 1 1 1 1 1 1 0 0 0 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 0 0 1 1 1 0 0 1 1 1 0 1 1 1 0 1",
-        "1 0 1 1 1 1 0 0 0 0 0 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 1 1 1 1 0 0 0 0 0 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 0 1 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 0 1 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 0 0 1 1 1 0 1 1 1 0 0 1 1 1 0 0 1 1 1 0 1 1 1 0 0 1 1 1 0 1 1 1 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 0 0 1 1 1 0 1 1 1 0 0 1 1 1 0 0 1 1 1 0 1 1 1 0 0 1 1 1 0 1 1 1 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 0 0 1 1 1 0 1 1 1 0 0 1 1 1 0 0 1 1 1 0 1 1 1 0 0 1 1 1 0 1 1 1 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 0 0 1 1 1 0 1 1 1 0 0 1 1 1 0 0 1 1 1 0 1 1 1 0 0 1 1 1 0 1 1 1 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 0 0 1 1 1 0 0 1 1 0 0 1 1 1 0 0 1 1 1 0 1 1 1 0 0 1 1 1 0 1 1 1 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 0 0 1 1 1 0 0 1 1 0 0 1 1 1 0 0 1 1 1 0 1 1 1 0 0 1 1 1 0 1 1 1 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 0 0 1 1 1 0 0 1 1 0 0 1 1 1 0 0 1 1 1 0 1 1 1 0 0 1 1 1 0 1 1 1 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 0 0 1 1 1 0 0 1 1 0 0 1 1 1 0 0 1 1 0 0 0 1 1 0 0 1 1 0 0 1 1 1 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 1 1 0 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 1 1 0 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 1 1 0 0 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 0 0 0 1 1 1 1 1 1 1 0 0 0 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 1",
-        "0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 1 1 1 1 0 1 1 1 1 0 0 1 1 1 1 0 0 0 0 1 1 1 1 0 0 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 1 1 1 1 0 1 1 1 1 0 0 1 1 1 1 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 1 1 1 0 0 0 1 1 1 0 0 1 1 1 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 0 0 0 1 1 1 1 1 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 0 1 1 1 1 1 1 1 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 0 1 1 1 1 1 1 1 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 0 0 1 1 1 1 1 1 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1",
-        "1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 1 1 1 1 1 1 1 1 1 1 1 1 1",
-    };
-
-    QVector<QVector<int>> bmp(kGridSize, QVector<int>(kGridSize, 0));
-    for (int y = 0; y < kGridSize; ++y) {
-        const QStringList tokens = QString::fromLatin1(kRows[y]).split(' ', Qt::SkipEmptyParts);
-        for (int x = 0; x < kGridSize && x < tokens.size(); ++x)
-            bmp[y][x] = tokens[x].toInt();
-    }
-    return bmp;
-}
 }
 
 FloorMapPage::FloorMapPage(QWidget *parent)
@@ -184,6 +104,15 @@ void FloorMapPage::updateEmptyState()
     notConfiguredBanner->setVisible(!hasData);
 }
 
+void FloorMapPage::setDialogBusy(bool busy, const QString &statusText)
+{
+    if (!setupDialog)
+        return; // 응답이 늦게 와서 다이얼로그가 이미 닫힌 경우 — 조용히 무시
+    if (pickButton) pickButton->setEnabled(!busy);
+    if (applyButton) applyButton->setEnabled(!busy && !pendingOriginalImage.isNull());
+    if (convertedPreviewLabel) convertedPreviewLabel->setText(statusText);
+}
+
 void FloorMapPage::openSetupPanel()
 {
     setupDialog = new QDialog(this);
@@ -195,52 +124,83 @@ void FloorMapPage::openSetupPanel()
     dialogLayout->setSpacing(14);
 
     auto *desc = new QLabel(
-        "원본 평면도 이미지(PNG)를 선택하면 변환 결과를 미리 확인할 수 있습니다.\n"
-        "지금 표시되는 대피경로는 실제 우리 평면도를 evac_map_tools로 변환한 진짜 결과입니다 —\n"
-        "다만 서버 연동이 아직 안 돼 있어 고른 이미지와 무관하게 이 고정된 결과가 적용됩니다.\n"
-        "서버 연동되면 고른 이미지 기준으로 그때그때 새로 계산된 결과가 표시됩니다.",
+        "원본 평면도 이미지(PNG/JPG)를 선택하고 적용하면 서버로 전송해 변환합니다.\n"
+        "변환에는 몇 초 정도 걸릴 수 있습니다 — 완료되면 이 창이 자동으로 닫히고 화면에 반영됩니다.",
         setupDialog);
     desc->setWordWrap(true);
     desc->setStyleSheet(QString("color:%1; font-size:13px;").arg(kTextSecondary));
     dialogLayout->addWidget(desc);
 
-    auto *pickBtn = new QPushButton("원본 이미지 선택...", setupDialog);
-    pickBtn->setCursor(Qt::PointingHandCursor);
-    pickBtn->setStyleSheet(QString(
+    pickButton = new QPushButton("원본 이미지 선택...", setupDialog);
+    pickButton->setCursor(Qt::PointingHandCursor);
+    pickButton->setStyleSheet(QString(
         "QPushButton { background-color:%1; color:white; border:none; border-radius:6px; padding:8px 16px; }"
-        "QPushButton:hover { background-color:#7c6ce8; }").arg(kAccent));
-    dialogLayout->addWidget(pickBtn);
+        "QPushButton:hover { background-color:#7c6ce8; }"
+        "QPushButton:disabled { background-color:#3a3550; color:%2; }").arg(kAccent, kTextSecondary));
+    dialogLayout->addWidget(pickButton);
 
     // 변환 전/후를 나란히 두고 비교 — "변환이 잘 됐는지" 확인이 이 패널의 목적.
     auto *previewRow = new QHBoxLayout;
-    auto makePreviewCol = [&](const QString &label) {
-        auto *col = new QVBoxLayout;
-        auto *lbl = new QLabel(label, setupDialog);
-        lbl->setStyleSheet(QString("color:%1; font-size:12px; font-weight:bold;").arg(kTextSecondary));
-        col->addWidget(lbl);
-        auto *preview = new QLabel(setupDialog);
-        preview->setFixedSize(280, 280);
-        preview->setAlignment(Qt::AlignCenter);
-        preview->setStyleSheet(QString("background-color:#0d0d16; border:1px solid %1; border-radius:6px; color:%2;").arg(kCardBorder, kTextSecondary));
-        preview->setText("(이미지 없음)");
-        col->addWidget(preview);
-        previewRow->addLayout(col);
-        return preview;
-    };
-    originalPreviewLabel = makePreviewCol("변환 전 (원본)");
-    convertedPreviewLabel = makePreviewCol("변환 후 (대피도 미리보기)");
+
+    auto *originalCol = new QVBoxLayout;
+    auto *originalLbl = new QLabel("원본", setupDialog);
+    originalLbl->setStyleSheet(QString("color:%1; font-size:12px; font-weight:bold;").arg(kTextSecondary));
+    originalCol->addWidget(originalLbl);
+    originalPreviewLabel = new QLabel(setupDialog);
+    originalPreviewLabel->setFixedSize(320, 320);
+    originalPreviewLabel->setAlignment(Qt::AlignCenter);
+    originalPreviewLabel->setStyleSheet(QString("background-color:#0d0d16; border:1px solid %1; border-radius:6px; color:%2;").arg(kCardBorder, kTextSecondary));
+    originalPreviewLabel->setText("(이미지 없음)");
+    originalCol->addWidget(originalPreviewLabel);
+    previewRow->addLayout(originalCol);
+
+    // 변환 결과 칸은 상태 텍스트(convertedPreviewLabel)와 실제 격자 렌더링(convertedPreviewGrid)을
+    // 같은 자리에 겹쳐두고 필요할 때 전환한다 — 진행 중/실패는 텍스트, 성공하면 실제 결과.
+    auto *convertedCol = new QVBoxLayout;
+    auto *convertedLbl = new QLabel("변환 결과", setupDialog);
+    convertedLbl->setStyleSheet(QString("color:%1; font-size:12px; font-weight:bold;").arg(kTextSecondary));
+    convertedCol->addWidget(convertedLbl);
+    convertedStack = new QStackedWidget(setupDialog);
+    convertedStack->setFixedSize(320, 320);
+    convertedStack->setStyleSheet(QString("background-color:#0d0d16; border:1px solid %1; border-radius:6px;").arg(kCardBorder));
+    convertedPreviewLabel = new QLabel(convertedStack);
+    convertedPreviewLabel->setAlignment(Qt::AlignCenter);
+    convertedPreviewLabel->setWordWrap(true);
+    convertedPreviewLabel->setStyleSheet(QString("color:%1; border:none; background:transparent; padding:12px;").arg(kTextSecondary));
+    convertedPreviewLabel->setText("(적용을 누르면 서버 처리 상태가 여기 표시됩니다)");
+    convertedPreviewGrid = new FloorMapGridWidget(convertedStack);
+    convertedStack->addWidget(convertedPreviewLabel);
+    convertedStack->addWidget(convertedPreviewGrid);
+    convertedStack->setCurrentWidget(convertedPreviewLabel);
+    convertedCol->addWidget(convertedStack);
+    previewRow->addLayout(convertedCol);
+
     dialogLayout->addLayout(previewRow);
 
-    auto *applyBtn = new QPushButton("이 변환 결과 적용", setupDialog);
-    applyBtn->setEnabled(false);
-    applyBtn->setCursor(Qt::PointingHandCursor);
-    applyBtn->setStyleSheet(QString(
+    auto *buttonRow = new QHBoxLayout;
+    applyButton = new QPushButton("서버로 전송 및 적용", setupDialog);
+    applyButton->setEnabled(false);
+    applyButton->setCursor(Qt::PointingHandCursor);
+    applyButton->setStyleSheet(QString(
         "QPushButton { background-color:#232333; color:%1; border:1px solid %2; border-radius:6px; padding:8px 16px; }"
         "QPushButton:enabled:hover { border:1px solid %3; color:%3; }"
         "QPushButton:disabled { color:%4; }").arg(kTextPrimary, kCardBorder, kAccent, kTextSecondary));
-    dialogLayout->addWidget(applyBtn);
+    buttonRow->addWidget(applyButton);
 
-    connect(pickBtn, &QPushButton::clicked, this, [this, applyBtn]() {
+    // 변환 성공 전에는 숨겨두고, onUploadResult(ok=true)에서만 보여준다 — 결과를 직접 눈으로
+    // 확인한 뒤 사용자가 눌러야 다이얼로그가 닫히게(자동으로 안 닫힘).
+    closeButton = new QPushButton("닫기", setupDialog);
+    closeButton->setVisible(false);
+    closeButton->setCursor(Qt::PointingHandCursor);
+    closeButton->setStyleSheet(QString(
+        "QPushButton { background-color:%1; color:white; border:none; border-radius:6px; padding:8px 16px; }"
+        "QPushButton:hover { background-color:#7c6ce8; }").arg(kAccent));
+    connect(closeButton, &QPushButton::clicked, setupDialog, &QDialog::accept);
+    buttonRow->addWidget(closeButton);
+
+    dialogLayout->addLayout(buttonRow);
+
+    connect(pickButton, &QPushButton::clicked, this, [this]() {
         const QString path = QFileDialog::getOpenFileName(this, "원본 평면도 이미지 선택", QString(), "이미지 파일 (*.png *.jpg *.jpeg)");
         if (path.isEmpty())
             return;
@@ -257,86 +217,46 @@ void FloorMapPage::openSetupPanel()
         pendingOriginalImage.load(path);
         if (pendingOriginalImage.isNull()) {
             originalPreviewLabel->setText("이미지를 열 수 없습니다");
-            applyBtn->setEnabled(false);
+            applyButton->setEnabled(false);
             return;
         }
         originalPreviewLabel->setPixmap(QPixmap::fromImage(pendingOriginalImage)
             .scaled(originalPreviewLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
-        // 고른 이미지를 실제로 변환하는 게 아니라, 우리 평면도의 기존 계산 결과를 그대로 보여준다 —
-        // 서버 연동 전까지는 정직하게 "지금 고른 이 이미지 기준 결과가 아니다"를 화면에도 남겨둔다.
-        convertedPreviewLabel->setText("(고른 이미지가 아니라\n우리 평면도의 기존 변환 결과가\n적용됩니다 — 서버 연동 전)");
-        convertedPreviewLabel->setPixmap(QPixmap());
-        applyBtn->setEnabled(true);
+        convertedStack->setCurrentWidget(convertedPreviewLabel); // 실패 후 재시도 시 이전 결과 화면 대신 상태 텍스트로 복귀
+        convertedPreviewLabel->setText("(적용을 누르면 서버로 전송합니다)");
+        applyButton->setEnabled(true);
     });
 
-    connect(applyBtn, &QPushButton::clicked, this, [this]() {
-        applyPrecomputedConversion(pendingOriginalImage);
-        setupDialog->accept();
+    connect(applyButton, &QPushButton::clicked, this, [this]() {
+        // 원본이 JPG여도 서버는 PNG 시그니처를 검사하므로(FloorMapStore_Apply) 항상 PNG로 재인코딩한다.
+        QByteArray pngBytes;
+        QBuffer buffer(&pngBytes);
+        buffer.open(QIODevice::WriteOnly);
+        pendingOriginalImage.save(&buffer, "PNG");
+        buffer.close();
+
+        setDialogBusy(true, "서버로 전송 중...\n(이미지 저장 + 대피경로 변환)");
+        emit floorMapUploadRequested(pngBytes);
     });
 
     setupDialog->exec();
     setupDialog->deleteLater();
     setupDialog = nullptr;
+    originalPreviewLabel = nullptr;
+    convertedPreviewLabel = nullptr;
+    convertedStack = nullptr;
+    convertedPreviewGrid = nullptr;
+    pickButton = nullptr;
+    applyButton = nullptr;
+    closeButton = nullptr;
+    pendingOriginalImage = QImage();
 }
 
-void FloorMapPage::applyPrecomputedConversion(const QImage &originalImage)
+void FloorMapPage::applyServerData(int gridSize, const QVector<QVector<int>> &bitmap,
+                                    const QVector<FloorMapMarker> &displays, const QVector<FloorMapMarker> &exits,
+                                    const QVector<FloorMapRoute> &routes)
 {
-    Q_UNUSED(originalImage); // 서버 연동 전까지는 골라도 무시 — 대신 우리 평면도의 기존 결과를 쓴다
-
-    // 전광판 6개 — evac_routes.txt의 각 Start ID 그룹 첫 waypoint(=전광판 자기 위치)에서 그대로 옮김.
-    QVector<FloorMapMarker> displays = {
-        { 1, 60, 27 },
-        { 2, 38, 60 },
-        { 3, 32, 11 },
-        { 4, 23, 11 },
-        { 5, 20, 60 },
-        { 6, 1, 25 },
-    };
-    // 출구 4개 — 모든 Start의 같은 Exit ID 경로가 도착하는 좌표(경계선 위)로 확인.
-    QVector<FloorMapMarker> exits = {
-        { 1, 61, 48 },
-        { 2, 48, 0 },
-        { 3, 16, 61 },
-        { 4, 0, 22 },
-    };
-    // evac_routes.txt 24개 경로 그대로 — waypoint는 (y,x)로 적혀 있어 QPoint(x,y)로 뒤집어 옮김.
-    QVector<FloorMapRoute> routes = {
-        { 1, 1, { QPoint(27, 60), QPoint(27, 50), QPoint(38, 50), QPoint(38, 60), QPoint(48, 60), QPoint(48, 61) } },
-        { 1, 2, { QPoint(27, 60), QPoint(27, 48), QPoint(0, 48) } },
-        { 1, 3, { QPoint(27, 60), QPoint(27, 48), QPoint(33, 48), QPoint(33, 16), QPoint(61, 16) } },
-        { 1, 4, { QPoint(27, 60), QPoint(27, 48), QPoint(24, 48), QPoint(24, 46), QPoint(23, 46),
-                  QPoint(23, 1), QPoint(22, 1), QPoint(22, 0) } },
-        { 2, 1, { QPoint(60, 38), QPoint(60, 60), QPoint(48, 60), QPoint(48, 61) } },
-        { 2, 2, { QPoint(60, 38), QPoint(60, 48), QPoint(0, 48) } },
-        { 2, 3, { QPoint(60, 38), QPoint(60, 16), QPoint(61, 16) } },
-        { 2, 4, { QPoint(60, 38), QPoint(60, 13), QPoint(42, 13), QPoint(42, 10), QPoint(31, 10),
-                  QPoint(31, 1), QPoint(22, 1), QPoint(22, 0) } },
-        { 3, 1, { QPoint(11, 32), QPoint(11, 36), QPoint(13, 36), QPoint(13, 50), QPoint(38, 50),
-                  QPoint(38, 60), QPoint(48, 60), QPoint(48, 61) } },
-        { 3, 2, { QPoint(11, 32), QPoint(11, 36), QPoint(13, 36), QPoint(13, 48), QPoint(0, 48) } },
-        { 3, 3, { QPoint(11, 32), QPoint(11, 35), QPoint(13, 35), QPoint(13, 16), QPoint(61, 16) } },
-        { 3, 4, { QPoint(11, 32), QPoint(11, 35), QPoint(13, 35), QPoint(13, 15), QPoint(15, 15),
-                  QPoint(15, 13), QPoint(17, 13), QPoint(17, 1), QPoint(22, 1), QPoint(22, 0) } },
-        { 4, 1, { QPoint(11, 23), QPoint(11, 26), QPoint(13, 26), QPoint(13, 50), QPoint(38, 50),
-                  QPoint(38, 60), QPoint(48, 60), QPoint(48, 61) } },
-        { 4, 2, { QPoint(11, 23), QPoint(11, 26), QPoint(13, 26), QPoint(13, 48), QPoint(0, 48) } },
-        { 4, 3, { QPoint(11, 23), QPoint(11, 25), QPoint(13, 25), QPoint(13, 16), QPoint(61, 16) } },
-        { 4, 4, { QPoint(11, 23), QPoint(11, 25), QPoint(13, 25), QPoint(13, 15), QPoint(15, 15),
-                  QPoint(15, 13), QPoint(17, 13), QPoint(17, 1), QPoint(22, 1), QPoint(22, 0) } },
-        { 5, 1, { QPoint(60, 20), QPoint(60, 60), QPoint(48, 60), QPoint(48, 61) } },
-        { 5, 2, { QPoint(60, 20), QPoint(60, 48), QPoint(0, 48) } },
-        { 5, 3, { QPoint(60, 20), QPoint(60, 16), QPoint(61, 16) } },
-        { 5, 4, { QPoint(60, 20), QPoint(60, 13), QPoint(42, 13), QPoint(42, 10), QPoint(31, 10),
-                  QPoint(31, 1), QPoint(22, 1), QPoint(22, 0) } },
-        { 6, 1, { QPoint(25, 1), QPoint(25, 21), QPoint(33, 21), QPoint(33, 50), QPoint(38, 50),
-                  QPoint(38, 60), QPoint(48, 60), QPoint(48, 61) } },
-        { 6, 2, { QPoint(25, 1), QPoint(25, 21), QPoint(24, 21), QPoint(24, 43), QPoint(23, 43),
-                  QPoint(23, 48), QPoint(0, 48) } },
-        { 6, 3, { QPoint(25, 1), QPoint(25, 16), QPoint(61, 16) } },
-        { 6, 4, { QPoint(25, 1), QPoint(22, 1), QPoint(22, 0) } },
-    };
-
-    gridWidget->setMapData(kGridSize, realFloorMapBitmap(), displays, exits, routes);
+    gridWidget->setMapData(gridSize, bitmap, displays, exits, routes);
 
     const bool wasConfigured = hasData;
     hasData = true;
@@ -344,3 +264,38 @@ void FloorMapPage::applyPrecomputedConversion(const QImage &originalImage)
     if (!wasConfigured)
         emit configuredChanged(true);
 }
+
+void FloorMapPage::onUploadResult(bool ok, const QString &reason, int gridSize, const QVector<QVector<int>> &bitmap,
+                                   const QVector<FloorMapMarker> &displays, const QVector<FloorMapMarker> &exits,
+                                   const QVector<FloorMapRoute> &routes)
+{
+    if (ok) {
+        applyServerData(gridSize, bitmap, displays, exits, routes); // 뒤에 깔린 평면도 탭도 바로 반영
+
+        // 자동으로 닫지 않고, 변환 결과를 다이얼로그 안에서 원본과 나란히 보여준다.
+        // 사용자가 "닫기"를 눌러야 accept() -> exec() 리턴으로 이어진다.
+        if (setupDialog) {
+            if (pickButton) pickButton->setEnabled(false);
+            if (applyButton) applyButton->setEnabled(false);
+            if (convertedPreviewGrid) {
+                convertedPreviewGrid->setMapData(gridSize, bitmap, displays, exits, routes);
+                if (convertedStack) convertedStack->setCurrentWidget(convertedPreviewGrid);
+            }
+            if (closeButton) closeButton->setVisible(true);
+        }
+        return;
+    }
+
+    if (!setupDialog)
+        return; // 다이얼로그를 이미 닫은 뒤 응답이 온 경우 — 화면엔 반영할 게 없으니 조용히 무시
+    setDialogBusy(false, QString("변환 실패: %1\n\n다른 이미지로 다시 시도해주세요.")
+                              .arg(reason.isEmpty() ? "알 수 없는 오류" : reason));
+}
+
+void FloorMapPage::onUploadTimedOut()
+{
+    if (!setupDialog)
+        return;
+    setDialogBusy(false, "응답 없음 — 서버 연결을 확인해주세요.");
+}
+
