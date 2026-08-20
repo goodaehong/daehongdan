@@ -35,6 +35,12 @@ public:
     // 거절 없음 — 켜는 방향은 막지 않는다. 실제 실행은 다음 tick의 update()
     void requestEmergency(bool on, const std::string& cause, const std::string& admin);
 
+    // 사태 번호는 메모리 카운터라 재시작하면 1부터 다시 나와 옛 로그와 겹친다.
+    // 서버 시작 시 DB의 마지막 번호를 넣어 그 다음부터 발급하게 한다
+    void setIncidentSeqStart(long lastId) {
+        if (lastId > incidentSeq_) incidentSeq_ = lastId;
+    }      
+
 private:
     static constexpr int WARN_TIMEOUT = 10;   // 무응답 자동 전환까지 (초)
 

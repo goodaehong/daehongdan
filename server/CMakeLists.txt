@@ -48,7 +48,8 @@ set(SERVER_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/alarm_state.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/qt_link.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/roi/roi_store.cpp 
-    ${CMAKE_CURRENT_SOURCE_DIR}/floormap/floormap_store.cpp        
+    ${CMAKE_CURRENT_SOURCE_DIR}/floormap/floormap_store.cpp    
+    ${CMAKE_CURRENT_SOURCE_DIR}/clip/clip_recorder.cpp        
     ${CMAKE_CURRENT_SOURCE_DIR}/audio/speaker_alert.cpp
 )
 
@@ -111,6 +112,7 @@ target_compile_definitions(server_main PRIVATE
     FLOORMAP_IMAGE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/floormap/uploaded_map.png"    
     FLOORMAP_JSON_PATH="${CMAKE_CURRENT_SOURCE_DIR}/floormap/floor_map.json"       
     SNAPSHOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/db/snapshots"
+    CLIP_DIR="${CMAKE_CURRENT_SOURCE_DIR}/db/clips"
     AUDIO_FILE="${CMAKE_CURRENT_SOURCE_DIR}/audio/evacuation_alert.wav"
     AUDIO_DEVICE="${SPEAKER_ALSA_DEVICE}"
     FIRE_ARUCO_CONFIG_PATH="${FIRE_CORE_DIR}/aruco_board_config.txt"
