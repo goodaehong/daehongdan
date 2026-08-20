@@ -54,11 +54,12 @@ public:
     // 걸리는 작업이라 control(3초)보다 타임아웃을 길게 둔다.
     QString sendSetFloorMap(const QByteArray &pngBytes);
 
-    // ArUco 좌표 보정 설정 저장. 반환값 cmdId로 arucoConfigAck 매칭.
-    QString sendSetArucoConfig(int channel, const ArucoChannelConfig &config);
-    // 해당 채널 Homography 보정 실행 요청(서버가 서브프로세스로 계산, 수십 초 걸릴 수 있음).
-    // 반환값 cmdId로 arucoCalibrationResult/arucoCalibrationTimedOut 매칭.
-    QString sendStartArucoCalibration(int channel);
+    // ArUco 보정 파일(배치도/렌즈보정/Homography) 재로드 요청 — 서버 재시작 없이 해당 채널
+    // 워커가 다음 프레임에 다시 읽는다(PR #65). cmdId가 없는 프로토콜이라 channel로만 매칭—
+    // reload_calibration_result는 "접수했다"는 응답일 뿐, 실제 완료 여부는 calib_status를
+    // 다시 조회해서 확인해야 한다. 좌표 설정 자체(aruco_board_config.txt 등)는 Qt가 아니라
+    // 여전히 SSH로 수동 작성한다 — Qt는 상태 조회 + 재로드만 담당.
+    void sendReloadCalibration(int channel);
 
 signals:
     void connectionStateChanged(bool connected);
@@ -121,17 +122,11 @@ signals:
                            const QVector<FloorMapMarker> &displays, const QVector<FloorMapMarker> &exits,
                            const QVector<FloorMapRoute> &routes);
 
-    // set_aruco_config 응답. reason은 실패했을 때만 채워진다.
-    void arucoConfigAck(const QString &cmdId, int channel, bool ok, const QString &reason);
-    // query target=aruco_config 응답. config.configured가 false면 저장된 설정 없음.
-    void arucoConfigReceived(int channel, const ArucoChannelConfig &config);
-    // query target=aruco_status 응답 — 4채널 전부 한 번에.
-    void arucoStatusReceived(const QVector<ArucoChannelStatus> &channels);
-    // start_aruco_calibration 응답(aruco_calibration_result). ok=false면 accepted/detected/rms는
-    // 의미 없음. detected는 v1 기준 "개수만"(어떤 ID인지는 아직 서버가 안 줌).
-    void arucoCalibrationResult(const QString &cmdId, int channel, bool ok, const QString &reason,
-                                 int acceptedMarkers, int detectedMarkers, double rmsPx);
-    void arucoCalibrationTimedOut(const QString &cmdId, int channel);
+    // query target=calib_status 응답 — 4채널 보정 단계 전부 한 번에(PR #65).
+    void calibStatusReceived(const QVector<CalibChannelStatus> &channels);
+    // reload_calibration 응답. accepted=true는 "접수됐다"는 뜻일 뿐 완료가 아니다 —
+    // 실제로 다 됐는지는 이후 calibStatusReceived로 다시 확인해야 한다.
+    void calibReloadResult(int channel, bool accepted, const QString &reason);
 
     // query target=clip 응답. result: "ok"(data에 mp4 바이트) / "empty"(아직 저장 중,
     // 이벤트 후 약 15초 이내) / "error". ok가 아니면 data는 비어있다.
@@ -156,8 +151,6 @@ private:
     QMap<QString, QTimer *> pendingEmergencyCommands;
     // 평면도 업로드도 별개 맵 — UI가 한 번에 하나만 올리게 막지만, cmdId 매칭 규칙은 동일하게 맞춘다.
     QMap<QString, QTimer *> pendingFloorMapUploads;
-    // ArUco 보정도 서버가 수십 초 걸릴 수 있는 서브프로세스라 별도 타임아웃 관리.
-    QMap<QString, QTimer *> pendingArucoCalibrations;
     int cmdCounter = 0;
 };
 

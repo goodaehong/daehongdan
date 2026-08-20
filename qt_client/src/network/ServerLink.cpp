@@ -12,10 +12,6 @@ namespace {
 constexpr int kControlTimeoutMs = 3000;
 // 이미지 저장 + EvacPlanner 변환까지 걸리는 작업이라 control보다 넉넉하게 잡는다.
 constexpr int kFloorMapUploadTimeoutMs = 15000;
-// 서버가 최대 900프레임(대략 실시간 스트림 기준 수십 초)까지 기다렸다 판단하므로
-// 넉넉하게 잡는다 — 이 타임아웃은 "뭔가 완전히 멎었다"를 잡는 안전장치일 뿐,
-// 정상적으로는 서버의 aruco_calibration_result가 그 전에 먼저 온다.
-constexpr int kArucoCalibrationTimeoutMs = 120000;
 
 // RoiRegion -> set_ignore_regions의 regions[] 원소. points는 [[x,y],...] (0~1 정규화).
 QJsonArray roiRegionsToJson(const QVector<RoiRegion> &regions)
@@ -121,72 +117,27 @@ QVector<FloorMapRoute> floorMapRoutesFromJson(const QJsonArray &arr)
     return routes;
 }
 
-// set_aruco_config 전송용. markers[]는 서버 필드명(id/x/y/sizeM)과 1:1 대응, rotationDeg는
-// 항상 0 고정(재환님 확정안 #6 — OpenCV 자동 판별 사용, Qt는 기본값만 보냄).
-QJsonArray arucoMarkersToJson(const QVector<ArucoMarkerInput> &markers)
+// query_result(target=calib_status)의 channels[] -> CalibChannelStatus 벡터
+// (server/calib/calib_store.cpp의 CalibStore_ToJson()과 1:1 대응, PR #65).
+QVector<CalibChannelStatus> calibStatusListFromJson(const QJsonArray &arr)
 {
-    QJsonArray arr;
-    for (const ArucoMarkerInput &m : markers) {
-        QJsonObject o;
-        o["id"] = m.id;
-        o["x"] = m.x;
-        o["y"] = m.y;
-        o["sizeM"] = m.sizeM;
-        o["rotationDeg"] = 0;
-        arr.append(o);
-    }
-    return arr;
-}
-
-// query_result(target=aruco_config) -> ArucoChannelConfig.
-ArucoChannelConfig arucoConfigFromJson(const QJsonObject &obj)
-{
-    ArucoChannelConfig cfg;
-    cfg.configured = obj.value("configured").toBool(false);
-    if (!cfg.configured)
-        return cfg;
-    cfg.factoryMinX = obj.value("factoryMinX").toDouble();
-    cfg.factoryMinY = obj.value("factoryMinY").toDouble();
-    cfg.factoryMaxX = obj.value("factoryMaxX").toDouble(60);
-    cfg.factoryMaxY = obj.value("factoryMaxY").toDouble(60);
-    cfg.modelScale = obj.value("modelScale").toDouble(50);
-    cfg.boardMinX = obj.value("boardMinX").toDouble();
-    cfg.boardMinY = obj.value("boardMinY").toDouble();
-    cfg.boardMaxX = obj.value("boardMaxX").toDouble();
-    cfg.boardMaxY = obj.value("boardMaxY").toDouble();
-    for (const QJsonValue &v : obj.value("markers").toArray()) {
-        const QJsonObject m = v.toObject();
-        ArucoMarkerInput marker;
-        marker.id = m.value("id").toInt();
-        marker.x = m.value("x").toDouble();
-        marker.y = m.value("y").toDouble();
-        marker.sizeM = m.value("sizeM").toDouble(0.04);
-        cfg.markers.append(marker);
-    }
-    return cfg;
-}
-
-// query_result(target=aruco_status)의 channels[] -> ArucoChannelStatus 벡터.
-QVector<ArucoChannelStatus> arucoStatusListFromJson(const QJsonArray &arr)
-{
-    QVector<ArucoChannelStatus> out;
+    QVector<CalibChannelStatus> out;
     for (const QJsonValue &v : arr) {
         const QJsonObject o = v.toObject();
-        ArucoChannelStatus s;
+        CalibChannelStatus s;
         s.channel = o.value("channel").toInt();
-        s.configured = o.value("configured").toBool();
-        s.markerCount = o.value("markerCount").toInt();
-        s.homographyExists = o.value("homographyExists").toBool();
-        s.calibrating = o.value("calibrating").toBool();
-        const QJsonValue lastResult = o.value("lastResult");
-        if (lastResult.isObject()) {
-            const QJsonObject r = lastResult.toObject();
-            s.hasLastResult = true;
-            s.lastOk = r.value("ok").toBool();
-            s.lastReason = r.value("reason").toString();
-            s.lastAcceptedMarkers = r.value("acceptedMarkers").toInt();
-            s.lastDetectedMarkers = r.value("detectedMarkers").toInt();
-            s.lastRmsPx = r.value("rmsPx").toDouble();
+        s.stage = o.value("stage").toString();
+        s.ready = o.value("ready").toBool();
+        s.hint = o.value("hint").toString();
+        s.detail = o.value("detail").toString();
+        // 좌표 계산기가 도는 채널에서만 서버가 이 필드들을 아예 보낸다 — contains()로 구분.
+        s.hasLive = o.contains("detectedMarkers");
+        if (s.hasLive) {
+            s.detectedMarkers = o.value("detectedMarkers").toInt();
+            s.acceptedMarkers = o.value("acceptedMarkers").toInt();
+            s.errorPx = o.value("errorPx").toDouble();
+            s.lensApplied = o.value("lensApplied").toBool();
+            s.staticHomography = o.value("staticHomography").toBool();
         }
         out.append(s);
     }
@@ -357,49 +308,13 @@ QString ServerLink::sendSetFloorMap(const QByteArray &pngBytes)
     return cmdId;
 }
 
-QString ServerLink::sendSetArucoConfig(int channel, const ArucoChannelConfig &config)
+void ServerLink::sendReloadCalibration(int channel)
 {
-    const QString cmdId = generateCmdId();
-
+    // 서버 프로토콜에 cmdId가 없다(PR #65) — reload_calibration_result가 channel로만 옴.
     QJsonObject obj;
-    obj["type"] = "set_aruco_config";
-    obj["cmdId"] = cmdId;
-    obj["channel"] = channel;
-    obj["factoryMinX"] = config.factoryMinX;
-    obj["factoryMinY"] = config.factoryMinY;
-    obj["factoryMaxX"] = config.factoryMaxX;
-    obj["factoryMaxY"] = config.factoryMaxY;
-    obj["modelScale"] = config.modelScale;
-    obj["boardMinX"] = config.boardMinX;
-    obj["boardMinY"] = config.boardMinY;
-    obj["boardMaxX"] = config.boardMaxX;
-    obj["boardMaxY"] = config.boardMaxY;
-    obj["markers"] = arucoMarkersToJson(config.markers);
-    sendLine(obj);
-
-    return cmdId;
-}
-
-QString ServerLink::sendStartArucoCalibration(int channel)
-{
-    const QString cmdId = generateCmdId();
-
-    QJsonObject obj;
-    obj["type"] = "start_aruco_calibration";
-    obj["cmdId"] = cmdId;
+    obj["type"] = "reload_calibration";
     obj["channel"] = channel;
     sendLine(obj);
-
-    auto *timer = new QTimer(this);
-    timer->setSingleShot(true);
-    connect(timer, &QTimer::timeout, this, [this, cmdId, channel]() {
-        if (pendingArucoCalibrations.remove(cmdId) > 0)
-            emit arucoCalibrationTimedOut(cmdId, channel);
-    });
-    pendingArucoCalibrations.insert(cmdId, timer);
-    timer->start(kArucoCalibrationTimeoutMs);
-
-    return cmdId;
 }
 
 void ServerLink::sendFalseAlarmReport(int channel, int frameId, const QString &admin)
@@ -542,29 +457,16 @@ void ServerLink::handleLine(const QByteArray &line)
                                    floorMapMarkersFromJson(obj.value("displays").toArray()),
                                    floorMapMarkersFromJson(obj.value("exits").toArray()),
                                    floorMapRoutesFromJson(obj.value("routes").toArray()));
-    } else if (type == "aruco_config_result") {
-        emit arucoConfigAck(obj.value("cmdId").toString(), obj.value("channel").toInt(),
-                             obj.value("result").toString() == "ok", obj.value("reason").toString());
-    } else if (type == "aruco_calibration_result") {
-        const QString cmdId = obj.value("cmdId").toString();
-        QTimer *timer = pendingArucoCalibrations.take(cmdId);
-        if (!timer)
-            return; // 이미 타임아웃 처리됐거나 중복 응답 -> 무시
-        timer->stop();
-        timer->deleteLater();
-        const bool ok = obj.value("result").toString() == "ok";
-        emit arucoCalibrationResult(cmdId, obj.value("channel").toInt(), ok,
-                                     obj.value("reason").toString(),
-                                     obj.value("acceptedMarkers").toInt(),
-                                     obj.value("detectedMarkers").toInt(),
-                                     obj.value("rmsPx").toDouble());
+    } else if (type == "reload_calibration_result") {
+        // cmdId가 없는 프로토콜 — channel로만 구분(PR #65). accepted일 뿐 완료 여부는 아님.
+        emit calibReloadResult(obj.value("channel").toInt(),
+                                obj.value("result").toString() == "accepted",
+                                obj.value("reason").toString());
     } else if (type == "query_result") {
         const QString reqId = obj.value("reqId").toString();
         const QString target = obj.value("target").toString();
-        if (target == "aruco_config") {
-            emit arucoConfigReceived(obj.value("channel").toInt(), arucoConfigFromJson(obj));
-        } else if (target == "aruco_status") {
-            emit arucoStatusReceived(arucoStatusListFromJson(obj.value("channels").toArray()));
+        if (target == "calib_status") {
+            emit calibStatusReceived(calibStatusListFromJson(obj.value("channels").toArray()));
         } else if (target == "ignore_regions") {
             // event_log/sensor_log와 달리 rows 배열로 안 오고 channel/regions가 바로 최상위에 있다
             // (접속 직후 push는 reqId 자체가 없음 — Qt는 push든 query 응답이든 구분 없이 반영한다).

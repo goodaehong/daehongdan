@@ -2,23 +2,21 @@
 #define ARUCOCALIBRATIONDIALOG_H
 
 #include <QDialog>
+#include <QVector>
 #include "../core/ArucoTypes.h"
 
-class QComboBox;
-class QDoubleSpinBox;
 class QTableWidget;
 class QPushButton;
 class QLabel;
+class QTimer;
 class ServerLink;
 
-// 관리자 전용 "카메라 좌표 보정" 화면. 재환님 확정안 그대로:
-// Qt는 입력/상태표시만, 검증·파일저장·Homography 계산은 전부 서버가 한다.
-// v1 범위: 마커 ID 자동검색 없음(직접 입력), 마커 방향은 항상 기본값(0, 서버가 자동판별),
-// 진행률 표시 없음("보정 중..." 텍스트로 대체), 검출 마커는 ID 목록 아니라 개수만 표시.
+// 관리자 전용 "카메라 좌표 보정 상태" 화면 (PR #65 기준으로 재작성, 2026-08-20).
 //
-// 참고(2026-08-20): 서버가 이 설정을 실시간 감지에 실제로 적용하는 배선(worker() 쪽
-// 자동 로드/핫스왑)은 아직 없음(별도 작업 중). 저장·보정까지는 정상 동작하지만
-// 그 결과가 화재감지에 반영되는 건 그 작업이 끝난 뒤부터다.
+// 실제 서버 범위는 애초 확정안보다 좁다 — Qt는 상태 조회 + 재로드 요청만 하고,
+// 좌표 설정 자체(aruco_board_config.txt 작성)는 여전히 SSH로 수동 작업한다.
+// (예전엔 Qt에서 좌표를 입력해 저장하는 화면을 만들었었는데, 그 프로토콜을 서버가
+// 구현하지 않아서 걷어내고 이 화면으로 교체함.)
 class ArucoCalibrationDialog : public QDialog
 {
     Q_OBJECT
@@ -27,46 +25,22 @@ public:
     explicit ArucoCalibrationDialog(ServerLink *serverLink, QWidget *parent = nullptr);
 
 private slots:
-    void onChannelChanged(int index);
-    void onLoadClicked();
-    void onSaveClicked();
-    void onCalibrateClicked();
-    void onAddMarkerRow();
-    void onRemoveSelectedMarkerRow();
+    void onRefreshClicked();
+    void onReloadClicked(int channel);
 
-    void onArucoConfigReceived(int channel, const ArucoChannelConfig &config);
-    void onArucoConfigAck(const QString &cmdId, int channel, bool ok, const QString &reason);
-    void onArucoStatusReceived(const QVector<ArucoChannelStatus> &channels);
-    void onArucoCalibrationResult(const QString &cmdId, int channel, bool ok, const QString &reason,
-                                   int acceptedMarkers, int detectedMarkers, double rmsPx);
-    void onArucoCalibrationTimedOut(const QString &cmdId, int channel);
+    void onCalibStatusReceived(const QVector<CalibChannelStatus> &channels);
+    void onCalibReloadResult(int channel, bool accepted, const QString &reason);
 
 private:
-    int currentChannel() const;
-    void applyConfigToForm(const ArucoChannelConfig &config);
-    ArucoChannelConfig collectConfigFromForm() const;
-    void setBusy(bool busy, const QString &statusText);
+    void requestStatus();
 
     ServerLink *serverLink;
 
-    QComboBox *channelCombo = nullptr;
-    QPushButton *loadButton = nullptr;
-    QPushButton *saveButton = nullptr;
-    QPushButton *calibrateButton = nullptr;
-
-    QDoubleSpinBox *factoryMinXSpin = nullptr, *factoryMinYSpin = nullptr;
-    QDoubleSpinBox *factoryMaxXSpin = nullptr, *factoryMaxYSpin = nullptr;
-    QDoubleSpinBox *modelScaleSpin = nullptr;
-    QDoubleSpinBox *boardMinXSpin = nullptr, *boardMinYSpin = nullptr;
-    QDoubleSpinBox *boardMaxXSpin = nullptr, *boardMaxYSpin = nullptr;
-    QDoubleSpinBox *commonMarkerSizeSpin = nullptr;
-
-    QTableWidget *markerTable = nullptr;
+    QPushButton *refreshButton = nullptr;
     QLabel *statusLabel = nullptr;
-    QTableWidget *channelStatusTable = nullptr;
-
-    QString pendingSaveCmdId;
-    QString pendingCalibrationCmdId;
+    QTableWidget *table = nullptr;
+    // 재로드는 완료 응답이 없어서(접수만 옴), 몇 초 뒤 자동으로 다시 조회해서 반영한다.
+    QTimer *autoRefreshTimer = nullptr;
 };
 
 #endif // ARUCOCALIBRATIONDIALOG_H
