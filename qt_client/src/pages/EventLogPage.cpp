@@ -18,6 +18,12 @@
 #include <QTimeEdit>
 #include <QAbstractSpinBox>
 #include <QTextCharFormat>
+#include <QDesktopServices>
+#include <QStandardPaths>
+#include <QDir>
+#include <QFile>
+#include <QUrl>
+#include <QMessageBox>
 #include <QTimer>
 #include <QMap>
 
@@ -306,17 +312,26 @@ EventLogPage::EventLogPage(QWidget *parent)
     addDetailRow("지속 시간", &detailDurationValue);
 
     detailLayout->addSpacing(8);
-    auto *snapshotLabel = new QLabel("연관 영상 스냅샷", detailContent);
+    auto *snapshotLabel = new QLabel("연관 영상 스냅샷 (사고 전 3초 + 후 10초)", detailContent);
     snapshotLabel->setStyleSheet(QString("color:%1;").arg(kTextSecondary));
     detailLayout->addWidget(snapshotLabel);
     auto *snapshotBox = new QFrame(detailContent);
     snapshotBox->setFixedHeight(110);
     snapshotBox->setStyleSheet("background-color:#0d0d16; border:1px dashed #333;");
     auto *snapshotBoxLayout = new QVBoxLayout(snapshotBox);
-    auto *snapshotText = new QLabel("스냅샷 없음", snapshotBox);
-    snapshotText->setAlignment(Qt::AlignCenter);
-    snapshotText->setStyleSheet(QString("color:%1; border:none;").arg(kTextSecondary));
-    snapshotBoxLayout->addWidget(snapshotText);
+    clipStatusLabel = new QLabel("스냅샷 없음", snapshotBox);
+    clipStatusLabel->setAlignment(Qt::AlignCenter);
+    clipStatusLabel->setWordWrap(true);
+    clipStatusLabel->setStyleSheet(QString("color:%1; border:none;").arg(kTextSecondary));
+    snapshotBoxLayout->addWidget(clipStatusLabel);
+    clipPlayButton = new QPushButton("▶ 재생", snapshotBox);
+    clipPlayButton->setCursor(Qt::PointingHandCursor);
+    clipPlayButton->setStyleSheet(QString(
+        "QPushButton { background-color:%1; color:white; border:none; border-radius:6px; padding:6px 14px; }"
+        "QPushButton:hover { background-color:#7c6ce8; }").arg(kAccent));
+    clipPlayButton->setVisible(false);
+    connect(clipPlayButton, &QPushButton::clicked, this, &EventLogPage::onPlayClipClicked);
+    snapshotBoxLayout->addWidget(clipPlayButton, 0, Qt::AlignCenter);
     detailLayout->addWidget(snapshotBox);
 
     detailLayout->addSpacing(8);
@@ -454,6 +469,8 @@ void EventLogPage::loadEntriesFromServer(const QJsonArray &rows)
         const double durationMs = row.value("durationMs").toDouble();
         entry.duration = durationMs > 0 ? formatDuration(qint64(durationMs / 1000.0 + 0.5)) : "-";
 
+        entry.clipPath = row.value("clipPath").toString();
+
         appendRow(entry);
     }
 
@@ -518,6 +535,71 @@ void EventLogPage::showDetail(int row, int)
     detailResponseValue->setText(entry.response);
     detailStatusValue->setText(entry.status);
     detailDurationValue->setText(entry.duration);
+
+    // 클립은 이벤트 후 약 15초는 지나야 저장이 끝난다 — 경고/위험/비상류가 아니면(수동제어 등)
+    // 애초에 clipPath 자체가 안 옴. 두 경우 다 문구만 다르게 안내.
+    pendingClipReqId.clear();
+    if (entry.clipPath.isEmpty()) {
+        clipPlayButton->setVisible(false);
+        clipStatusLabel->setVisible(true);
+        clipStatusLabel->setText("스냅샷 없음");
+    } else {
+        clipStatusLabel->setVisible(false);
+        clipPlayButton->setVisible(true);
+        clipPlayButton->setEnabled(true);
+        clipPlayButton->setText("▶ 재생");
+    }
+}
+
+void EventLogPage::onPlayClipClicked()
+{
+    if (selectedEventRow < 0 || selectedEventRow >= eventEntries.size())
+        return;
+    const QString path = eventEntries[selectedEventRow].clipPath;
+    if (path.isEmpty())
+        return;
+    clipPlayButton->setEnabled(false);
+    clipPlayButton->setText("불러오는 중...");
+    emit clipPlayRequested(path);
+}
+
+void EventLogPage::trackClipRequest(const QString &reqId)
+{
+    pendingClipReqId = reqId;
+}
+
+void EventLogPage::onClipReceived(const QString &reqId, const QString &result, const QByteArray &data)
+{
+    if (reqId != pendingClipReqId)
+        return;   // 이미 다른 행을 클릭해서 이 응답은 더 이상 유효하지 않음
+    pendingClipReqId.clear();
+
+    clipPlayButton->setEnabled(true);
+    clipPlayButton->setText("▶ 재생");
+
+    if (result == "empty") {
+        clipPlayButton->setVisible(false);
+        clipStatusLabel->setVisible(true);
+        clipStatusLabel->setText("아직 저장 중입니다 (이벤트 발생 후 약 15초 소요) — 잠시 후 다시 시도해주세요.");
+        return;
+    }
+    if (result != "ok" || data.isEmpty()) {
+        QMessageBox::warning(this, "클립 재생 실패", "서버에서 클립을 가져오지 못했습니다.");
+        return;
+    }
+
+    // 서버가 매번 base64로 다시 보내주므로 로컬엔 캐시하지 않고 그때그때 임시파일로 저장 후
+    // OS 기본 플레이어로 연다 — 별도 인앱 플레이어 없이 "재생 버튼" 요구사항을 충족.
+    const QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/safevision_clips";
+    QDir().mkpath(tempDir);
+    const QString filePath = tempDir + "/" + QString::number(QDateTime::currentMSecsSinceEpoch()) + ".mp4";
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly) || file.write(data) < 0) {
+        QMessageBox::warning(this, "클립 재생 실패", "임시 파일 저장에 실패했습니다.");
+        return;
+    }
+    file.close();
+    QDesktopServices::openUrl(QUrl::fromLocalFile(filePath));
 }
 
 void EventLogPage::markFalseAlarm()

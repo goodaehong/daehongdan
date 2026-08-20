@@ -8,6 +8,7 @@
 #include <QSslError>
 #include "../core/DetectionTypes.h"
 #include "../core/FloorMapTypes.h"
+#include "../core/ArucoTypes.h"
 
 class QSslSocket;
 class QTimer;
@@ -52,6 +53,13 @@ public:
     // floorMapUploadResult/floorMapUploadTimedOut 매칭. 이미지 저장 + EvacPlanner 변환까지
     // 걸리는 작업이라 control(3초)보다 타임아웃을 길게 둔다.
     QString sendSetFloorMap(const QByteArray &pngBytes);
+
+    // ArUco 보정 파일(배치도/렌즈보정/Homography) 재로드 요청 — 서버 재시작 없이 해당 채널
+    // 워커가 다음 프레임에 다시 읽는다(PR #65). cmdId가 없는 프로토콜이라 channel로만 매칭—
+    // reload_calibration_result는 "접수했다"는 응답일 뿐, 실제 완료 여부는 calib_status를
+    // 다시 조회해서 확인해야 한다. 좌표 설정 자체(aruco_board_config.txt 등)는 Qt가 아니라
+    // 여전히 SSH로 수동 작성한다 — Qt는 상태 조회 + 재로드만 담당.
+    void sendReloadCalibration(int channel);
 
 signals:
     void connectionStateChanged(bool connected);
@@ -113,6 +121,16 @@ signals:
     void floorMapReceived(bool available, int gridSize, const QVector<QVector<int>> &bitmap,
                            const QVector<FloorMapMarker> &displays, const QVector<FloorMapMarker> &exits,
                            const QVector<FloorMapRoute> &routes);
+
+    // query target=calib_status 응답 — 4채널 보정 단계 전부 한 번에(PR #65).
+    void calibStatusReceived(const QVector<CalibChannelStatus> &channels);
+    // reload_calibration 응답. accepted=true는 "접수됐다"는 뜻일 뿐 완료가 아니다 —
+    // 실제로 다 됐는지는 이후 calibStatusReceived로 다시 확인해야 한다.
+    void calibReloadResult(int channel, bool accepted, const QString &reason);
+
+    // query target=clip 응답. result: "ok"(data에 mp4 바이트) / "empty"(아직 저장 중,
+    // 이벤트 후 약 15초 이내) / "error". ok가 아니면 data는 비어있다.
+    void clipReceived(const QString &reqId, const QString &result, const QByteArray &data);
 
 private slots:
     void onReadyRead();

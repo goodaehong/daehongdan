@@ -4,6 +4,7 @@
 #include "../pages/GraphPage.h"
 #include "../pages/HelpPage.h"
 #include "../pages/FloorMapPage.h"
+#include "../widgets/ArucoCalibrationDialog.h"
 #include "../network/ServerLink.h"
 #include "../widgets/WarningAlertDialog.h"
 #include "../widgets/DangerGlowOverlay.h"
@@ -26,7 +27,7 @@
 #include <QColor>
 
 namespace {
-const QString kMediaMtxHost = "172.20.32.41"; // MediaMTX가 도는 라즈베리파이 주소 (카메라 IP 아님)
+const QString kMediaMtxHost = "172.20.35.185"; // MediaMTX가 도는 라즈베리파이 주소 (카메라 IP 아님)
 // 감지/센서/제어 JSON 소켓 주소는 ServerConfig.h(ServerConfig::kServerHost/kServerPort)로 옮김 —
 // LoginPage.cpp가 따로 들고 있던 사본과 어긋나면서 "서버 켜져 있는데 로그인 화면에서 연결 실패로
 // 뜨는" 버그가 났던 적이 있어, 두 파일이 같은 상수를 참조하도록 단일화한다.
@@ -404,6 +405,17 @@ MainWindow::MainWindow(QWidget *parent)
                 serverLink->sendQuery("event_log", params);
             });
 
+    // 이벤트로그 상세 패널 "재생" — clipPath를 그대로 실어 서버에 clip을 요청하고,
+    // 반환된 reqId를 EventLogPage에 등록해서 나중에 그 응답인지 판별하게 한다(PR #63).
+    connect(eventLogPage, &EventLogPage::clipPlayRequested, this,
+            [this](const QString &path) {
+                QJsonObject params;
+                params["path"] = path;
+                const QString reqId = serverLink->sendQuery("clip", params);
+                eventLogPage->trackClipRequest(reqId);
+            });
+    connect(serverLink, &ServerLink::clipReceived, eventLogPage, &EventLogPage::onClipReceived);
+
     // sensor 메시지 흐름 감시(emergency-mode #19). 소켓은 붙어있어도 서버 내부(센서 스레드)가 멎으면
     // sensor가 안 오는데, connectionStateChanged만 보면 이 상태를 "연결됨"으로 잘못 표시하게 된다.
     sensorWatchdogTimer = new QTimer(this);
@@ -530,6 +542,18 @@ QWidget *MainWindow::createTopBar()
     connBadge = new QLabel("<span style='color:#6b7280;'>●</span> 서버 연결 확인 중...", bar);
     connBadge->setStyleSheet(QString("color:%1; font-size:14px;").arg(kTextSecondary));
     layout->addWidget(connBadge);
+
+    // 관리자 전용 카메라 좌표 보정 화면. 자주 안 쓰는 설치 작업이라 로그아웃 버튼 옆에
+    // 눈에 띄지 않는 자리로 둔다(재환님 확정안 — Qt는 입력/상태표시만, 서버가 계산).
+    auto *arucoBtn = new QPushButton("카메라 좌표 보정", bar);
+    arucoBtn->setFlat(true);
+    arucoBtn->setStyleSheet(QString("color:%1; background:transparent; border:none; font-size:14px;").arg(kTextSecondary));
+    connect(arucoBtn, &QPushButton::clicked, this, [this]() {
+        auto *dialog = new ArucoCalibrationDialog(serverLink, this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->exec();
+    });
+    layout->addWidget(arucoBtn);
 
     auto *logoutBtn = new QPushButton("관리자모드 로그아웃", bar);
     logoutBtn->setFlat(true);

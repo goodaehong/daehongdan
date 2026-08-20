@@ -116,6 +116,33 @@ QVector<FloorMapRoute> floorMapRoutesFromJson(const QJsonArray &arr)
     }
     return routes;
 }
+
+// query_result(target=calib_status)의 channels[] -> CalibChannelStatus 벡터
+// (server/calib/calib_store.cpp의 CalibStore_ToJson()과 1:1 대응, PR #65).
+QVector<CalibChannelStatus> calibStatusListFromJson(const QJsonArray &arr)
+{
+    QVector<CalibChannelStatus> out;
+    for (const QJsonValue &v : arr) {
+        const QJsonObject o = v.toObject();
+        CalibChannelStatus s;
+        s.channel = o.value("channel").toInt();
+        s.stage = o.value("stage").toString();
+        s.ready = o.value("ready").toBool();
+        s.hint = o.value("hint").toString();
+        s.detail = o.value("detail").toString();
+        // 좌표 계산기가 도는 채널에서만 서버가 이 필드들을 아예 보낸다 — contains()로 구분.
+        s.hasLive = o.contains("detectedMarkers");
+        if (s.hasLive) {
+            s.detectedMarkers = o.value("detectedMarkers").toInt();
+            s.acceptedMarkers = o.value("acceptedMarkers").toInt();
+            s.errorPx = o.value("errorPx").toDouble();
+            s.lensApplied = o.value("lensApplied").toBool();
+            s.staticHomography = o.value("staticHomography").toBool();
+        }
+        out.append(s);
+    }
+    return out;
+}
 }
 
 ServerLink::ServerLink(QObject *parent)
@@ -281,6 +308,15 @@ QString ServerLink::sendSetFloorMap(const QByteArray &pngBytes)
     return cmdId;
 }
 
+void ServerLink::sendReloadCalibration(int channel)
+{
+    // 서버 프로토콜에 cmdId가 없다(PR #65) — reload_calibration_result가 channel로만 옴.
+    QJsonObject obj;
+    obj["type"] = "reload_calibration";
+    obj["channel"] = channel;
+    sendLine(obj);
+}
+
 void ServerLink::sendFalseAlarmReport(int channel, int frameId, const QString &admin)
 {
     QJsonObject obj;
@@ -421,10 +457,17 @@ void ServerLink::handleLine(const QByteArray &line)
                                    floorMapMarkersFromJson(obj.value("displays").toArray()),
                                    floorMapMarkersFromJson(obj.value("exits").toArray()),
                                    floorMapRoutesFromJson(obj.value("routes").toArray()));
+    } else if (type == "reload_calibration_result") {
+        // cmdId가 없는 프로토콜 — channel로만 구분(PR #65). accepted일 뿐 완료 여부는 아님.
+        emit calibReloadResult(obj.value("channel").toInt(),
+                                obj.value("result").toString() == "accepted",
+                                obj.value("reason").toString());
     } else if (type == "query_result") {
         const QString reqId = obj.value("reqId").toString();
         const QString target = obj.value("target").toString();
-        if (target == "ignore_regions") {
+        if (target == "calib_status") {
+            emit calibStatusReceived(calibStatusListFromJson(obj.value("channels").toArray()));
+        } else if (target == "ignore_regions") {
             // event_log/sensor_log와 달리 rows 배열로 안 오고 channel/regions가 바로 최상위에 있다
             // (접속 직후 push는 reqId 자체가 없음 — Qt는 push든 query 응답이든 구분 없이 반영한다).
             emit ignoreRegionsReceived(obj.value("channel").toInt(),
@@ -438,6 +481,13 @@ void ServerLink::handleLine(const QByteArray &line)
                                    floorMapMarkersFromJson(obj.value("displays").toArray()),
                                    floorMapMarkersFromJson(obj.value("exits").toArray()),
                                    floorMapRoutesFromJson(obj.value("routes").toArray()));
+        } else if (target == "clip") {
+            // result: "ok"/"empty"/"error". data는 mp4 원본을 base64로 실은 것 — ok일 때만 채워짐.
+            const QString result = obj.value("result").toString();
+            const QByteArray data = (result == "ok")
+                ? QByteArray::fromBase64(obj.value("data").toString().toLatin1())
+                : QByteArray();
+            emit clipReceived(reqId, result, data);
         } else if (obj.value("result").toString() == "failed") {
             emit queryFailed(reqId, obj.value("reason").toString());
         } else {
