@@ -49,7 +49,8 @@ set(SERVER_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/qt_link.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/roi/roi_store.cpp 
     ${CMAKE_CURRENT_SOURCE_DIR}/floormap/floormap_store.cpp    
-    ${CMAKE_CURRENT_SOURCE_DIR}/clip/clip_recorder.cpp        
+    ${CMAKE_CURRENT_SOURCE_DIR}/clip/clip_recorder.cpp       
+    ${CMAKE_CURRENT_SOURCE_DIR}/calib/calib_store.cpp 
     ${CMAKE_CURRENT_SOURCE_DIR}/audio/speaker_alert.cpp
 )
 

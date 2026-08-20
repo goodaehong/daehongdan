@@ -4,6 +4,7 @@
 #include "floormap/floormap_store.h"  
 #include "audio/speaker_alert.h" 
 #include "clip/clip_recorder.h" 
+#include "calib/calib_store.h" 
 #include <sstream>
 #include <iomanip>
 #include <iostream>
@@ -293,7 +294,34 @@ static std::string clipResult(const std::string& reqId, const std::string& path)
              << ",\"data\":\"" << data << "\"";
     oss << "}";
     return oss.str();
-}                                                            
+}                                  
+
+// query target="calib_status" 응답. 4채널 보정 단계 + 실시간 마커 수·오차     
+static std::string calibStatusResult(const std::string& reqId) {
+    std::ostringstream oss;
+    oss << "{\"type\":\"query_result\",\"reqId\":\"" << jsonEscape(reqId)
+        << "\",\"target\":\"calib_status\",\"result\":\"ok\","
+        << CalibStore_ToJson()
+        << ",\"ts\":" << std::time(nullptr) << "}";
+    return oss.str();
+}
+
+// 보정 파일 재로드 요청. 실제 로드는 해당 채널 워커가 다음 프레임에 수행한다.
+// 여기서는 "접수했다"만 답하고, 결과는 Qt가 calib_status로 다시 조회한다
+static void handleReloadCalibration(Link& link, const std::string& line) {
+    int ch = jsonInt(line, "channel", 0) - 1;
+    std::ostringstream oss;
+    oss << "{\"type\":\"reload_calibration_result\",\"channel\":" << (ch + 1);
+    if (ch < 0 || ch >= 4) {
+        oss << ",\"result\":\"error\",\"reason\":\"채널 범위 초과\"";
+    } else {
+        CalibStore_RequestReload(ch);
+        std::cout << "[좌표] cam" << ch + 1 << " 재로드 요청 접수\n";
+        oss << ",\"result\":\"accepted\"";
+    }
+    oss << ",\"ts\":" << std::time(nullptr) << "}";
+    link.send(oss.str());
+}                                                                             
 
 // ── 수신 스레드: Qt→서버 방향 ──
 // \n 프레이밍·대기는 Link가 처리하므로 여기선 한 줄씩 받아 라우팅만
@@ -311,7 +339,9 @@ void QtLink_RecvWorker(Link& link, AlarmState& alarm, Database& db) {
         else if (line.find("\"type\":\"set_ignore_regions\"") != std::string::npos)   
             handleSetIgnoreRegions(link, line);
         else if (line.find("\"type\":\"set_floor_map\"") != std::string::npos)        
-            handleSetFloorMap(link, line);                                           
+            handleSetFloorMap(link, line);                    
+        else if (line.find("\"type\":\"reload_calibration\"") != std::string::npos)   
+            handleReloadCalibration(link, line);                                                          
         else if (line.find("\"type\":\"query\"") != std::string::npos) {
             if (jsonStr(line, "target") == "ignore_regions")
                 link.send(ignoreRegionsResult(jsonInt(line, "channel", 1) - 1,
@@ -320,7 +350,9 @@ void QtLink_RecvWorker(Link& link, AlarmState& alarm, Database& db) {
                 link.send(floorMapResult(jsonStr(line, "reqId"))); 
             else if (jsonStr(line, "target") == "clip")                 
                 link.send(clipResult(jsonStr(line, "reqId"),
-                                     jsonStr(line, "path")));                               
+                                     jsonStr(line, "path")));    
+            else if (jsonStr(line, "target") == "calib_status")               
+                link.send(calibStatusResult(jsonStr(line, "reqId")));                            
 
             else
                 link.send(handleQuery(db, line));
