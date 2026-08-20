@@ -27,6 +27,7 @@ set(FIRE_CORE_SRC
     ${FIRE_CORE_DIR}/FlameDetector.cpp
     ${FIRE_CORE_DIR}/FireAlarmController.cpp
     ${FIRE_CORE_DIR}/FireDetectionRuntime.cpp
+    ${FIRE_CORE_DIR}/GridCoordinateMapper.cpp
     ${FIRE_CORE_DIR}/SmokeDetector.cpp
     ${FIRE_CORE_DIR}/SmokeDetectionRuntime.cpp
     ${FIRE_CORE_DIR}/PersonMetadataReceiver.cpp
@@ -37,11 +38,17 @@ set(DB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/db)
 set(DB_SRC ${DB_DIR}/Database.cpp
            ${DB_DIR}/query_handler.cpp)   
 
+# 대피경로 계산 (server/evac_map_tools). 데모용 server.cpp 는 main()이 있어 제외  
+set(EVAC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/evac_map_tools)
+set(EVAC_SRC ${EVAC_DIR}/EvacPlanner.cpp) 
+
 # 서버 모듈 (대홍)
 set(SERVER_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/judgement.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/alarm_state.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/qt_link.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/roi/roi_store.cpp 
+    ${CMAKE_CURRENT_SOURCE_DIR}/floormap/floormap_store.cpp        
     ${CMAKE_CURRENT_SOURCE_DIR}/audio/speaker_alert.cpp
 )
 
@@ -88,20 +95,27 @@ endif()
 add_executable(server_main
     server_main.cpp
     ${SERVER_SRC} ${SENSOR_SRC} ${ACTUATOR_SRC} ${DISPLAY_SRC} ${NET_SRC}
-    ${FIRE_CORE_SRC} ${DB_SRC})
+    ${FIRE_CORE_SRC} ${DB_SRC} ${EVAC_SRC}) 
 
 target_include_directories(server_main PRIVATE
     ${OpenCV_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}
-    ${FIRE_CORE_DIR} ${DB_DIR} ${SQLite3_INCLUDE_DIRS} ${STM_DISPLAY_PROTOCOL_DIR})
+    ${FIRE_CORE_DIR} ${DB_DIR} ${SQLite3_INCLUDE_DIRS} ${STM_DISPLAY_PROTOCOL_DIR}
+    ${EVAC_DIR})  
 
 target_link_libraries(server_main PRIVATE
     ${OpenCV_LIBS} Threads::Threads ${SQLite3_LIBRARIES})
 
 target_compile_definitions(server_main PRIVATE
     DB_PATH="${CMAKE_CURRENT_SOURCE_DIR}/db/factory.db"
+    ROI_CONFIG_PATH="${CMAKE_CURRENT_SOURCE_DIR}/roi/roi_config.json" 
+    FLOORMAP_IMAGE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/floormap/uploaded_map.png"    
+    FLOORMAP_JSON_PATH="${CMAKE_CURRENT_SOURCE_DIR}/floormap/floor_map.json"       
     SNAPSHOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/db/snapshots"
     AUDIO_FILE="${CMAKE_CURRENT_SOURCE_DIR}/audio/evacuation_alert.wav"
-    AUDIO_DEVICE="${SPEAKER_ALSA_DEVICE}")
+    AUDIO_DEVICE="${SPEAKER_ALSA_DEVICE}"
+    FIRE_ARUCO_CONFIG_PATH="${FIRE_CORE_DIR}/aruco_board_config.txt"
+    FIRE_CAMERA_CALIBRATION_DIR="${FIRE_CORE_DIR}"
+    FIRE_STATIC_HOMOGRAPHY_DIR="${FIRE_CORE_DIR}")
 
 if(ENABLE_TLS)
     find_package(OpenSSL REQUIRED)
