@@ -10,6 +10,7 @@
 #include <poll.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <cerrno>
 
 // 평문 TCP. Qt가 직접 접속(listen 모드). TLS 켜면 link_tls.cpp로 교체됨
 class PlainLink : public Link {
@@ -104,6 +105,13 @@ private:
                     continue;
                 }
                 buf.append(tmp, r);
+                if (buf.size() > MAX_LINE) {                                   
+                    std::cerr << "[링크] 수신 줄이 상한 초과 — 연결 끊음\n";
+                    std::lock_guard<std::mutex> lk(fdMtx_);
+                    ::close(clientfd_); clientfd_ = -1;
+                    buf.clear();
+                    continue;
+                }             
                 size_t pos;
                 while ((pos = buf.find('\n')) != std::string::npos) {
                     std::string line = buf.substr(0, pos);
@@ -133,13 +141,26 @@ private:
             std::lock_guard<std::mutex> lk(fdMtx_);
             if (clientfd_ < 0) continue;   // 아직 아무도 안 붙음 → 버림
             std::string out = line + "\n";
-            if (::send(clientfd_, out.data(), out.size(), MSG_NOSIGNAL) <= 0) {
-                ::close(clientfd_); clientfd_ = -1;
+            // send는 요청량보다 적게 보내고 돌아올 수 있다. 한 줄이 잘리면  
+            // 그 뒤 메시지 경계가 전부 어긋나므로 다 나갈 때까지 반복한다
+            size_t sent = 0;
+            bool ok = true;
+            while (sent < out.size()) {
+                ssize_t n = ::send(clientfd_, out.data() + sent,
+                                   out.size() - sent, MSG_NOSIGNAL);
+                if (n > 0) { sent += (size_t)n; continue; }
+                if (n < 0 && errno == EINTR) continue;   // 시그널 중단 → 재시도
+                ok = false;
+                break;
             }
+            if (!ok) {
+                ::close(clientfd_); clientfd_ = -1;
+            }                                                                  
         }
     }
 
     static constexpr size_t MAX_QUEUE = 1000;   // Qt 끊긴 채 무한히 쌓이는 것 방지
+    static constexpr size_t MAX_LINE = 8 * 1024 * 1024;   // 평면도 base64 여유분  
 
     int listenfd_ = -1;
     std::atomic<int> clientfd_{-1};

@@ -44,7 +44,8 @@
 
 # Kernel Module Compile Results
 *.mod*
-*.cmd
+# 커널 빌드의 숨김 명령 파일만 무시한다.
+.*.cmd
 .tmp_versions/
 modules.order
 Module.symvers
@@ -90,3 +91,20 @@ drivers/stm_uart_display/test_alert_uart
 # 스냅샷 이미지 (실행 중 생성되는 데이터)
 **/snapshots/
 **/snapshots/
+
+# ROI 설정 (현장마다 다름, 실행 중 생성)
+server/roi/roi_config.json
+
+# 평면도 (현장마다 다름, 실행 중 생성)
+server/floormap/uploaded_map.png
+server/floormap/floor_map.json
+
+# 현장마다 다시 생성되는 카메라/좌표 파일
+server/opencv/homography_ch*.yml
+server/opencv/homography_ch*.yml.bak
+server/opencv/homography_ch*.yml.*.bak
+server/opencv/aruco_board_config.txt.*.bak
+server/opencv/camera.env
+**/out/
+**/bin/
+**/obj/

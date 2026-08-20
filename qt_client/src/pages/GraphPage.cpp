@@ -35,7 +35,7 @@ GraphPage::GraphPage(QWidget *parent)
 
     auto *gasCol = new QVBoxLayout;
     gasTitleLabel = new QLabel(this);
-    gasTitleLabel->setStyleSheet(QString("color:%1; font-size:20px; font-weight:bold;").arg(kTextPrimary));
+    gasTitleLabel->setStyleSheet(QString("color:%1; font-size:20px; font-weight:bold; font-family:\"hanwhaGothic EL\";").arg(kTextPrimary));
     gasCol->addWidget(gasTitleLabel);
     gasCol->addSpacing(8);
     gasGraph = new GasGraphWidget(this);
@@ -47,7 +47,7 @@ GraphPage::GraphPage(QWidget *parent)
 
     auto *smokeCol = new QVBoxLayout;
     smokeTitleLabel = new QLabel(this);
-    smokeTitleLabel->setStyleSheet(QString("color:%1; font-size:20px; font-weight:bold;").arg(kTextPrimary));
+    smokeTitleLabel->setStyleSheet(QString("color:%1; font-size:20px; font-weight:bold; font-family:\"hanwhaGothic EL\";").arg(kTextPrimary));
     smokeCol->addWidget(smokeTitleLabel);
     smokeCol->addSpacing(8);
     smokeGraph = new GasGraphWidget(this);
@@ -60,6 +60,24 @@ GraphPage::GraphPage(QWidget *parent)
     chartsRow->addLayout(smokeCol);
 
     rootLayout->addLayout(chartsRow, 1);
+
+    // 그래프 화면에 머무는 동안 시간 축이 실시간으로 앞으로 움직이도록 주기적으로 재조회한다.
+    // 예전엔 기간 버튼을 누른 그 순간에만 조회하고 끝이라, 계속 보고 있어도 그래프가 멈춰있었다.
+    // 고정 30초 주기 대신 실제 시계의 "분"이 바뀌는 순간에 맞춰 갱신한다.
+    liveRefreshTimer = new QTimer(this);
+    liveRefreshTimer->setSingleShot(true);
+    connect(liveRefreshTimer, &QTimer::timeout, this, [this]() {
+        requestCurrentPeriod();
+        scheduleNextMinuteTick();
+    });
+    scheduleNextMinuteTick();
+}
+
+void GraphPage::scheduleNextMinuteTick()
+{
+    const QTime now = QTime::currentTime();
+    const int msUntilNextMinute = 60000 - (now.second() * 1000 + now.msec());
+    liveRefreshTimer->start(msUntilNextMinute > 0 ? msUntilNextMinute : 60000);
 }
 
 QWidget *GraphPage::createControlBar()
@@ -141,7 +159,7 @@ QWidget *GraphPage::createControlBar()
     outer->addWidget(legendLabel);
 
     noteLabel = new QLabel(bar);
-    noteLabel->setStyleSheet(QString("color:%1; font-size:12px;").arg(kTextSecondary));
+    noteLabel->setStyleSheet(QString("color:%1; font-size:13px;").arg(kTextSecondary));
     noteLabel->setVisible(false); // 조회 실패했을 때만 showQueryFailed()가 채워서 보여줌
     noteLabel->setWordWrap(true);
     outer->addWidget(noteLabel);
@@ -230,14 +248,26 @@ void GraphPage::requestCurrentPeriod()
 
     // 기간 버튼 4개 = 10분/1시간/6시간/하루 (명세서 3-2 기간 버튼 표와 동일)
     static const qint64 kPeriodSeconds[] = { 600, 3600, 21600, 86400 };
-    const qint64 span = kPeriodSeconds[currentPeriodIndex];
-
-    // 오늘이면 "지금"까지, 과거 날짜면 그 날 23:59:59까지를 끝점으로 삼아 거기서 기간만큼 거슬러 올라간다.
     const bool isToday = currentDate == QDate::currentDate();
-    const qint64 to = isToday
-        ? QDateTime::currentSecsSinceEpoch()
-        : QDateTime(currentDate, QTime(23, 59, 59)).toSecsSinceEpoch();
-    const qint64 from = to - span;
+
+    qint64 from, to;
+    if (currentPeriodIndex == 3) {
+        // "하루"는 롤링 24시간이 아니라 달력 날짜 기준 — 항상 그 날 00:00부터 시작해서
+        // 오늘이면 지금까지, 과거 날짜면 그 날 23:59까지.
+        // (예전엔 과거 날짜일 때 아래 else 분기의 "to - 86400"을 그대로 타서 자정이 아니라
+        //  전날 23:59:59부터 시작하는 버그가 있었다 — 하루만 따로 항상 처리하도록 분리)
+        from = QDateTime(currentDate, QTime(0, 0)).toSecsSinceEpoch();
+        to = isToday
+            ? QDateTime::currentSecsSinceEpoch()
+            : QDateTime(currentDate, QTime(23, 59, 59)).toSecsSinceEpoch();
+    } else {
+        // 10분/1시간/6시간은 "지금 기준 최근 N": 과거 날짜를 조회 중이면 그 날 23:59:59를
+        // 끝점으로 삼아 거기서 기간만큼 거슬러 올라간다.
+        to = isToday
+            ? QDateTime::currentSecsSinceEpoch()
+            : QDateTime(currentDate, QTime(23, 59, 59)).toSecsSinceEpoch();
+        from = to - kPeriodSeconds[currentPeriodIndex];
+    }
 
     emit sensorLogRequested(currentZoneId, from, to);
 }
@@ -254,6 +284,8 @@ void GraphPage::loadSensorLogFromServer(const QJsonArray &rows)
     smokeAvg.reserve(rows.size());
     smokeMax.reserve(rows.size());
     timeLabels.reserve(rows.size());
+    sampleTimes.clear();
+    sampleTimes.reserve(rows.size());
 
     for (const QJsonValue &v : rows) {
         const QJsonObject row = v.toObject();
@@ -261,7 +293,9 @@ void GraphPage::loadSensorLogFromServer(const QJsonArray &rows)
         gasMax.append(row.value("gasMax").toDouble());
         smokeAvg.append(row.value("smokeAvg").toDouble());
         smokeMax.append(row.value("smokeMax").toDouble());
-        timeLabels.append(QDateTime::fromSecsSinceEpoch(qint64(row.value("t").toDouble())).toString("HH:mm"));
+        const qint64 t = qint64(row.value("t").toDouble());
+        sampleTimes.append(t);
+        timeLabels.append(QDateTime::fromSecsSinceEpoch(t).toString("HH:mm"));
     }
 
     // 포인트별로 다 넘겨야(끝점 2개만이 아니라) 그래프에 마우스오버 시 정확한 시각이 뜬다.
@@ -269,13 +303,64 @@ void GraphPage::loadSensorLogFromServer(const QJsonArray &rows)
     const bool dual = gasAvg != gasMax;
     gasGraph->setSeries(gasAvg, dual ? gasMax : QVector<double>{}, timeLabels);
     smokeGraph->setSeries(smokeAvg, dual ? smokeMax : QVector<double>{}, timeLabels);
+    rebuildEventMarkers(); // x축 시각 범위가 바뀌었으니 마커 위치도 다시 계산
     noteLabel->setVisible(false);
+}
+
+void GraphPage::setEventMarkersFromServer(const QJsonArray &rows)
+{
+    eventStamps.clear();
+    for (const QJsonValue &v : rows) {
+        const QJsonObject row = v.toObject();
+        // 안전 복귀/정보성 로그까지 다 찍으면 선이 빽빽해져서 추이가 안 보인다 — 경고/위험만.
+        const QString severity = row.value("severity").toString();
+        if (severity != "warning" && severity != "danger")
+            continue;
+
+        EventStamp stamp;
+        stamp.ts = qint64(row.value("ts").toDouble());
+        stamp.danger = (severity == "danger");
+
+        const QString cause = causeText(row.value("cause").toString());
+        stamp.label = QString("%1 %2%3")
+            .arg(QDateTime::fromSecsSinceEpoch(stamp.ts).toString("HH:mm"),
+                  stamp.danger ? "위험" : "경고",
+                  cause.isEmpty() ? QString() : " · " + cause);
+        eventStamps.append(stamp);
+    }
+    rebuildEventMarkers();
+}
+
+void GraphPage::rebuildEventMarkers()
+{
+    QVector<GraphEventMarker> markers;
+
+    // 표본이 2개 미만이면 x축 범위 자체가 없어서 위치를 잡을 수 없다.
+    if (sampleTimes.size() >= 2) {
+        const qint64 first = sampleTimes.first();
+        const qint64 last = sampleTimes.last();
+        if (last > first) {
+            for (const EventStamp &stamp : eventStamps) {
+                // 지금 보고 있는 시간 범위 밖의 사건은 그냥 버린다(다른 날짜를 보는 중 등).
+                if (stamp.ts < first || stamp.ts > last)
+                    continue;
+                GraphEventMarker m;
+                m.xRatio = double(stamp.ts - first) / double(last - first);
+                m.danger = stamp.danger;
+                m.label = stamp.label;
+                markers.append(m);
+            }
+        }
+    }
+
+    gasGraph->setEventMarkers(markers);
+    smokeGraph->setEventMarkers(markers);
 }
 
 void GraphPage::showQueryFailed(const QString &reason)
 {
     noteLabel->setText("⚠ 조회 실패: " + (reason.isEmpty() ? "알 수 없는 오류" : reason));
-    noteLabel->setStyleSheet("color:#f87171; font-size:10px;");
+    noteLabel->setStyleSheet("color:#f87171; font-size:11px;");
     noteLabel->setVisible(true);
 }
 
