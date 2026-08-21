@@ -48,7 +48,6 @@ public:
     void setActuatorRowStatus(const QString &target, const QString &text, const QString &color);
 
 signals:
-    void demoStateRequested(ZoneState state);
     // target: "fan"/"valve"/"siren". action: off/low/mid/high, close/open, on/off. title은 로그/상태 표시용 문구.
     void controlActionRequested(const QString &target, const QString &action, const QString &title);
     // 정상/경고 상태에서 신규 전환, 또는 위험·대응실패 상태에서 재실행 요청. cause는 judgement.h Cause 값.
@@ -143,8 +142,6 @@ private:
     // 위험·대응실패 상태에서 전환 버튼을 주황 두 톤으로 번갈아 칠해 "지금 확인해야 할 것"임을 강조.
     QTimer *emergencyBlinkTimer = nullptr;
     bool emergencyBlinkOn = true;
-
-    QList<QPushButton *> demoStateButtons;
 };
 
 #endif // STATUSPANEL_H

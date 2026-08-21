@@ -16,7 +16,6 @@ MonitorPage::MonitorPage(QWidget *parent)
     layout->setSpacing(16);
 
     statusPanel = new StatusPanel(this);
-    connect(statusPanel, &StatusPanel::demoStateRequested, this, &MonitorPage::demoStateRequested);
     connect(statusPanel, &StatusPanel::controlActionRequested, this, &MonitorPage::controlActionRequested);
     connect(statusPanel, &StatusPanel::emergencyTriggerRequested, this, &MonitorPage::emergencyTriggerRequested);
     connect(statusPanel, &StatusPanel::emergencyClearRequested, this, &MonitorPage::emergencyClearRequested);

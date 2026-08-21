@@ -46,7 +46,6 @@ public:
     void applyRoiRegionsFromServer(int channel, const QVector<RoiRegion> &regions);
 
 signals:
-    void demoStateRequested(ZoneState state);
     void controlActionRequested(const QString &target, const QString &action, const QString &title);
     void emergencyTriggerRequested(const QString &cause);
     void emergencyClearRequested(const QString &admin, const QStringList &checklist);
