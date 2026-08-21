@@ -35,6 +35,7 @@ const QString kMediaMtxHost = "172.20.35.185"; // MediaMTX가 도는 라즈베�
 const QStringList kTabNames = { "모니터링", "이벤트로그", "그래프", "평면도", "도움말" };
 
 const QString kBg = "#0a0a12";
+const QString kCardBg = "#14141f";   // 버튼 등 배경과 살짝 구분되는 카드 톤 (다른 화면들과 동일)
 const QString kCardBorder = "#232333";
 const QString kTextPrimary = "#f5f5fa";
 const QString kTextSecondary = "#8d87a0";
@@ -431,19 +432,32 @@ MainWindow::MainWindow(QWidget *parent)
     serverLink->connectToServer(ServerConfig::kServerHost, ServerConfig::kServerPort);
 }
 
+// 상태색으로 배경을 살짝 물들인 알약 배지로 통일 — 텍스트 색만 바뀌던 예전보다 한눈에 들어온다.
+static void applyConnBadgeStyle(QLabel *badge, const QString &color, const QString &bgColor)
+{
+    badge->setStyleSheet(QString(
+        "color:%1; background-color:%2; border:1px solid %1; border-radius:12px; "
+        "padding:6px 14px; font-size:14px; font-weight:bold; font-family:\"hanwhaGothic EL\";")
+        .arg(color, bgColor));
+}
+
 void MainWindow::refreshConnBadge()
 {
     if (!socketConnected) {
-        connBadge->setText("<span style='color:#f87171;'>●</span> 서버 연결 끊김");
+        connBadge->setText("● 서버 연결 끊김");
+        applyConnBadgeStyle(connBadge, "#f87171", "#3a1f1f");
+        connBadge->setToolTip("");
         return;
     }
     // 5초 이상 sensor 메시지가 안 오면 서버 내부가 멎은 것으로 판단 (sensor는 매초 고정 주기로 옴).
     const bool stale = lastSensorMsgAt.isValid() && lastSensorMsgAt.msecsTo(QDateTime::currentDateTime()) > 5000;
     if (stale) {
-        connBadge->setText("<span style='color:#fbbf24;'>●</span> 서버 응답 없음 (5초+)");
+        connBadge->setText("● 서버 응답 없음 (5초+)");
+        applyConnBadgeStyle(connBadge, "#fbbf24", "#3a3312");
         connBadge->setToolTip("TCP 연결은 살아있지만 서버로부터 센서 데이터가 5초 이상 오지 않고 있습니다.\n서버(server_main) 프로세스 상태를 확인해야 합니다.");
     } else {
-        connBadge->setText("<span style='color:#34d399;'>●</span> 실시간 연결 중");
+        connBadge->setText("● 서버 실시간 연결 중");
+        applyConnBadgeStyle(connBadge, "#34d399", "#14332a");
         connBadge->setToolTip("");
     }
 }
@@ -545,15 +559,20 @@ QWidget *MainWindow::createTopBar()
     topStatusLabel->setStyleSheet(QString("border:1px solid %1; border-radius:12px; padding:6px 14px; font-size:14px; font-weight:bold; font-family:\"hanwhaGothic EL\";").arg(kCardBorder));
     layout->addWidget(topStatusLabel);
 
-    connBadge = new QLabel("<span style='color:#6b7280;'>●</span> 서버 연결 확인 중...", bar);
-    connBadge->setStyleSheet(QString("color:%1; font-size:14px;").arg(kTextSecondary));
+    connBadge = new QLabel(bar);
     layout->addWidget(connBadge);
+    applyConnBadgeStyle(connBadge, kTextSecondary, "#1c1c2b");
+    connBadge->setText("● 서버 연결 확인 중...");
 
-    // 관리자 전용 카메라 좌표 보정 화면. 자주 안 쓰는 설치 작업이라 로그아웃 버튼 옆에
-    // 눈에 띄지 않는 자리로 둔다(재환님 확정안 — Qt는 입력/상태표시만, 서버가 계산).
-    auto *arucoBtn = new QPushButton("카메라 좌표 보정", bar);
-    arucoBtn->setFlat(true);
-    arucoBtn->setStyleSheet(QString("color:%1; background:transparent; border:none; font-size:14px;").arg(kTextSecondary));
+    // 카메라 좌표 보정 — 자주 안 쓰는 설치 작업이라 자리는 오른쪽 끝에 두되, 버튼 자체는
+    // 관리자가 찾기 쉽게 눈에 띄는 아웃라인 버튼으로(예전엔 투명 텍스트라 눈에 안 띔).
+    auto *arucoBtn = new QPushButton("⚙ 카메라 좌표 보정", bar);
+    arucoBtn->setCursor(Qt::PointingHandCursor);
+    arucoBtn->setStyleSheet(QString(
+        "QPushButton { color:%1; background-color:%2; border:1px solid %3; border-radius:14px; "
+        "padding:8px 18px; font-size:14px; font-weight:bold; }"
+        "QPushButton:hover { border:1px solid %4; color:%4; }")
+        .arg(kTextPrimary, kCardBg, kCardBorder, kAccent));
     connect(arucoBtn, &QPushButton::clicked, this, [this]() {
         auto *dialog = new ArucoCalibrationDialog(serverLink, this);
         dialog->setAttribute(Qt::WA_DeleteOnClose);
@@ -561,9 +580,15 @@ QWidget *MainWindow::createTopBar()
     });
     layout->addWidget(arucoBtn);
 
-    auto *logoutBtn = new QPushButton("관리자모드 로그아웃", bar);
-    logoutBtn->setFlat(true);
-    logoutBtn->setStyleSheet(QString("color:%1; background:transparent; border:none; font-size:14px;").arg(kTextSecondary));
+    // 로그인 계정은 지금 "admin" 하나로 고정돼 있다(LoginPage::kValidId) — 여러 계정을
+    // 지원하게 되면 그때 로그인 성공 시그널에 실제 ID를 실어 여기로 넘기면 된다.
+    auto *logoutBtn = new QPushButton("관리자 admin(ID) 로그아웃", bar);
+    logoutBtn->setCursor(Qt::PointingHandCursor);
+    logoutBtn->setStyleSheet(QString(
+        "QPushButton { color:%1; background-color:%2; border:1px solid %3; border-radius:14px; "
+        "padding:8px 18px; font-size:14px; font-weight:bold; }"
+        "QPushButton:hover { border:1px solid #f87171; color:#f87171; }")
+        .arg(kTextPrimary, kCardBg, kCardBorder));
     connect(logoutBtn, &QPushButton::clicked, this, [this]() {
         emit loggedOut();
         close();
