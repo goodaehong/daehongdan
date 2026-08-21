@@ -371,7 +371,7 @@ static const uint8_t EvacExits[][2] = {
 #define EVAC_MAX_FIRES 6             /* CMD_EVAC_FIRES 화재 개수 최대값 (카메라 4채널 기준 여유) */
 #define EVAC_PATH_CYCLE_MS 1300      /* 하이라이트가 출발점->도착점까지 흘러가는 데 걸리는 시간 */
 #define EVAC_ANIM_REDRAW_MS 50       /* 애니메이션 프레임 갱신 주기 (~20fps) */
-#define EVAC_PATH_GAP_SIZE 3         /* 경로 위를 흘러가는 노란 하이라이트 픽셀 개수 */
+#define EVAC_PATH_GAP_SIZE 3         /* 경로 위를 흘러가는 자홍 하이라이트 픽셀 개수 */
 
 /* CMD_EVAC_PATH로 받은 최신 대피경로(출구별로 하나씩, EvacExits와 같은 인덱스).
    waypointCount[r]==0이면 그 출구로 가는 경로 없음(미수신 또는 도달 불가) */
@@ -453,7 +453,7 @@ static void EvacPathCellAt(const uint8_t wp[][2], uint8_t count, uint16_t stepIn
 static uint8_t alertBorderVisible = 1;
 static uint8_t alertDisasterType = 0;
 
-// 대피도 화면: 벽(흰색)/전광판(노랑)/출구(초록)/대피경로(초록 바탕 + 흐르는 자홍 하이라이트)/화재(빨강)를
+// 대피도 화면: 벽(흰색)/전광판(노랑)/출구(초록)/대피경로(빨간 바탕 + 흐르는 자홍 하이라이트)/화재(노랑)를
 // 60x60 격자에서 +2 오프셋으로 그림 (HUB75_Shape13 테두리 2px 안쪽에만 지도를 그리면 안 가려짐)
 static void DrawEvacuationScreen(void)
 {
@@ -480,11 +480,11 @@ static void DrawEvacuationScreen(void)
     HUB75_SetPixel(EvacDisplays[i][0] + 2, EvacDisplays[i][1] + 2, HUB75_YELLOW);
   }
 
-  // 대피경로: 경로 전체를 항상 초록색으로 켜두고, 그 위에 노란 하이라이트 3칸이 출발점->도착점을
+  // 대피경로: 경로 전체를 항상 빨간색으로 켜두고, 그 위에 자홍 하이라이트 3칸이 출발점->도착점을
   // 1.3초에 한 번씩 계속 흘러가는 애니메이션 - 도착하면 끊기지 않고 바로 출발점부터 다시 흐름.
-  // 2단계로 나눠서 그림: ① 전체 경로(초록) 먼저 다 그리고 ② 하이라이트(노랑)는 그 다음에 다 그림.
+  // 2단계로 나눠서 그림: ① 전체 경로(빨강) 먼저 다 그리고 ② 하이라이트(자홍)는 그 다음에 다 그림.
   // 순서가 중요함 - 경로끼리 출발점 근처를 공유하는 경우가 많은데, 한 루프 안에서
-  // "그리고-하이라이트"를 경로별로 번갈아 하면 뒤에 그려지는 경로의 초록칠이 앞 경로의
+  // "그리고-하이라이트"를 경로별로 번갈아 하면 뒤에 그려지는 경로의 빨간칠이 앞 경로의
   // 하이라이트를 덮어써버려서, 공유 구간을 벗어나야 하이라이트가 보이는(즉 중간부터 시작하는
   // 것처럼 보이는) 버그가 생김. 그리기 다 끝난 뒤에 하이라이트를 얹으면 이 문제가 없음.
   uint32_t cyclePos = (HAL_GetTick() - g_evacAnimCycleStart) % EVAC_PATH_CYCLE_MS;
@@ -495,7 +495,7 @@ static void DrawEvacuationScreen(void)
     if (count == 0) continue;   /* 이 출구로 가는 경로 아직 안 받았거나 도달 불가 */
 
     uint16_t total = EvacPathTotalSteps(g_evacWaypoints[r], count);
-    DrawEvacPathPartial(g_evacWaypoints[r], count, total, HUB75_GREEN);   // ① 경로 전체를 먼저 다 그림
+    DrawEvacPathPartial(g_evacWaypoints[r], count, total, HUB75_RED);   // ① 경로 전체를 먼저 다 그림
   }
 
   for (uint8_t r = 0; r < EVAC_EXIT_COUNT; r++)
@@ -517,7 +517,7 @@ static void DrawEvacuationScreen(void)
     }
   }
 
-  // 화재 위치: g_evacFireCount개 전부, 각자 반경만큼 사각형으로 채움 (빨강 - 테두리 위험색과 겹치지만 감안)
+  // 화재 위치: g_evacFireCount개 전부, 각자 반경만큼 사각형으로 채움 (노랑 - 전광판 마커와 색이 겹침)
   for (uint8_t f = 0; f < g_evacFireCount; f++)
   {
     int16_t fx = g_evacFireX[f], fy = g_evacFireY[f], r = g_evacFireRadius[f];
@@ -528,7 +528,7 @@ static void DrawEvacuationScreen(void)
         int16_t x = fx + dx, y = fy + dy;
         if (x >= 0 && x < 60 && y >= 0 && y < 60)
         {
-          HUB75_SetPixel((uint8_t)(x + 2), (uint8_t)(y + 2), HUB75_RED);
+          HUB75_SetPixel((uint8_t)(x + 2), (uint8_t)(y + 2), HUB75_YELLOW);
         }
       }
     }
