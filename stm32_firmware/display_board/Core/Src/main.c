@@ -453,7 +453,7 @@ static void EvacPathCellAt(const uint8_t wp[][2], uint8_t count, uint16_t stepIn
 static uint8_t alertBorderVisible = 1;
 static uint8_t alertDisasterType = 0;
 
-// 대피도 화면: 벽(흰색)/전광판(노랑)/출구(초록)/대피경로(빨간 바탕 + 흐르는 자홍 하이라이트)/화재(노랑)를
+// 대피도 화면: 벽(흰색)/전광판(노랑)/출구(초록, 3x3)/대피경로(빨간 바탕 + 흐르는 자홍 하이라이트)/화재(빨강+안쪽 노랑)를
 // 60x60 격자에서 +2 오프셋으로 그림 (HUB75_Shape13 테두리 2px 안쪽에만 지도를 그리면 안 가려짐)
 static void DrawEvacuationScreen(void)
 {
@@ -468,11 +468,6 @@ static void DrawEvacuationScreen(void)
         HUB75_SetPixel(x + 2, y + 2, HUB75_WHITE);
       }
     }
-  }
-
-  for (uint8_t i = 0; i < EVAC_EXIT_COUNT; i++)
-  {
-    HUB75_SetPixel(EvacExits[i][0] + 2, EvacExits[i][1] + 2, HUB75_GREEN);
   }
 
   for (uint8_t i = 0; i < EVAC_DISPLAY_COUNT; i++)
@@ -517,7 +512,10 @@ static void DrawEvacuationScreen(void)
     }
   }
 
-  // 화재 위치: g_evacFireCount개 전부, 각자 반경만큼 사각형으로 채움 (노랑 - 전광판 마커와 색이 겹침)
+  // 화재 위치: g_evacFireCount개 전부, 각자 반경만큼 빨간 사각형으로 채우고 그 안쪽에 더 작은
+  // 노란 사각형을 얹어서 불처럼 보이게 함 (바깥 빨강 = 불꽃, 안쪽 노랑 = 불의 중심).
+  // 안쪽 노란 정사각형 한 변 = r+1 (r=1/한변3이면 안쪽 한변2, r=2/한변5면 안쪽 한변3 - 요구사항 예시 기준).
+  // r=0(반경 없음, 1픽셀 화재)은 너무 작아서 두 색을 구분해 봐야 의미 없으므로 빨강 단색으로 둠.
   for (uint8_t f = 0; f < g_evacFireCount; f++)
   {
     int16_t fx = g_evacFireX[f], fy = g_evacFireY[f], r = g_evacFireRadius[f];
@@ -528,8 +526,42 @@ static void DrawEvacuationScreen(void)
         int16_t x = fx + dx, y = fy + dy;
         if (x >= 0 && x < 60 && y >= 0 && y < 60)
         {
-          HUB75_SetPixel((uint8_t)(x + 2), (uint8_t)(y + 2), HUB75_YELLOW);
+          HUB75_SetPixel((uint8_t)(x + 2), (uint8_t)(y + 2), HUB75_RED);
         }
+      }
+    }
+
+    if (r >= 1)
+    {
+      int16_t inner = r + 1;                 /* 안쪽 노란 정사각형 한 변 길이 */
+      int16_t lo = -((inner - 1) / 2);        /* 홀/짝 상관없이 중심에 최대한 맞춘 시작 오프셋 */
+      int16_t hi = lo + inner - 1;
+      for (int16_t dy = lo; dy <= hi; dy++)
+      {
+        for (int16_t dx = lo; dx <= hi; dx++)
+        {
+          int16_t x = fx + dx, y = fy + dy;
+          if (x >= 0 && x < 60 && y >= 0 && y < 60)
+          {
+            HUB75_SetPixel((uint8_t)(x + 2), (uint8_t)(y + 2), HUB75_YELLOW);
+          }
+        }
+      }
+    }
+  }
+
+  // 출구: 한 픽셀만 있으면 잘 안 보여서 상하좌우/대각선까지 3x3(9픽셀)로 채움.
+  // 대피경로(빨강)가 그려진 뒤에 마지막으로 얹어서, 경로가 출구 칸을 지나가도 출구가 항상 보이게 함.
+  // 출구는 항상 맨 바깥 경계선(x/y == 0 또는 59) 위에 있어서 3x3의 바깥쪽 줄은 테두리(2px) 영역까지
+  // 살짝 넘어가는데, 그 부분은 점멸하는 경고 테두리가 마지막에 덮어 그려도 상관없음(요구사항 그대로).
+  for (uint8_t i = 0; i < EVAC_EXIT_COUNT; i++)
+  {
+    int16_t ex = EvacExits[i][0], ey = EvacExits[i][1];
+    for (int16_t dy = -1; dy <= 1; dy++)
+    {
+      for (int16_t dx = -1; dx <= 1; dx++)
+      {
+        HUB75_SetPixel((uint8_t)(ex + dx + 2), (uint8_t)(ey + dy + 2), HUB75_GREEN);
       }
     }
   }
