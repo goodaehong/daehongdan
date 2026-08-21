@@ -1,4 +1,4 @@
-#include "TlsServer.h"
+#include "tls_server.h"
 #include <iostream>
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -66,12 +66,12 @@ SSL_CTX* TlsServer::createContext() {
 // 실패 시 exit() 대신 false 반환 — 호출자(생성자)가 ready_로 기록하고
 // TlsLink::start()가 Link::start()의 "실패 시 false" 계약을 지킬 수 있게 한다
 bool TlsServer::configureContext(SSL_CTX* ctx) {
-    // 상대 경로 기반 테스트용 x509 인증서 및 개인키 로드
-    if (SSL_CTX_use_certificate_file(ctx, "server_cert.pem", SSL_FILETYPE_PEM) <= 0) {
+    // 경로는 CMakeLists.txt의 TLS_CERT_PATH/TLS_KEY_PATH로 고정 (실행 CWD 종속 방지)
+    if (SSL_CTX_use_certificate_file(ctx, TLS_CERT_PATH, SSL_FILETYPE_PEM) <= 0) {
         ERR_print_errors_fp(stderr);
         return false;
     }
-    if (SSL_CTX_use_PrivateKey_file(ctx, "server_private.pem", SSL_FILETYPE_PEM) <= 0 ) {
+    if (SSL_CTX_use_PrivateKey_file(ctx, TLS_KEY_PATH, SSL_FILETYPE_PEM) <= 0 ) {
         ERR_print_errors_fp(stderr);
         return false;
     }

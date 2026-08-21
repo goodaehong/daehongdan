@@ -31,8 +31,14 @@
   - **원인**: `run()`의 `accept()`가 바깥쪽 while 루프에서 한 번만 호출되고, 그 직후 안쪽 while 루프(poll+SSL_read)로 들어가 **첫 연결이 끊길 때까지 거기서 안 나옴**. 그래서 `if (ssl_) { 다중 연결 차단 로그 }` 체크가 있는 코드 지점 자체에 두 번째 연결 동안은 도달하지 못했음. `link_tls.cpp` 결합 이전부터 있던 구조적 문제(90187fd 리팩터링 때부터).
   - **수정 내용**: 안쪽 RX 루프의 `poll()`이 `clientFd` 하나만 감시하던 걸 `serverFd_`(리스닝 소켓)도 같이 감시하도록 변경. 첫 연결을 서비스하는 도중에도 `poll()`이 새 접속 시도를 감지하면 즉시 `accept()` → `[TLS] 다중 연결 시도 차단` 로그 → `close()`, 기존 세션은 그대로 유지
   - ✅ **라즈베리파이 재검증 완료 (2026-08-21)** — 첫 세션 핸드셰이크 성공(`[TLS] 핸드쉐이크 완료. 보안 세션 수립.`) 유지된 채로 두 번째 접속 시도 시 `[TLS] 다중 연결 시도 차단` 로그 정상 출력 확인. 버그 수정 검증 완료.
+- **PR #70 리뷰 반영 (구대홍님, 2026-08-21)**
+  - `server/net/TlsServer.cpp`/`.h` → `server/net/tls_server.cpp`/`.h`로 개명 (`net/` 하위 소문자_밑줄 규칙 통일). `link_tls.cpp`의 include, `CMakeLists.txt` 89번째 줄 참조 같이 갱신
+  - 인증서 경로 절대경로화 — `TLS_CERT_PATH`/`TLS_KEY_PATH` compile definition 추가 (`DB_PATH`/`ROI_CONFIG_PATH`/`SNAPSHOT_DIR`/`AUDIO_FILE`와 동일 패턴, PR #64에서 EvacPlanner 산출물에 적용한 방식과 동일). 고정 경로는 `server/net/server_cert.pem`/`server_private.pem`으로 지정, `.gitignore`에 추가해서 실수로 커밋되는 것 방지
+  - `tls_server.cpp`의 `configureContext()`가 하드코딩 문자열 대신 이 매크로를 사용하도록 변경
+  - ⚠️ **이 변경 이후 라즈베리파이 재검증 안 함** — 인증서를 새 고정 경로(`server/net/`)에 배치하고 다시 빌드해서 확인 필요 (아래 남은 과제 참고)
 
 ## 남은 과제
 
-1. **인증서 경로(`server_cert.pem`/`server_private.pem`) 상대경로 하드코딩** — 실행 CWD에 의존. 다른 항목들과 달리 이건 라즈베리파이의 실제 배포 경로/관례를 모르는 채로 손대면 지금 되던 걸 깨뜨릴 위험이 있어 일부러 안 건드림. 실제 배포 시 인증서가 어디 놓이는지 확인 후 `FLOORMAP_IMAGE_PATH`처럼 `CMakeLists.txt` compile definition으로 절대경로화하는 걸 권장. 실제 발급 절차는 `server/net/QT_TLS_전환_가이드.md` 참고
+1. **경로 변경 후 재검증** — 기존 테스트 인증서(`server/build/server_cert.pem` 등)를 `server/net/server_cert.pem`/`server/net/server_private.pem`으로 옮기거나 새로 발급한 뒤, `-DENABLE_TLS=ON` 재빌드해서 정상 기동하는지 확인 필요. 기존 파일을 그대로 옮기면 지문(fingerprint)은 안 바뀜(내용 기준이라 경로 무관) — 그대로 옮기는 걸 권장, Qt 쪽에 이미 전달한 지문 값을 재사용할 수 있음
 2. **Qt 클라이언트 값 미적용** — `kUseTls`/인증서 지문/`kServerHost` 세 값을 아직 실제로 안 바꿈. 적용할 값과 주의사항은 `server/net/QT_TLS_전환_가이드.md`에 정리해둠
+3. **`ENABLE_TLS=ON` 빌드 미확인 (potato 환경)** — 구대홍님 리뷰에서 테스트 환경에 `libssl-dev` 없어서 확인 못 하셨다고 함. `potato` 계정 환경에서 추가 확인 필요

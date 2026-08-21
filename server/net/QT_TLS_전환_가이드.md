@@ -29,12 +29,17 @@ inline const QString kServerCertSha256 =
     "44:CB:3D:77:23:21:81:65:FF:E1:F2:9C:C9:80:45:0A:9A:4E:0D:7A:61:8F:E6:D0:FE:0D:79:C2:92:CD:C1:CD";
 ```
 
-⚠️ **이 지문은 임시 테스트용입니다.** 파이의 `server/build/` 안에 `openssl req -x509 ...`로 즉석 생성한 자체서명 인증서 기준이라:
-- `rm -rf build`나 cmake 재구성 시 인증서가 같이 사라질 수 있음
-- 실배포 인증서는 `build/` 밖 고정 위치(예: `server/net/` 등)로 옮기고 나서, 그 인증서 기준으로 지문을 **다시 뽑아서** 이 값을 갱신해야 합니다:
-  ```bash
-  openssl x509 -in <실제 배포용 인증서 경로> -noout -fingerprint -sha256
-  ```
+⚠️ 이 지문은 원래 파이의 `server/build/` 안에 즉석 생성했던 테스트 인증서 기준이었는데, PR 리뷰(구대홍님) 반영으로 인증서 경로가 **`server/net/server_cert.pem`/`server_private.pem` 고정 경로**로 바뀌었습니다 (`CMakeLists.txt`의 `TLS_CERT_PATH`/`TLS_KEY_PATH`).
+
+기존 테스트 인증서 파일을 그 경로로 그대로 옮기기만 하면 **지문은 안 바뀌니 이 값 그대로 재사용 가능**합니다 (지문은 파일 내용 기준이라 위치와 무관):
+```bash
+mv server/build/server_cert.pem server/net/server_cert.pem
+mv server/build/server_private.pem server/net/server_private.pem
+```
+새로 발급하는 경우에만 지문을 다시 뽑아야 합니다:
+```bash
+openssl x509 -in server/net/server_cert.pem -noout -fingerprint -sha256
+```
 
 ### 3. `kServerHost` — 확인 필요 (IP 드리프트 발견)
 
@@ -46,14 +51,19 @@ hostname -I
 ```
 가능하면 파이에 고정 IP 또는 DHCP 예약을 걸어두면 이 문제가 재발하지 않습니다 (인프라 작업, 별도 검토 필요).
 
-## 참고 — 인증서 경로 (서버 쪽, 아직 미확정)
+## 참고 — 인증서 경로 (서버 쪽, 확정됨)
 
-`TlsServer`는 실행 디렉터리 기준 상대경로로 `server_cert.pem`/`server_private.pem`을 찾습니다 (`server/net/TlsServer.cpp`의 `configureContext()`). 실배포 시 이 경로를 고정 절대경로로 바꾸는 작업이 `server/net/PROGRESS.md`에 남은 과제로 정리돼 있습니다 — 인증서 최종 배치 위치가 정해지면 그때 같이 처리하면 됩니다.
+`server/net/tls_server.cpp`의 `configureContext()`가 `TLS_CERT_PATH`/`TLS_KEY_PATH` compile definition을 사용하도록 변경됐고, 이 값은 `server/net/server_cert.pem`/`server_private.pem` 고정 경로를 가리킵니다 (`CMakeLists.txt`). 더 이상 실행 디렉터리(CWD)에 의존하지 않습니다. 이 두 파일은 `.gitignore`에 등록돼 있어 git엔 안 올라가니, 배포하는 파이마다 직접 배치해야 합니다.
 
 ## 검증 재현 방법 (필요 시)
 
 ```bash
-# 서버 (파이)
+# 인증서가 server/net/에 없으면 먼저 배치 (테스트용 예시)
+openssl req -x509 -newkey rsa:2048 -nodes \
+  -keyout server/net/server_private.pem -out server/net/server_cert.pem \
+  -days 365 -subj "/CN=daehongdan"
+
+# 서버 (파이) — 경로가 고정됐으니 어느 디렉터리에서 실행해도 무방
 cd server/build
 ./server_main
 

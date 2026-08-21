@@ -86,7 +86,7 @@ endif()
 
 if(ENABLE_TLS)
     set(NET_SRC ${CMAKE_CURRENT_SOURCE_DIR}/net/link_tls.cpp
-                ${CMAKE_CURRENT_SOURCE_DIR}/net/TlsServer.cpp)
+                ${CMAKE_CURRENT_SOURCE_DIR}/net/tls_server.cpp)
 else()
     set(NET_SRC ${CMAKE_CURRENT_SOURCE_DIR}/net/link_plain.cpp)
 endif()
@@ -120,6 +120,10 @@ target_compile_definitions(server_main PRIVATE
 if(ENABLE_TLS)
     find_package(OpenSSL REQUIRED)
     target_link_libraries(server_main PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+    # 인증서/개인키 절대경로 고정 (실행 CWD 종속 방지). 현장마다 다른 파일이라 git엔 안 올림(.gitignore)
+    target_compile_definitions(server_main PRIVATE
+        TLS_CERT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/net/server_cert.pem"
+        TLS_KEY_PATH="${CMAKE_CURRENT_SOURCE_DIR}/net/server_private.pem")
 endif()
 
 # NCNN 연결 (연기 감지)
