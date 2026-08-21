@@ -1,9 +1,11 @@
 #include "EventLogPage.h"
 #include "../widgets/GasGraphWidget.h"
+#include "../widgets/ClipPlayerWidget.h"
 
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QGridLayout>
+#include <QStackedLayout>
 #include <QTableWidget>
 #include <QHeaderView>
 #include <QComboBox>
@@ -18,15 +20,16 @@
 #include <QTimeEdit>
 #include <QAbstractSpinBox>
 #include <QTextCharFormat>
-#include <QDesktopServices>
 #include <QStandardPaths>
 #include <QPixmap>
 #include <QDir>
 #include <QFile>
-#include <QUrl>
 #include <QMessageBox>
 #include <QTimer>
 #include <QMap>
+#include <QResizeEvent>
+#include <QSlider>
+#include <QSignalBlocker>
 
 namespace {
 const QString kCardBg = "#14141f";
@@ -140,6 +143,36 @@ QString formatDuration(qint64 totalSeconds)
         .arg(m, 2, 10, QChar('0'))
         .arg(s, 2, 10, QChar('0'));
 }
+
+// 클립 재생바 시간 표시용. 클립 자체가 13초 안팎(사고 전 3초+후 10초)이라 mm:ss면 충분하다.
+QString formatClipTime(qint64 ms)
+{
+    const qint64 totalSeconds = qMax<qint64>(0, ms) / 1000;
+    return QString("%1:%2").arg(totalSeconds / 60, 2, 10, QChar('0')).arg(totalSeconds % 60, 2, 10, QChar('0'));
+}
+
+const QString kClipSliderStyle = QString(
+    "QSlider::groove:horizontal { background:#2a2a3a; height:4px; border-radius:2px; }"
+    "QSlider::sub-page:horizontal { background:%1; height:4px; border-radius:2px; }"
+    "QSlider::handle:horizontal { background:white; width:12px; height:12px; margin:-4px 0; border-radius:6px; }")
+    .arg(kAccent);
+
+// 클립/썸네일 박스를 카메라 원본 비율(16:9)로 고정해서, 패널 폭이 바뀌어도 항상 그 비율만큼
+// 커지게 한다 — 예전엔 높이가 140px로 고정이라 폭이 넓어져도 영상이 작게만 보였다.
+class AspectRatioFrame : public QFrame
+{
+public:
+    explicit AspectRatioFrame(QWidget *parent = nullptr) : QFrame(parent) {}
+
+protected:
+    void resizeEvent(QResizeEvent *event) override
+    {
+        QFrame::resizeEvent(event);
+        const int targetHeight = width() * 9 / 16;
+        if (targetHeight > 0 && height() != targetHeight)
+            setFixedHeight(targetHeight);
+    }
+};
 }
 
 EventLogPage::EventLogPage(QWidget *parent)
@@ -322,28 +355,101 @@ EventLogPage::EventLogPage(QWidget *parent)
     snapshotBoxLayout->setContentsMargins(8, 8, 8, 8);
     snapshotBoxLayout->setSpacing(6);
 
-    // 감지 시점 jpg 썸네일(PR #69). 클립(mp4)과 별개 파일이라 상태/조회를 따로 관리한다 —
-    // 클립은 사용자가 "재생"을 눌러야 가져오지만, 썸네일은 상세 패널을 열자마자 자동으로 불러온다.
-    snapshotThumbnail = new QLabel("스냅샷 없음", snapshotBox);
-    snapshotThumbnail->setFixedHeight(140);
+    // 영상 박스: 카메라 원본 비율(16:9)로 고정 — 패널 폭에 맞춰 커진다(예전엔 140px 고정 높이).
+    auto *videoContainer = new AspectRatioFrame(snapshotBox);
+    videoContainer->setStyleSheet("background-color:black; border:none;");
+    videoStack = new QStackedLayout(videoContainer);
+    videoStack->setContentsMargins(0, 0, 0, 0);
+    videoStack->setStackingMode(QStackedLayout::StackOne);
+
+    // 0번 페이지: 감지 시점 jpg 썸네일(PR #69) + 그 위에 유튜브처럼 얹힌 재생 버튼(클립 있을 때만).
+    // 썸네일은 클립과 별개 파일이라 상태/조회를 따로 관리한다 — 클립은 재생 버튼을 눌러야
+    // 가져오지만, 썸네일은 상세 패널을 열자마자 자동으로 불러온다.
+    auto *thumbnailPage = new QWidget(videoContainer);
+    auto *thumbnailPageLayout = new QGridLayout(thumbnailPage);
+    thumbnailPageLayout->setContentsMargins(0, 0, 0, 0);
+
+    snapshotThumbnail = new QLabel("스냅샷 없음", thumbnailPage);
     snapshotThumbnail->setAlignment(Qt::AlignCenter);
     snapshotThumbnail->setWordWrap(true);
     snapshotThumbnail->setStyleSheet(QString("color:%1; border:none;").arg(kTextSecondary));
-    snapshotBoxLayout->addWidget(snapshotThumbnail);
+    thumbnailPageLayout->addWidget(snapshotThumbnail, 0, 0);
+
+    clipPlayOverlayButton = new QPushButton("▶", thumbnailPage);
+    clipPlayOverlayButton->setFixedSize(56, 56);
+    clipPlayOverlayButton->setCursor(Qt::PointingHandCursor);
+    clipPlayOverlayButton->setStyleSheet(QString(
+        "QPushButton { background-color:rgba(0,0,0,150); color:white; border:2px solid white; "
+        "border-radius:28px; font-size:20px; padding-left:4px; }"
+        "QPushButton:hover { background-color:%1; border-color:%1; }").arg(kAccent));
+    clipPlayOverlayButton->setVisible(false);
+    connect(clipPlayOverlayButton, &QPushButton::clicked, this, &EventLogPage::onPlayClipClicked);
+    thumbnailPageLayout->addWidget(clipPlayOverlayButton, 0, 0, Qt::AlignCenter);
+
+    videoStack->addWidget(thumbnailPage);
+
+    // 1번 페이지: 실제 mp4 재생 화면(libvlc 네이티브 임베드, ClipPlayerWidget) — 재생 버튼을 누르면
+    // 여기로 전환되어 Qt 안에서 바로 보인다(예전엔 OS 기본 플레이어로 새 창이 열렸음).
+    // 우상단 ✕는 재생을 멈추고 다시 썸네일로 돌아간다.
+    auto *videoPage = new QWidget(videoContainer);
+    auto *videoPageLayout = new QGridLayout(videoPage);
+    videoPageLayout->setContentsMargins(0, 0, 0, 0);
+    clipPlayer = new ClipPlayerWidget(videoPage);
+    videoPageLayout->addWidget(clipPlayer, 0, 0);
+    auto *closeVideoButton = new QPushButton("✕", videoPage);
+    closeVideoButton->setFixedSize(28, 28);
+    closeVideoButton->setCursor(Qt::PointingHandCursor);
+    closeVideoButton->setStyleSheet(
+        "QPushButton { background-color:rgba(0,0,0,150); color:white; border:none; border-radius:14px; }"
+        "QPushButton:hover { background-color:rgba(0,0,0,220); }");
+    videoPageLayout->addWidget(closeVideoButton, 0, 0, Qt::AlignTop | Qt::AlignRight);
+    connect(closeVideoButton, &QPushButton::clicked, this, [this]() {
+        clipPlayer->stop();
+        videoStack->setCurrentIndex(0);
+        clipSeekSlider->setVisible(false);
+        clipTimeLabel->setVisible(false);
+    });
+
+    videoStack->addWidget(videoPage);
+
+    snapshotBoxLayout->addWidget(videoContainer);
+
+    // 재생바: 클립 재생 중에만 보인다. ClipPlayerWidget이 200ms마다 positionChanged를 쏴주면
+    // 슬라이더/시간 라벨을 갱신하고, 사용자가 슬라이더를 드래그하면 그 지점으로 seek()한다.
+    auto *clipControlsRow = new QHBoxLayout;
+    clipSeekSlider = new QSlider(Qt::Horizontal, snapshotBox);
+    clipSeekSlider->setRange(0, 0);
+    clipSeekSlider->setStyleSheet(kClipSliderStyle);
+    clipSeekSlider->setVisible(false);
+    clipTimeLabel = new QLabel("00:00 / 00:00", snapshotBox);
+    clipTimeLabel->setStyleSheet(QString("color:%1; font-size:11px;").arg(kTextSecondary));
+    clipTimeLabel->setVisible(false);
+    clipControlsRow->addWidget(clipSeekSlider, 1);
+    clipControlsRow->addWidget(clipTimeLabel);
+    snapshotBoxLayout->addLayout(clipControlsRow);
+
+    connect(clipSeekSlider, &QSlider::sliderMoved, this, [this](int value) {
+        clipPlayer->seek(value);
+    });
+    connect(clipPlayer, &ClipPlayerWidget::positionChanged, this,
+            [this](qint64 currentMs, qint64 lengthMs) {
+                if (lengthMs <= 0)
+                    return;
+                if (!clipSeekSlider->isSliderDown()) {
+                    // 드래그 중엔 폴링 값으로 되돌리지 않는다 — 안 그러면 손을 떼기 전에도
+                    // 200ms마다 슬라이더가 실제 재생 위치로 튕겨 돌아가 버린다.
+                    const QSignalBlocker blocker(clipSeekSlider);
+                    clipSeekSlider->setRange(0, int(lengthMs));
+                    clipSeekSlider->setValue(int(currentMs));
+                }
+                clipTimeLabel->setText(QString("%1 / %2").arg(formatClipTime(currentMs), formatClipTime(lengthMs)));
+            });
 
     clipStatusLabel = new QLabel("클립 없음", snapshotBox);
     clipStatusLabel->setAlignment(Qt::AlignCenter);
     clipStatusLabel->setWordWrap(true);
     clipStatusLabel->setStyleSheet(QString("color:%1; border:none; font-size:12px;").arg(kTextSecondary));
     snapshotBoxLayout->addWidget(clipStatusLabel);
-    clipPlayButton = new QPushButton("▶ 재생", snapshotBox);
-    clipPlayButton->setCursor(Qt::PointingHandCursor);
-    clipPlayButton->setStyleSheet(QString(
-        "QPushButton { background-color:%1; color:white; border:none; border-radius:6px; padding:6px 14px; }"
-        "QPushButton:hover { background-color:#7c6ce8; }").arg(kAccent));
-    clipPlayButton->setVisible(false);
-    connect(clipPlayButton, &QPushButton::clicked, this, &EventLogPage::onPlayClipClicked);
-    snapshotBoxLayout->addWidget(clipPlayButton, 0, Qt::AlignCenter);
     detailLayout->addWidget(snapshotBox);
 
     detailLayout->addSpacing(8);
@@ -551,16 +657,23 @@ void EventLogPage::showDetail(int row, int)
 
     // 클립은 이벤트 후 약 15초는 지나야 저장이 끝난다 — 경고/위험/비상류가 아니면(수동제어 등)
     // 애초에 clipPath 자체가 안 옴. 두 경우 다 문구만 다르게 안내.
+    // 다른 행으로 옮겨왔으니 재생 중이었으면 멈추고 항상 썸네일 화면으로 리셋한다.
     pendingClipReqId.clear();
+    clipPlayer->stop();
+    videoStack->setCurrentIndex(0);
+    clipSeekSlider->setVisible(false);
+    clipSeekSlider->setRange(0, 0);
+    clipTimeLabel->setVisible(false);
+    clipTimeLabel->setText("00:00 / 00:00");
     if (entry.clipPath.isEmpty()) {
-        clipPlayButton->setVisible(false);
+        clipPlayOverlayButton->setVisible(false);
         clipStatusLabel->setVisible(true);
         clipStatusLabel->setText("클립 없음");
     } else {
         clipStatusLabel->setVisible(false);
-        clipPlayButton->setVisible(true);
-        clipPlayButton->setEnabled(true);
-        clipPlayButton->setText("▶ 재생");
+        clipPlayOverlayButton->setVisible(true);
+        clipPlayOverlayButton->setEnabled(true);
+        clipPlayOverlayButton->setText("▶");
     }
 
     // 썸네일은 클립과 달리 클릭 없이 상세 패널을 열자마자 바로 불러온다 — 정지 이미지 하나라
@@ -582,8 +695,8 @@ void EventLogPage::onPlayClipClicked()
     const QString path = eventEntries[selectedEventRow].clipPath;
     if (path.isEmpty())
         return;
-    clipPlayButton->setEnabled(false);
-    clipPlayButton->setText("불러오는 중...");
+    clipPlayOverlayButton->setEnabled(false);
+    clipPlayOverlayButton->setText("···");
     emit clipPlayRequested(path);
 }
 
@@ -598,11 +711,10 @@ void EventLogPage::onClipReceived(const QString &reqId, const QString &result, c
         return;   // 이미 다른 행을 클릭해서 이 응답은 더 이상 유효하지 않음
     pendingClipReqId.clear();
 
-    clipPlayButton->setEnabled(true);
-    clipPlayButton->setText("▶ 재생");
+    clipPlayOverlayButton->setEnabled(true);
+    clipPlayOverlayButton->setText("▶");
 
     if (result == "empty") {
-        clipPlayButton->setVisible(false);
         clipStatusLabel->setVisible(true);
         clipStatusLabel->setText("아직 저장 중입니다 (이벤트 발생 후 약 15초 소요) — 잠시 후 다시 시도해주세요.");
         return;
@@ -613,7 +725,7 @@ void EventLogPage::onClipReceived(const QString &reqId, const QString &result, c
     }
 
     // 서버가 매번 base64로 다시 보내주므로 로컬엔 캐시하지 않고 그때그때 임시파일로 저장 후
-    // OS 기본 플레이어로 연다 — 별도 인앱 플레이어 없이 "재생 버튼" 요구사항을 충족.
+    // ClipPlayerWidget(libvlc 임베드)으로 재생한다 — 예전엔 OS 기본 플레이어로 새 창을 열었다.
     const QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/safevision_clips";
     QDir().mkpath(tempDir);
     const QString filePath = tempDir + "/" + QString::number(QDateTime::currentMSecsSinceEpoch()) + ".mp4";
@@ -623,7 +735,11 @@ void EventLogPage::onClipReceived(const QString &reqId, const QString &result, c
         return;
     }
     file.close();
-    QDesktopServices::openUrl(QUrl::fromLocalFile(filePath));
+
+    clipPlayer->playFile(filePath);
+    videoStack->setCurrentIndex(1);
+    clipSeekSlider->setVisible(true);
+    clipTimeLabel->setVisible(true);
 }
 
 void EventLogPage::trackSnapshotRequest(const QString &reqId)

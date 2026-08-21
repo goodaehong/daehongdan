@@ -13,8 +13,11 @@ class QLabel;
 class QPushButton;
 class QTimeEdit;
 class QTimer;
+class QStackedLayout;
+class QSlider;
 class GasGraphWidget;
 class QJsonArray;
+class ClipPlayerWidget;
 
 struct EventEntry {
     QString date;        // 표시용 "yyyy-MM-dd"
@@ -123,13 +126,21 @@ private:
     QPushButton *falseAlarmButton;
     int selectedEventRow = -1;
 
-    // 이벤트 클립(PR #63) 재생 UI. clipStatusLabel은 "스냅샷 없음"/"저장 중"/에러 문구를,
-    // clipPlayButton은 clipPath가 있을 때만 보여준다.
+    // 이벤트 클립(PR #63) 재생 UI. 썸네일 위에 유튜브처럼 재생 버튼을 오버레이하고, 누르면
+    // videoStack이 1번 페이지(ClipPlayerWidget, libvlc 임베드)로 전환되어 Qt 안에서 바로 재생된다
+    // (예전엔 임시파일 저장 후 OS 기본 플레이어로 새 창을 열었음). clipStatusLabel은
+    // "클립 없음"/"저장 중"/에러 문구를 보여준다.
+    QStackedLayout *videoStack;
     QLabel *clipStatusLabel;
-    QPushButton *clipPlayButton;
+    QPushButton *clipPlayOverlayButton;
+    ClipPlayerWidget *clipPlayer;
+    // 재생바: 클립 재생 중(videoStack 1번 페이지)에만 보인다. ClipPlayerWidget::positionChanged를
+    // 받아 갱신하고, 사용자가 슬라이더를 드래그하면 clipPlayer->seek()으로 그 지점부터 재생한다.
+    QSlider *clipSeekSlider;
+    QLabel *clipTimeLabel;
     QString pendingClipReqId;   // 지금 기다리는 clip 요청. 비어있으면 대기 중인 요청 없음
 
-    // 스냅샷 썸네일(PR #69). clipStatusLabel/clipPlayButton과 별개로 jpg 미리보기를 보여준다 —
+    // 스냅샷 썸네일(PR #69). clipStatusLabel/clipPlayOverlayButton과 별개로 jpg 미리보기를 보여준다 —
     // showDetail()에서 snapshotPath가 있으면 자동으로 조회를 요청한다(재생 버튼처럼 수동 클릭 안 함).
     QLabel *snapshotThumbnail;
     QString pendingSnapshotReqId;
