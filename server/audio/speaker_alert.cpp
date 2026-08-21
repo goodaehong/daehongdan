@@ -68,3 +68,7 @@ void SpeakerAlert_Stop() {
     if (g_thread.joinable()) g_thread.join();
     std::cout << "[스피커] 경고음 재생 중단\n";
 }
+
+bool SpeakerAlert_IsActive() {                              
+    return g_alarmActive.load();
+}                   
