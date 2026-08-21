@@ -81,6 +81,8 @@ qt_add_executable(qt_dashboard
     src/widgets/DangerGlowOverlay.h
     src/widgets/ArucoCalibrationDialog.cpp
     src/widgets/ArucoCalibrationDialog.h
+    src/widgets/ArucoConfigDialog.cpp
+    src/widgets/ArucoConfigDialog.h
     src/widgets/ClipPlayerWidget.cpp
     src/widgets/ClipPlayerWidget.h
     src/network/StreamReceiver.cpp

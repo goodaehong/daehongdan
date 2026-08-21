@@ -57,11 +57,22 @@ public:
     QString sendSetFloorMap(const QByteArray &pngBytes, const QString &fileName);
 
     // ArUco 보정 파일(배치도/렌즈보정/Homography) 재로드 요청 — 서버 재시작 없이 해당 채널
-    // 워커가 다음 프레임에 다시 읽는다(PR #65). cmdId가 없는 프로토콜이라 channel로만 매칭—
+    // 워커가 다음 프레임에 다시 읽는다. cmdId가 없는 프로토콜이라 channel로만 매칭 —
     // reload_calibration_result는 "접수했다"는 응답일 뿐, 실제 완료 여부는 calib_status를
-    // 다시 조회해서 확인해야 한다. 좌표 설정 자체(aruco_board_config.txt 등)는 Qt가 아니라
-    // 여전히 SSH로 수동 작성한다 — Qt는 상태 조회 + 재로드만 담당.
+    // 다시 조회해서 확인해야 한다.
     void sendReloadCalibration(int channel);
+
+    // ArUco 좌표 설정(공장/모형/보드 범위 + 마커 배치) 저장. 실패해도 서버는 기존 설정을 유지한다
+    // (2026-08-21 대홍 회신). cmdId 없는 프로토콜 — channel로만 매칭, 응답은 arucoConfigResult.
+    void sendSetArucoConfig(const ArucoChannelConfig &config);
+    // 채널의 현재 좌표 설정 조회 — 설정 폼을 열 때 기존 값을 채우는 용도. sendQuery와 동일하게
+    // reqId로 매칭되지만 응답 구조가 달라(rows 배열이 아님) query_result 안에서 따로 분기한다.
+    QString sendQueryArucoConfig(int channel);
+    // 보정 계산 실행. 응답(runCalibrationResult)은 "접수했다"는 뜻일 뿐 완료가 아니다 — 실제
+    // 완료·실패·취소·타임아웃은 서버가 나중에 먼저 보내는 calibrationDone 시그널로 온다.
+    void sendRunCalibration(int channel);
+    // 실행 중인 보정 계산 중단.
+    void sendCancelCalibration(int channel);
 
 signals:
     void connectionStateChanged(bool connected);
@@ -139,6 +150,19 @@ signals:
     // reload_calibration 응답. accepted=true는 "접수됐다"는 뜻일 뿐 완료가 아니다 —
     // 실제로 다 됐는지는 이후 calibStatusReceived로 다시 확인해야 한다.
     void calibReloadResult(int channel, bool accepted, const QString &reason);
+
+    // set_aruco_config 응답. ok=false면 reason에 실패 사유(한글, 그대로 표시 가능)가 채워진다.
+    void arucoConfigResult(int channel, bool ok, const QString &reason);
+    // query target=aruco_config 응답. available=false면 그 채널에 아직 설정된 좌표가 없음
+    // (result:"empty") — config는 비어있는 채로 온다.
+    void arucoConfigReceived(int channel, bool available, const ArucoChannelConfig &config);
+    // run_calibration 응답. accepted=true는 "접수했다"는 뜻일 뿐 완료가 아니다 —
+    // 실제 결과는 이후 calibrationDone으로 (서버가 먼저) 온다.
+    void runCalibrationResult(int channel, bool accepted, const QString &reason);
+    void cancelCalibrationResult(int channel, bool accepted, const QString &reason);
+    // 서버가 요청 없이 먼저 보내는 보정 완료 알림. result: "ok"/"error"/"cancelled"/"timeout".
+    // cancelled는 사용자가 직접 중단한 것이라 오류로 표시하면 안 된다.
+    void calibrationDone(int channel, const QString &result);
 
     // query target=clip 응답. result: "ok"(data에 mp4 바이트) / "empty"(아직 저장 중,
     // 이벤트 후 약 15초 이내) / "error". ok가 아니면 data는 비어있다.
