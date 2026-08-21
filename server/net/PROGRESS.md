@@ -34,5 +34,5 @@
 
 ## 남은 과제
 
-1. **인증서 경로(`server_cert.pem`/`server_private.pem`) 상대경로 하드코딩** — 실행 CWD에 의존. 다른 항목들과 달리 이건 라즈베리파이의 실제 배포 경로/관례를 모르는 채로 손대면 지금 되던 걸 깨뜨릴 위험이 있어 일부러 안 건드림. 실제 배포 시 인증서가 어디 놓이는지 확인 후 `FLOORMAP_IMAGE_PATH`처럼 `CMakeLists.txt` compile definition으로 절대경로화하는 걸 권장. 실제 발급 절차는 `server/tls/QT_TLS_전환_가이드.md` 참고
-2. **Qt 클라이언트 값 미적용** — `kUseTls`/인증서 지문/`kServerHost` 세 값을 아직 실제로 안 바꿈. 적용할 값과 주의사항은 `server/tls/QT_TLS_전환_가이드.md`에 정리해둠
+1. **인증서 경로(`server_cert.pem`/`server_private.pem`) 상대경로 하드코딩** — 실행 CWD에 의존. 다른 항목들과 달리 이건 라즈베리파이의 실제 배포 경로/관례를 모르는 채로 손대면 지금 되던 걸 깨뜨릴 위험이 있어 일부러 안 건드림. 실제 배포 시 인증서가 어디 놓이는지 확인 후 `FLOORMAP_IMAGE_PATH`처럼 `CMakeLists.txt` compile definition으로 절대경로화하는 걸 권장. 실제 발급 절차는 `server/net/QT_TLS_전환_가이드.md` 참고
+2. **Qt 클라이언트 값 미적용** — `kUseTls`/인증서 지문/`kServerHost` 세 값을 아직 실제로 안 바꿈. 적용할 값과 주의사항은 `server/net/QT_TLS_전환_가이드.md`에 정리해둠

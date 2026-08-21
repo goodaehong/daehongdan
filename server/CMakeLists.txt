@@ -86,7 +86,7 @@ endif()
 
 if(ENABLE_TLS)
     set(NET_SRC ${CMAKE_CURRENT_SOURCE_DIR}/net/link_tls.cpp
-                ${CMAKE_CURRENT_SOURCE_DIR}/tls/TlsServer.cpp)
+                ${CMAKE_CURRENT_SOURCE_DIR}/net/TlsServer.cpp)
 else()
     set(NET_SRC ${CMAKE_CURRENT_SOURCE_DIR}/net/link_plain.cpp)
 endif()

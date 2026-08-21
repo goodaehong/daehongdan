@@ -31,7 +31,7 @@ inline const QString kServerCertSha256 =
 
 ⚠️ **이 지문은 임시 테스트용입니다.** 파이의 `server/build/` 안에 `openssl req -x509 ...`로 즉석 생성한 자체서명 인증서 기준이라:
 - `rm -rf build`나 cmake 재구성 시 인증서가 같이 사라질 수 있음
-- 실배포 인증서는 `build/` 밖 고정 위치(예: `server/tls/` 등)로 옮기고 나서, 그 인증서 기준으로 지문을 **다시 뽑아서** 이 값을 갱신해야 합니다:
+- 실배포 인증서는 `build/` 밖 고정 위치(예: `server/net/` 등)로 옮기고 나서, 그 인증서 기준으로 지문을 **다시 뽑아서** 이 값을 갱신해야 합니다:
   ```bash
   openssl x509 -in <실제 배포용 인증서 경로> -noout -fingerprint -sha256
   ```
@@ -48,7 +48,7 @@ hostname -I
 
 ## 참고 — 인증서 경로 (서버 쪽, 아직 미확정)
 
-`TlsServer`는 실행 디렉터리 기준 상대경로로 `server_cert.pem`/`server_private.pem`을 찾습니다 (`server/tls/TlsServer.cpp`의 `configureContext()`). 실배포 시 이 경로를 고정 절대경로로 바꾸는 작업이 `server/tls/PROGRESS.md`에 남은 과제로 정리돼 있습니다 — 인증서 최종 배치 위치가 정해지면 그때 같이 처리하면 됩니다.
+`TlsServer`는 실행 디렉터리 기준 상대경로로 `server_cert.pem`/`server_private.pem`을 찾습니다 (`server/net/TlsServer.cpp`의 `configureContext()`). 실배포 시 이 경로를 고정 절대경로로 바꾸는 작업이 `server/net/PROGRESS.md`에 남은 과제로 정리돼 있습니다 — 인증서 최종 배치 위치가 정해지면 그때 같이 처리하면 됩니다.
 
 ## 검증 재현 방법 (필요 시)
 
