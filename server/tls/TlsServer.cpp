@@ -209,10 +209,14 @@ void TlsServer::run() {
             // poll()로 소켓의 읽기 가능 여부만 먼저 확인 (sslMutex_ 미보유 상태).
             // SSL_read를 락을 쥔 채로 무한 대기시키면 TX 스레드가 SSL_write를 위해
             // sslMutex_를 얻지 못해 감지 이벤트 전송이 지연되므로, 락은 짧게만 쥔다.
-            struct pollfd pfd{};
-            pfd.fd = clientFd;
-            pfd.events = POLLIN;
-            int pollResult = poll(&pfd, 1, 200); // 200ms 주기로 재확인
+            //
+            // serverFd_(리스닝 소켓)도 같이 감시한다 — 안 그러면 이 안쪽 루프에 머무는 동안
+            // accept()가 다시 호출될 일이 없어서, 첫 연결이 살아있는 동안 두 번째 접속 시도를
+            // 걸러내는 "단일 접속 차단" 체크(바깥 루프에 있음)에 영영 도달하지 못한다.
+            struct pollfd pfds[2];
+            pfds[0].fd = clientFd;      pfds[0].events = POLLIN; pfds[0].revents = 0;
+            pfds[1].fd = serverFd_;     pfds[1].events = POLLIN; pfds[1].revents = 0;
+            int pollResult = poll(pfds, 2, 200); // 200ms 주기로 재확인
 
             if (pollResult < 0) {
                 if (errno == EINTR) continue;
@@ -227,6 +231,21 @@ void TlsServer::run() {
             }
             if (pollResult == 0) {
                 continue; // 타임아웃: 수신 데이터 없음. 이 사이 TX 스레드가 락을 얻어 송신 가능
+            }
+
+            // 새 접속 시도 감지 — 기존 세션은 그대로 두고 새 연결만 즉시 거부
+            if (pfds[1].revents & POLLIN) {
+                struct sockaddr_in newAddr;
+                socklen_t newLen = sizeof(newAddr);
+                int newFd = accept(serverFd_, (struct sockaddr*)&newAddr, &newLen);
+                if (newFd >= 0) {
+                    std::cerr << "[TLS] 다중 연결 시도 차단" << std::endl;
+                    close(newFd);
+                }
+            }
+
+            if (!(pfds[0].revents & POLLIN)) {
+                continue; // 이번 poll은 새 접속 감지뿐, 기존 세션엔 읽을 데이터 없음
             }
 
             int bytes = 0;
