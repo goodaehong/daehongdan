@@ -58,15 +58,17 @@ static std::string CurrentTimeString()
 static std::atomic<int> g_fd{-1};
 static const char* kDevPath = "/dev/stm_display";
 
-// 테스트용: Start ID 3(전광판 (36,11)) -> 출구 4곳 전체 경로. EvacPlanner가 뽑은 (y,x) 웨이포인트를
-// {x,y} 평탄화 배열로 손으로 옮겨온 것 (임시 테스트용 - 나중엔 EvacPlanner 호출로 대체).
-// map.png 재수정 후 evac_server를 다시 돌려서 새로 갱신한 값 (evac_routes.txt 기준)
+// 테스트용: Start ID 3(전광판 (36,11), EvacPlanner 기준 y,x) -> 출구 4곳 전체 경로.
+// evac_routes.txt는 (y,x) 순서로 찍히지만, STM32 파서(main.c HandlePacket의 CMD_EVAC_PATH)는
+// data[i*2]=x, data[i*2+1]=y로 읽으므로 여기 배열은 반드시 {x,y}로 "뒤집어서" 넣어야 함.
+// (evac_routes.txt를 그대로 y,x 순서로 옮기면 x/y가 뒤바뀌어 엉뚱한 위치에 그려짐 - 실제로 겪은 버그)
+// map.png 재수정 후 evac_server를 다시 돌려서 새로 갱신한 값 (evac_routes.txt 기준, x,y로 뒤집음)
 // 배열 순서 = EvacExits 인덱스(routeIndex) 순서와 반드시 일치해야 함
 struct EvacRoute { const uint8_t* xy; uint8_t count; };
-static const uint8_t kRouteExit1[] = { 36,11, 34,11, 34,13, 48,13, 48,37, 58,37, 58,47, 59,47 };
-static const uint8_t kRouteExit2[] = { 36,11, 34,11, 34,13, 47,13, 47,0 };
-static const uint8_t kRouteExit3[] = { 36,11, 32,11, 32,13, 15,13, 15,59 };
-static const uint8_t kRouteExit4[] = { 36,11, 32,11, 32,13, 15,13, 15,14, 12,14, 12,16, 1,16, 1,21, 0,21 };
+static const uint8_t kRouteExit1[] = { 11,36, 11,34, 13,34, 13,48, 37,48, 37,58, 47,58, 47,59 };
+static const uint8_t kRouteExit2[] = { 11,36, 11,34, 13,34, 13,47, 0,47 };
+static const uint8_t kRouteExit3[] = { 11,36, 11,32, 13,32, 13,15, 59,15 };
+static const uint8_t kRouteExit4[] = { 11,36, 11,32, 13,32, 13,15, 14,15, 14,12, 16,12, 16,1, 21,1, 21,0 };
 static const EvacRoute kTestRoutes[] = {
     { kRouteExit1, sizeof(kRouteExit1) / 2 },
     { kRouteExit2, sizeof(kRouteExit2) / 2 },
