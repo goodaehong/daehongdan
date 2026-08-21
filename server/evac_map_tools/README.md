@@ -134,7 +134,7 @@ bool exportToMainC(const std::string& imagePath, const std::string& mainCPath);
 ## 6. 알고리즘 / 확장 계획 참고
 
 - 경로 탐색은 전광판마다 BFS를 한 번 돌려 모든 출구까지의 최단 경로를 뽑는 방식 (그리드가 60x60 균일 비용이라 BFS가 Dijkstra/A*보다 단순하고 충분함).
-- **화재/위험구역 표시는 구현됨** — 단, 이 라이브러리(`EvacPlanner`)가 아니라 UART 프로토콜(`drivers/stm_uart_display/stm_display_protocol.h`) 쪽에 있음. `CMD_EVAC_PATH`(0xB1, 경로 전용)와 별개로 `CMD_EVAC_FIRES`(0xB2)로 화재 좌표를 최대 6개까지 배열로 STM32에 보낼 수 있고, STM32가 자홍색(현재는 빨강으로 변경됨)으로 반경만큼 표시함. `EvacPlanner`가 계산한 격자 좌표계(60x60, `{y,x}`)를 그대로 화재 좌표에도 써서 경로/화재/벽이 전부 같은 좌표계를 공유함. `EvacPlanner` 자체는 화재를 반영해 경로를 우회 계산하진 않음(화재 표시와 경로 계산은 독립적) — 서버(`server_main.cpp`)가 필요하면 직접 필터링해야 함.
+- **화재/위험구역 표시는 구현됨** — 단, 이 라이브러리(`EvacPlanner`)가 아니라 UART 프로토콜(`drivers/stm_uart_display/stm_display_protocol.h`) 쪽에 있음. `CMD_EVAC_PATH`(0xB1, 경로 전용)와 별개로 `CMD_EVAC_FIRES`(0xB2)로 화재 좌표를 최대 6개까지 배열로 STM32에 보낼 수 있고, STM32가 노란색으로 반경만큼 표시함 (대피경로 자체는 빨강, 흐르는 이동 하이라이트는 자홍). `EvacPlanner`가 계산한 격자 좌표계(60x60, `{y,x}`)를 그대로 화재 좌표에도 써서 경로/화재/벽이 전부 같은 좌표계를 공유함. `EvacPlanner` 자체는 화재를 반영해 경로를 우회 계산하진 않음(화재 표시와 경로 계산은 독립적) — 서버(`server_main.cpp`)가 필요하면 직접 필터링해야 함.
 
 ## 7. 재생성이 필요한 경우
 
