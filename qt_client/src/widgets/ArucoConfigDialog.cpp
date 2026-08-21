@@ -9,6 +9,7 @@
 #include <QPushButton>
 #include <QDoubleSpinBox>
 #include <QSpinBox>
+#include <QAbstractSpinBox>
 #include <QTableWidget>
 #include <QHeaderView>
 #include <QSet>
@@ -24,11 +25,59 @@ constexpr int kColId = 0, kColX = 1, kColY = 2, kColSize = 3, kColRotation = 4, 
 
 QString spinBoxStyle()
 {
+    // 네이티브 up/down 화살표는 이 스타일(Qt 기본 렌더링도, QSS 테두리로 직접 그리는 것도)에서
+    // 안 보이거나 뭉개져서 신뢰할 수 없었음 — 그래서 네이티브 버튼은 아예 끄고(NoButtons,
+    // withSteppers 참고) ▲▼ 글자를 직접 그리는 별도 버튼으로 대체했다. 왼쪽만 둥글게 해서
+    // 오른쪽에 붙는 버튼 칼럼과 이어지는 모양을 만든다.
     return QString(
         "QDoubleSpinBox, QSpinBox { background-color:#1a1a26; color:%1; border:1px solid %2; "
-        "border-radius:6px; padding:6px 8px; }"
+        "border-top-left-radius:6px; border-bottom-left-radius:6px; border-top-right-radius:0; "
+        "border-bottom-right-radius:0; padding:6px 8px; min-height:24px; }"
         "QDoubleSpinBox:focus, QSpinBox:focus { border:1px solid %3; }")
         .arg(kTextPrimary, kCardBorder, kAccent);
+}
+
+QString stepButtonStyle(bool isTop)
+{
+    return QString(
+        "QPushButton { background-color:#2a2a3d; color:%1; border:1px solid %2; "
+        "border-left:none; %3 font-size:9px; padding:0; }"
+        "QPushButton:hover { background-color:%4; }"
+        "QPushButton:pressed { background-color:#6d5fd1; }")
+        .arg(kTextPrimary, kCardBorder,
+             isTop ? "border-bottom:none; border-top-right-radius:6px;"
+                   : "border-bottom-right-radius:6px;",
+             kAccent);
+}
+
+// 스핀박스 오른쪽에 ▲/▼ 버튼 두 개를 붙인 위젯을 만들어 반환한다(레이아웃에는 이걸 넣어야 함).
+// 네이티브 위아래 버튼은 생성자에서 이미 꺼둔 상태로 넘어온다.
+QWidget *withSteppers(QAbstractSpinBox *sb)
+{
+    auto *upBtn = new QPushButton(QString(QChar(0x25B2)));
+    auto *downBtn = new QPushButton(QString(QChar(0x25BC)));
+    upBtn->setCursor(Qt::PointingHandCursor);
+    downBtn->setCursor(Qt::PointingHandCursor);
+    upBtn->setFixedSize(22, 18);
+    downBtn->setFixedSize(22, 18);
+    upBtn->setStyleSheet(stepButtonStyle(true));
+    downBtn->setStyleSheet(stepButtonStyle(false));
+    QObject::connect(upBtn, &QPushButton::clicked, sb, [sb]() { sb->stepUp(); });
+    QObject::connect(downBtn, &QPushButton::clicked, sb, [sb]() { sb->stepDown(); });
+
+    auto *btnCol = new QVBoxLayout;
+    btnCol->setSpacing(0);
+    btnCol->setContentsMargins(0, 0, 0, 0);
+    btnCol->addWidget(upBtn);
+    btnCol->addWidget(downBtn);
+
+    auto *row = new QWidget(sb->parentWidget());
+    auto *rowLayout = new QHBoxLayout(row);
+    rowLayout->setContentsMargins(0, 0, 0, 0);
+    rowLayout->setSpacing(0);
+    rowLayout->addWidget(sb, 1);
+    rowLayout->addLayout(btnCol);
+    return row;
 }
 
 QDoubleSpinBox *makeRangeSpinBox(QWidget *parent)
@@ -37,6 +86,8 @@ QDoubleSpinBox *makeRangeSpinBox(QWidget *parent)
     sb->setRange(-9999.0, 9999.0);
     sb->setDecimals(2);
     sb->setSingleStep(0.5);
+    sb->setMinimumHeight(38);
+    sb->setButtonSymbols(QAbstractSpinBox::NoButtons);
     sb->setStyleSheet(spinBoxStyle());
     return sb;
 }
@@ -83,11 +134,11 @@ ArucoConfigDialog::ArucoConfigDialog(ServerLink *serverLink, int channel, QWidge
         l->setStyleSheet(QString("color:%1; border:none;").arg(kTextSecondary));
         return l;
     };
-    factoryGrid->addWidget(lbl("최소 X"), 0, 0); factoryGrid->addWidget(factoryMinX, 0, 1);
-    factoryGrid->addWidget(lbl("최소 Y"), 0, 2); factoryGrid->addWidget(factoryMinY, 0, 3);
-    factoryGrid->addWidget(lbl("최대 X"), 1, 0); factoryGrid->addWidget(factoryMaxX, 1, 1);
-    factoryGrid->addWidget(lbl("최대 Y"), 1, 2); factoryGrid->addWidget(factoryMaxY, 1, 3);
-    factoryGrid->addWidget(lbl("모형 축척"), 2, 0); factoryGrid->addWidget(modelScale, 2, 1);
+    factoryGrid->addWidget(lbl("최소 X"), 0, 0); factoryGrid->addWidget(withSteppers(factoryMinX), 0, 1);
+    factoryGrid->addWidget(lbl("최소 Y"), 0, 2); factoryGrid->addWidget(withSteppers(factoryMinY), 0, 3);
+    factoryGrid->addWidget(lbl("최대 X"), 1, 0); factoryGrid->addWidget(withSteppers(factoryMaxX), 1, 1);
+    factoryGrid->addWidget(lbl("최대 Y"), 1, 2); factoryGrid->addWidget(withSteppers(factoryMaxY), 1, 3);
+    factoryGrid->addWidget(lbl("모형 축척"), 2, 0); factoryGrid->addWidget(withSteppers(modelScale), 2, 1);
     root->addWidget(factoryGroup);
 
     // 채널 담당(보드) 범위
@@ -98,10 +149,10 @@ ArucoConfigDialog::ArucoConfigDialog(ServerLink *serverLink, int channel, QWidge
     boardMinY = makeRangeSpinBox(boardGroup);
     boardMaxX = makeRangeSpinBox(boardGroup);
     boardMaxY = makeRangeSpinBox(boardGroup);
-    boardGrid->addWidget(lbl("최소 X"), 0, 0); boardGrid->addWidget(boardMinX, 0, 1);
-    boardGrid->addWidget(lbl("최소 Y"), 0, 2); boardGrid->addWidget(boardMinY, 0, 3);
-    boardGrid->addWidget(lbl("최대 X"), 1, 0); boardGrid->addWidget(boardMaxX, 1, 1);
-    boardGrid->addWidget(lbl("최대 Y"), 1, 2); boardGrid->addWidget(boardMaxY, 1, 3);
+    boardGrid->addWidget(lbl("최소 X"), 0, 0); boardGrid->addWidget(withSteppers(boardMinX), 0, 1);
+    boardGrid->addWidget(lbl("최소 Y"), 0, 2); boardGrid->addWidget(withSteppers(boardMinY), 0, 3);
+    boardGrid->addWidget(lbl("최대 X"), 1, 0); boardGrid->addWidget(withSteppers(boardMaxX), 1, 1);
+    boardGrid->addWidget(lbl("최대 Y"), 1, 2); boardGrid->addWidget(withSteppers(boardMaxY), 1, 3);
     root->addWidget(boardGroup);
 
     // 마커 테이블
@@ -169,26 +220,28 @@ void ArucoConfigDialog::addMarkerRow(int id, double x, double y, double sizeCm, 
     auto *idBox = new QSpinBox(markerTable);
     idBox->setRange(0, 49);
     idBox->setValue(id);
+    idBox->setMinimumHeight(38);
+    idBox->setButtonSymbols(QAbstractSpinBox::NoButtons);
     idBox->setStyleSheet(spinBoxStyle());
-    markerTable->setCellWidget(row, kColId, idBox);
+    markerTable->setCellWidget(row, kColId, withSteppers(idBox));
 
     auto *xBox = makeRangeSpinBox(markerTable);
     xBox->setValue(x);
-    markerTable->setCellWidget(row, kColX, xBox);
+    markerTable->setCellWidget(row, kColX, withSteppers(xBox));
 
     auto *yBox = makeRangeSpinBox(markerTable);
     yBox->setValue(y);
-    markerTable->setCellWidget(row, kColY, yBox);
+    markerTable->setCellWidget(row, kColY, withSteppers(yBox));
 
     auto *sizeBox = makeRangeSpinBox(markerTable);
     sizeBox->setRange(0.1, 999.0);
     sizeBox->setValue(sizeCm > 0 ? sizeCm : 5.0);
-    markerTable->setCellWidget(row, kColSize, sizeBox);
+    markerTable->setCellWidget(row, kColSize, withSteppers(sizeBox));
 
     auto *rotBox = makeRangeSpinBox(markerTable);
     rotBox->setRange(-360.0, 360.0);
     rotBox->setValue(rotation);
-    markerTable->setCellWidget(row, kColRotation, rotBox);
+    markerTable->setCellWidget(row, kColRotation, withSteppers(rotBox));
 
     auto *delBtn = new QPushButton("×", markerTable);
     delBtn->setCursor(Qt::PointingHandCursor);
@@ -211,7 +264,8 @@ void ArucoConfigDialog::onAddMarkerRow()
     // 다음 자동 ID: 지금 안 쓰이는 가장 작은 값(0~49) — 매번 0부터 새로 채워 넣는 수고를 던다.
     QSet<int> used;
     for (int r = 0; r < markerTable->rowCount(); ++r) {
-        if (auto *idBox = qobject_cast<QSpinBox *>(markerTable->cellWidget(r, kColId)))
+        // setCellWidget에 들어간 건 스핀박스를 감싼 위젯(withSteppers)이라 findChild로 찾는다.
+        if (auto *idBox = markerTable->cellWidget(r, kColId)->findChild<QSpinBox *>())
             used.insert(idBox->value());
     }
     int nextId = 0;
@@ -265,11 +319,12 @@ bool ArucoConfigDialog::collectConfig(ArucoChannelConfig &out, QString *errorOut
     QSet<int> seenIds;
     for (int r = 0; r < markerTable->rowCount(); ++r) {
         ArucoMarkerConfig m;
-        m.id = qobject_cast<QSpinBox *>(markerTable->cellWidget(r, kColId))->value();
-        m.x = qobject_cast<QDoubleSpinBox *>(markerTable->cellWidget(r, kColX))->value();
-        m.y = qobject_cast<QDoubleSpinBox *>(markerTable->cellWidget(r, kColY))->value();
-        m.sizeCm = qobject_cast<QDoubleSpinBox *>(markerTable->cellWidget(r, kColSize))->value();
-        m.rotation = qobject_cast<QDoubleSpinBox *>(markerTable->cellWidget(r, kColRotation))->value();
+        // setCellWidget에 들어간 건 스핀박스를 감싼 위젯(withSteppers)이라 findChild로 찾는다.
+        m.id = markerTable->cellWidget(r, kColId)->findChild<QSpinBox *>()->value();
+        m.x = markerTable->cellWidget(r, kColX)->findChild<QDoubleSpinBox *>()->value();
+        m.y = markerTable->cellWidget(r, kColY)->findChild<QDoubleSpinBox *>()->value();
+        m.sizeCm = markerTable->cellWidget(r, kColSize)->findChild<QDoubleSpinBox *>()->value();
+        m.rotation = markerTable->cellWidget(r, kColRotation)->findChild<QDoubleSpinBox *>()->value();
 
         if (seenIds.contains(m.id)) {
             if (errorOut) *errorOut = QString("마커 ID %1이(가) 중복됩니다.").arg(m.id);
