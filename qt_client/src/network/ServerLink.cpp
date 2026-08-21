@@ -589,7 +589,8 @@ void ServerLink::handleLine(const QByteArray &line)
                                       obj.value("reason").toString());
     } else if (type == "calibration_done") {
         // 서버가 요청 없이 먼저 보내는 알림 — ok/error/cancelled/timeout.
-        emit calibrationDone(obj.value("channel").toInt(), obj.value("result").toString());
+        emit calibrationDone(obj.value("channel").toInt(), obj.value("result").toString(),
+                              obj.value("reason").toString());
     } else if (type == "query_result") {
         const QString reqId = obj.value("reqId").toString();
         const QString target = obj.value("target").toString();

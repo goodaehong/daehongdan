@@ -34,7 +34,7 @@ private slots:
     void onRunCalibrationResult(int channel, bool accepted, const QString &reason);
     void onCancelCalibrationResult(int channel, bool accepted, const QString &reason);
     // 서버가 먼저 보내는 완료 알림 — ok/error/cancelled/timeout. cancelled는 오류로 안 보여준다.
-    void onCalibrationDone(int channel, const QString &result);
+    void onCalibrationDone(int channel, const QString &result, const QString &reason);
 
 private:
     void requestStatus();

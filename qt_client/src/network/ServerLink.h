@@ -161,8 +161,9 @@ signals:
     void runCalibrationResult(int channel, bool accepted, const QString &reason);
     void cancelCalibrationResult(int channel, bool accepted, const QString &reason);
     // 서버가 요청 없이 먼저 보내는 보정 완료 알림. result: "ok"/"error"/"cancelled"/"timeout".
-    // cancelled는 사용자가 직접 중단한 것이라 오류로 표시하면 안 된다.
-    void calibrationDone(int channel, const QString &result);
+    // cancelled는 사용자가 직접 중단한 것이라 오류로 표시하면 안 된다. reason은 실패/타임아웃일 때
+    // 서버가 같이 보내는 실패 사유(한글, 그대로 표시 가능) — ok/cancelled면 보통 비어있다.
+    void calibrationDone(int channel, const QString &result, const QString &reason);
 
     // query target=clip 응답. result: "ok"(data에 mp4 바이트) / "empty"(아직 저장 중,
     // 이벤트 후 약 15초 이내) / "error". ok가 아니면 data는 비어있다.

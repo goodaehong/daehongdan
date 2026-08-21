@@ -265,9 +265,12 @@ void ArucoCalibrationDialog::onCancelCalibrationResult(int channel, bool accepte
     statusLabel->setText(QString("접수됨: Ch.%1 보정 중단 — 곧 calibration_done(cancelled)이 옵니다.").arg(channel));
 }
 
-void ArucoCalibrationDialog::onCalibrationDone(int channel, const QString &result)
+void ArucoCalibrationDialog::onCalibrationDone(int channel, const QString &result, const QString &reason)
 {
     // cancelled는 사용자가 직접 누른 것 — 오류 취급하지 않는다(대홍님 회신 그대로).
+    // 보정은 실패하면 값을 조금씩 바꿔가며 다시 시도하는 반복 작업이라, 서버가 보내주는 실제
+    // 실패 사유(reason)를 그대로 보여준다 — 추측성 안내 문구보다 훨씬 도움이 된다. 서버가 reason을
+    // 안 보낸 경우(구버전 등)를 대비해 비어있으면 기존 안내 문구로 대체한다.
     if (result == "ok") {
         statusLabel->setStyleSheet("color:#34d399; font-size:13px;");
         statusLabel->setText(QString("Ch.%1 보정 완료 — 보정 파일이 자동으로 적용됐습니다.").arg(channel));
@@ -276,11 +279,14 @@ void ArucoCalibrationDialog::onCalibrationDone(int channel, const QString &resul
         statusLabel->setText(QString("Ch.%1 보정이 중단됐습니다.").arg(channel));
     } else if (result == "timeout") {
         statusLabel->setStyleSheet("color:#f87171; font-size:13px;");
-        statusLabel->setText(QString("Ch.%1 보정이 180초를 넘겨 자동 중단됐습니다. 마커가 카메라에 "
-                                      "잘 보이는지 확인 후 다시 시도해주세요.").arg(channel));
+        statusLabel->setText(QString("Ch.%1 보정이 180초를 넘겨 자동 중단됐습니다. %2")
+                                  .arg(channel)
+                                  .arg(reason.isEmpty() ? "마커가 카메라에 잘 보이는지 확인 후 다시 시도해주세요." : reason));
     } else {
         statusLabel->setStyleSheet("color:#f87171; font-size:13px;");
-        statusLabel->setText(QString("Ch.%1 보정 실패 (%2).").arg(channel).arg(result));
+        statusLabel->setText(reason.isEmpty()
+            ? QString("Ch.%1 보정 실패 (%2).").arg(channel).arg(result)
+            : QString("Ch.%1 보정 실패 — %2").arg(channel).arg(reason));
     }
     // 바로 requestStatus()를 부르면 이 메시지가 "불러오는 중..."으로 즉시 덮여서 안 보인다 —
     // 잠깐 읽을 시간을 준 뒤(재로드와 같은 지연) running=false로 바뀐 최신 상태를 다시 조회한다.
