@@ -514,8 +514,10 @@ static void DrawEvacuationScreen(void)
 
   // 화재 위치: g_evacFireCount개 전부, 각자 반경만큼 빨간 사각형으로 채우고 그 안쪽에 더 작은
   // 노란 사각형을 얹어서 불처럼 보이게 함 (바깥 빨강 = 불꽃, 안쪽 노랑 = 불의 중심).
-  // 안쪽 노란 정사각형 한 변 = r+1 (r=1/한변3이면 안쪽 한변2, r=2/한변5면 안쪽 한변3 - 요구사항 예시 기준).
-  // r=0(반경 없음, 1픽셀 화재)은 너무 작아서 두 색을 구분해 봐야 의미 없으므로 빨강 단색으로 둠.
+  // 기본 크기(잔잔할 때): 안쪽 노란 정사각형 한 변 = r+1 (r=1/한변3이면 안쪽 한변2, r=2/한변5면 안쪽 한변3).
+  // 매 프레임(50ms) 노란 코어 크기와 세로 위치를 ±1씩 흔들어서 깜빡이는 불처럼 보이게 함 - 완전 정적인
+  // 도형은 "과녁"처럼 보여서, 저해상도에서는 흔들림 자체가 불로 읽히는 데 더 중요함.
+  // r=0(반경 없음, 1픽셀 화재)은 너무 작아서 두 색/흔들림을 구분해 봐야 의미 없으므로 빨강 단색으로 둠.
   for (uint8_t f = 0; f < g_evacFireCount; f++)
   {
     int16_t fx = g_evacFireX[f], fy = g_evacFireY[f], r = g_evacFireRadius[f];
@@ -533,12 +535,29 @@ static void DrawEvacuationScreen(void)
 
     if (r >= 1)
     {
-      int16_t inner = r + 1;                 /* 안쪽 노란 정사각형 한 변 길이 */
-      int16_t lo = -((inner - 1) / 2);        /* 홀/짝 상관없이 중심에 최대한 맞춘 시작 오프셋 */
-      int16_t hi = lo + inner - 1;
-      for (int16_t dy = lo; dy <= hi; dy++)
+      /* 화재마다(인덱스/좌표로 시드를 섞음) 다르게, ~120ms마다 값이 바뀌는 간단한 흔들림.
+         진짜 rand() 없이 HAL_GetTick() 기반 1회 LCG 스텝으로 -1/0/+1을 뽑음. */
+      uint32_t seed = (HAL_GetTick() / 120u) + (uint32_t)f * 37u + (uint32_t)(fx + fy) * 11u;
+      seed = seed * 1103515245u + 12345u;
+      int16_t sizeJitter = (int16_t)((seed >> 16) % 3) - 1;   /* 크기 흔들림 */
+      seed = seed * 1103515245u + 12345u;
+      int16_t yJitter = (int16_t)((seed >> 16) % 3) - 1;      /* 세로 위치 흔들림 */
+
+      int16_t inner = r + 1 + sizeJitter;
+      if (inner < 1) inner = 1;
+      if (inner > 2 * r) inner = 2 * r;   /* 바깥 빨간 테두리가 완전히 안 없어지게 상한을 둠 */
+
+      int16_t yBias = (r >= 2) ? 1 : 0;   /* 불 밑동이 더 뜨거운 느낌 - 노란 코어를 살짝 아래로 */
+      int16_t loX = -((inner - 1) / 2);
+      int16_t hiX = loX + inner - 1;
+      int16_t loY = loX + yBias + yJitter;
+      int16_t hiY = hiX + yBias + yJitter;
+      if (loY < -r) loY = -r;   /* 노란 코어가 바깥 빨간 사각형 밖으로 삐져나가지 않게 고정 */
+      if (hiY > r) hiY = r;
+
+      for (int16_t dy = loY; dy <= hiY; dy++)
       {
-        for (int16_t dx = lo; dx <= hi; dx++)
+        for (int16_t dx = loX; dx <= hiX; dx++)
         {
           int16_t x = fx + dx, y = fy + dy;
           if (x >= 0 && x < 60 && y >= 0 && y < 60)
