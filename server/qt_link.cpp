@@ -5,6 +5,7 @@
 #include "audio/speaker_alert.h" 
 #include "clip/clip_recorder.h" 
 #include "calib/calib_store.h" 
+#include "calib/aruco_config.h"  
 #include <sstream>
 #include <iomanip>
 #include <iostream>
@@ -346,7 +347,82 @@ static void handleReloadCalibration(Link& link, const std::string& line) {
     }
     oss << ",\"ts\":" << std::time(nullptr) << "}";
     link.send(oss.str());
-}                                                                             
+}                
+
+// Qt가 보낸 마커 좌표로 설정 파일을 만든다. 지금까지 SSH로 하던 작업.      
+// 검증 실패 사유는 그대로 Qt 화면에 뜬다
+static void handleSetArucoConfig(Link& link, const std::string& line) {
+    int ch = 0;
+    std::string why;
+    const bool ok = ArucoConfig_Apply(line, &ch, &why);
+    if (!ok) std::cerr << "[보정] 좌표 설정 거부 — " << why << "\n";
+
+    std::ostringstream oss;
+    oss << "{\"type\":\"set_aruco_config_result\",\"channel\":" << ch
+        << ",\"result\":\"" << (ok ? "ok" : "error") << "\"";
+    if (!ok) oss << ",\"reason\":\"" << jsonEscape(why) << "\"";
+    oss << ",\"ts\":" << std::time(nullptr) << "}";
+    link.send(oss.str());
+}
+
+// 보정 계산 실행 요청. 수십 초 걸려서 접수만 답하고,
+// 끝나면 QtLink_SendCalibRunDone 으로 결과를 따로 보낸다
+static void handleRunCalibration(Link& link, const std::string& line) {
+    const int ch = jsonInt(line, "channel", 0);
+    std::string why;
+    const bool ok = ArucoConfig_RunCalibration(ch, &why);
+
+    std::ostringstream oss;
+    oss << "{\"type\":\"run_calibration_result\",\"channel\":" << ch
+        << ",\"result\":\"" << (ok ? "accepted" : "error") << "\"";
+    if (!ok) oss << ",\"reason\":\"" << jsonEscape(why) << "\"";
+    oss << ",\"ts\":" << std::time(nullptr) << "}";
+    link.send(oss.str());
+}                                             
+
+// 계산 스레드가 끝났을 때 Qt로 결과를 밀어 보낸다.
+// 요청-응답이 아니라 서버가 먼저 보내는 형태 (센서·감지 메시지와 같은 방향)
+void QtLink_SendCalibRunDone(Link& link, int ch, CalibRunResult r,
+                             const std::string& detail) {
+    // 취소는 사용자가 스스로 누른 것이라 실패와 구분해서 보낸다.
+    // 빨간 오류로 뜨면 자기가 뭘 잘못한 줄 안다
+    const char* word = (r == CalibRunResult::Ok)        ? "ok"
+                     : (r == CalibRunResult::Cancelled) ? "cancelled"
+                     : (r == CalibRunResult::Timeout)   ? "timeout" : "error";
+    std::ostringstream oss;
+    oss << "{\"type\":\"calibration_done\",\"channel\":" << ch
+        << ",\"result\":\"" << word << "\"";
+    if (!detail.empty()) oss << ",\"reason\":\"" << jsonEscape(detail) << "\"";
+    oss << ",\"ts\":" << std::time(nullptr) << "}";
+    link.send(oss.str());
+}
+
+// 계산 중단 요청. 마커를 잘못 놓은 걸 도중에 알아챘을 때 쓴다.       
+// 실제 결과(cancelled)는 계산 스레드가 정리를 마치고 따로 보낸다
+static void handleCancelCalibration(Link& link, const std::string& line) {
+    const int ch = jsonInt(line, "channel", 0);
+    std::string why;
+    const bool ok = ArucoConfig_CancelCalibration(ch, &why);
+
+    std::ostringstream oss;
+    oss << "{\"type\":\"cancel_calibration_result\",\"channel\":" << ch
+        << ",\"result\":\"" << (ok ? "accepted" : "error") << "\"";
+    if (!ok) oss << ",\"reason\":\"" << jsonEscape(why) << "\"";
+    oss << ",\"ts\":" << std::time(nullptr) << "}";
+    link.send(oss.str());
+}
+
+// query target="aruco_config" 응답. Qt 폼에 기존 값을 채워 넣는 용도
+static std::string arucoConfigResult(const std::string& reqId, int ch) {
+    const std::string body = ArucoConfig_ToJson(ch);
+    std::ostringstream oss;
+    oss << "{\"type\":\"query_result\",\"reqId\":\"" << jsonEscape(reqId)
+        << "\",\"target\":\"aruco_config\"";
+    if (body.empty()) oss << ",\"channel\":" << ch << ",\"result\":\"empty\"";
+    else              oss << ",\"result\":\"ok\"," << body;
+    oss << ",\"ts\":" << std::time(nullptr) << "}";
+    return oss.str();
+}                                                                          
 
 // ── 수신 스레드: Qt→서버 방향 ──
 // \n 프레이밍·대기는 Link가 처리하므로 여기선 한 줄씩 받아 라우팅만
@@ -366,7 +442,13 @@ void QtLink_RecvWorker(Link& link, AlarmState& alarm, Database& db) {
         else if (line.find("\"type\":\"set_floor_map\"") != std::string::npos)        
             handleSetFloorMap(link, line);                    
         else if (line.find("\"type\":\"reload_calibration\"") != std::string::npos)   
-            handleReloadCalibration(link, line);                                                          
+            handleReloadCalibration(link, line);    
+        else if (line.find("\"type\":\"set_aruco_config\"") != std::string::npos)     
+            handleSetArucoConfig(link, line);
+        else if (line.find("\"type\":\"run_calibration\"") != std::string::npos)
+            handleRunCalibration(link, line);       
+        else if (line.find("\"type\":\"cancel_calibration\"") != std::string::npos)   
+            handleCancelCalibration(link, line);                                                                                                                        
         else if (line.find("\"type\":\"query\"") != std::string::npos) {
             if (jsonStr(line, "target") == "ignore_regions")
                 link.send(ignoreRegionsResult(jsonInt(line, "channel", 1) - 1,
@@ -380,7 +462,10 @@ void QtLink_RecvWorker(Link& link, AlarmState& alarm, Database& db) {
                 link.send(calibStatusResult(jsonStr(line, "reqId")));       
             else if (jsonStr(line, "target") == "snapshot")                   
                 link.send(snapshotResult(jsonStr(line, "reqId"),
-                                         jsonStr(line, "path")));                      
+                                         jsonStr(line, "path")));  
+            else if (jsonStr(line, "target") == "aruco_config")              
+                link.send(arucoConfigResult(jsonStr(line, "reqId"),
+                                            jsonInt(line, "channel", 0)));                      
 
             else
                 link.send(handleQuery(db, line));

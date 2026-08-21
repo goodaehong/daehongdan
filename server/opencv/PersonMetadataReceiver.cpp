@@ -531,7 +531,6 @@ namespace
             "-loglevel", "error",
             "-rtsp_transport",
             person_metadata_config::RTSP_USE_TCP ? "tcp" : "udp",
-            "-stimeout", to_string(person_metadata_config::SOCKET_TIMEOUT_US),
             "-allowed_media_types", "data",
             "-fflags", "nobuffer",
             "-i", rtspUrl,
