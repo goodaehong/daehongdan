@@ -82,6 +82,14 @@ void MonitorPage::setChannelAlarm(int channel, bool active)
     videoWidgets[index]->setAlarmActive(active);
 }
 
+void MonitorPage::updatePersonBoxes(int channel, int srcW, int srcH, int count, const QVector<DetectionBox> &boxes)
+{
+    const int index = channel - 1;
+    if (index < 0 || index >= 4)
+        return;
+    videoWidgets[index]->setPersonBoxes(boxes, srcW, srcH, count);
+}
+
 void MonitorPage::setActuatorStatus(int fan, int valve, int siren, const QString &link,
                                      const QString &fanSrc, const QString &valveSrc, const QString &sirenSrc,
                                      int targetFan, int targetValve, int targetSiren, const QString &linkReason)

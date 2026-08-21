@@ -196,7 +196,22 @@ void VideoWidget::showConnected()
 
 void VideoWidget::setDetectionBoxes(const QVector<DetectionBox> &boxes, int srcW, int srcH)
 {
-    overlay->setBoxes(boxes, srcW, srcH);
+    detectionBoxesCache = boxes;
+    refreshOverlayBoxes(srcW, srcH);
+}
+
+void VideoWidget::setPersonBoxes(const QVector<DetectionBox> &boxes, int srcW, int srcH, int count)
+{
+    personBoxesCache = boxes;
+    refreshOverlayBoxes(srcW, srcH);
+    setPersonStatus(count, alarmActive);
+}
+
+void VideoWidget::refreshOverlayBoxes(int srcW, int srcH)
+{
+    QVector<DetectionBox> combined = detectionBoxesCache;
+    combined += personBoxesCache;
+    overlay->setBoxes(combined, srcW, srcH);
 }
 
 void VideoWidget::setPersonStatus(int count, bool inDangerZone)

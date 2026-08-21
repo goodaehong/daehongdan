@@ -65,6 +65,11 @@ signals:
     void connectionStateChanged(bool connected);
 
     void detectionReceived(int channel, int frameId, int srcW, int srcH, bool alarm, const QVector<DetectionBox> &boxes);
+    // 사람 감지(명세서 3번 계약). 카메라(WiseAI)가 검출, 서버는 ONVIF 메타데이터 중계만 함 —
+    // 판단(state)엔 반영 안 되고 대피 인원 확인용. box.cls는 항상 "PERSON"으로 채워서
+    // DetectionOverlay가 화재/연기 박스와 같은 그리기 경로를 그대로 쓰게 한다(색만 하늘색으로 구분).
+    // count는 서버가 받은 원본 개수 — boxes.size()와 다를 수 있음(Qt가 score로 거르지 않는 한 보통 같음).
+    void personReceived(int channel, int srcW, int srcH, int count, const QVector<DetectionBox> &boxes);
     // cause: server/judgement.h Cause 네임스페이스 값(gas/smoke_visual/fire_confirmed 등). safe면 빈 문자열.
     // warnRemain: warning 상태일 때만 서버가 채워 보냄(무응답 자동 전환까지 남은 초). 그 외엔 -1.
     // flameVal: 불꽃센서(DFR0076) 전압(V). 클수록 강함.

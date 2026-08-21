@@ -26,6 +26,8 @@ public:
     void updateDetection(int channel, int srcW, int srcH, const QVector<DetectionBox> &boxes);
     // 계약①의 alarm 필드를 해당 채널 카드에 반영("감지" 배지 + 테두리 강조).
     void setChannelAlarm(int channel, bool active);
+    // 사람 감지(명세서 3번 계약) 수신 시 MainWindow가 호출. channel은 1-based(1~4).
+    void updatePersonBoxes(int channel, int srcW, int srcH, int count, const QVector<DetectionBox> &boxes);
 
     // 서버 actuator_status를 좌측 StatusPanel의 종합상태에 반영.
     void setActuatorStatus(int fan, int valve, int siren, const QString &link,

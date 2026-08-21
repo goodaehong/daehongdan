@@ -227,6 +227,12 @@ MainWindow::MainWindow(QWidget *parent)
                 monitorPage->setChannelAlarm(channel, alarm);
             });
 
+    // 사람 감지(명세서 3번 계약) — 판단(state)엔 영향 없이 카메라 카드 배지/오버레이만 갱신.
+    connect(serverLink, &ServerLink::personReceived, this,
+            [this](int channel, int srcW, int srcH, int count, const QVector<DetectionBox> &boxes) {
+                monitorPage->updatePersonBoxes(channel, srcW, srcH, count, boxes);
+            });
+
     connect(serverLink, &ServerLink::sensorReceived, this,
             [this](const QString &zoneId, qint64, double temp, double humidity,
                    double gasPpm, double smokePpm, double flameVal, const QString &state,

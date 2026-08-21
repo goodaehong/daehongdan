@@ -370,6 +370,21 @@ void ServerLink::handleLine(const QByteArray &line)
         emit detectionReceived(obj.value("channel").toInt(), obj.value("frameId").toInt(),
                                 obj.value("srcW").toInt(), obj.value("srcH").toInt(),
                                 obj.value("alarm").toBool(), boxes);
+    } else if (type == "person") {
+        QVector<DetectionBox> boxes;
+        for (const QJsonValue &v : obj.value("boxes").toArray()) {
+            const QJsonObject b = v.toObject();
+            DetectionBox box;
+            box.x = b.value("x").toInt();
+            box.y = b.value("y").toInt();
+            box.w = b.value("w").toInt();
+            box.h = b.value("h").toInt();
+            box.cls = "PERSON";   // 명세서엔 person boxes[] 원소에 cls가 없음 — 여기서 고정으로 채움
+            box.score = b.value("score").toDouble();
+            boxes.append(box);
+        }
+        emit personReceived(obj.value("channel").toInt(), obj.value("srcW").toInt(),
+                             obj.value("srcH").toInt(), obj.value("count").toInt(), boxes);
     } else if (type == "sensor") {
         // warnRemain은 warning 상태일 때만 서버가 채워 보냄. 없으면 -1로 "해당없음" 표시.
         const int warnRemain = obj.contains("warnRemain") ? obj.value("warnRemain").toInt() : -1;
