@@ -20,6 +20,7 @@
 #include <QTextCharFormat>
 #include <QDesktopServices>
 #include <QStandardPaths>
+#include <QPixmap>
 #include <QDir>
 #include <QFile>
 #include <QUrl>
@@ -316,13 +317,24 @@ EventLogPage::EventLogPage(QWidget *parent)
     snapshotLabel->setStyleSheet(QString("color:%1;").arg(kTextSecondary));
     detailLayout->addWidget(snapshotLabel);
     auto *snapshotBox = new QFrame(detailContent);
-    snapshotBox->setFixedHeight(110);
     snapshotBox->setStyleSheet("background-color:#0d0d16; border:1px dashed #333;");
     auto *snapshotBoxLayout = new QVBoxLayout(snapshotBox);
-    clipStatusLabel = new QLabel("스냅샷 없음", snapshotBox);
+    snapshotBoxLayout->setContentsMargins(8, 8, 8, 8);
+    snapshotBoxLayout->setSpacing(6);
+
+    // 감지 시점 jpg 썸네일(PR #69). 클립(mp4)과 별개 파일이라 상태/조회를 따로 관리한다 —
+    // 클립은 사용자가 "재생"을 눌러야 가져오지만, 썸네일은 상세 패널을 열자마자 자동으로 불러온다.
+    snapshotThumbnail = new QLabel("스냅샷 없음", snapshotBox);
+    snapshotThumbnail->setFixedHeight(140);
+    snapshotThumbnail->setAlignment(Qt::AlignCenter);
+    snapshotThumbnail->setWordWrap(true);
+    snapshotThumbnail->setStyleSheet(QString("color:%1; border:none;").arg(kTextSecondary));
+    snapshotBoxLayout->addWidget(snapshotThumbnail);
+
+    clipStatusLabel = new QLabel("클립 없음", snapshotBox);
     clipStatusLabel->setAlignment(Qt::AlignCenter);
     clipStatusLabel->setWordWrap(true);
-    clipStatusLabel->setStyleSheet(QString("color:%1; border:none;").arg(kTextSecondary));
+    clipStatusLabel->setStyleSheet(QString("color:%1; border:none; font-size:12px;").arg(kTextSecondary));
     snapshotBoxLayout->addWidget(clipStatusLabel);
     clipPlayButton = new QPushButton("▶ 재생", snapshotBox);
     clipPlayButton->setCursor(Qt::PointingHandCursor);
@@ -470,6 +482,7 @@ void EventLogPage::loadEntriesFromServer(const QJsonArray &rows)
         entry.duration = durationMs > 0 ? formatDuration(qint64(durationMs / 1000.0 + 0.5)) : "-";
 
         entry.clipPath = row.value("clipPath").toString();
+        entry.snapshotPath = row.value("snapshotPath").toString();
 
         appendRow(entry);
     }
@@ -542,12 +555,23 @@ void EventLogPage::showDetail(int row, int)
     if (entry.clipPath.isEmpty()) {
         clipPlayButton->setVisible(false);
         clipStatusLabel->setVisible(true);
-        clipStatusLabel->setText("스냅샷 없음");
+        clipStatusLabel->setText("클립 없음");
     } else {
         clipStatusLabel->setVisible(false);
         clipPlayButton->setVisible(true);
         clipPlayButton->setEnabled(true);
         clipPlayButton->setText("▶ 재생");
+    }
+
+    // 썸네일은 클립과 달리 클릭 없이 상세 패널을 열자마자 바로 불러온다 — 정지 이미지 하나라
+    // mp4보다 훨씬 가볍고, "재생"처럼 사용자 조작을 한 번 더 요구할 이유가 없다.
+    pendingSnapshotReqId.clear();
+    snapshotThumbnail->setPixmap(QPixmap());
+    if (entry.snapshotPath.isEmpty()) {
+        snapshotThumbnail->setText("스냅샷 없음");
+    } else {
+        snapshotThumbnail->setText("불러오는 중...");
+        emit snapshotRequested(entry.snapshotPath);
     }
 }
 
@@ -600,6 +624,35 @@ void EventLogPage::onClipReceived(const QString &reqId, const QString &result, c
     }
     file.close();
     QDesktopServices::openUrl(QUrl::fromLocalFile(filePath));
+}
+
+void EventLogPage::trackSnapshotRequest(const QString &reqId)
+{
+    pendingSnapshotReqId = reqId;
+}
+
+void EventLogPage::onSnapshotReceived(const QString &reqId, const QString &result, const QByteArray &data)
+{
+    if (reqId != pendingSnapshotReqId)
+        return;   // 이미 다른 행을 클릭해서 이 응답은 더 이상 유효하지 않음(클립과 동일한 패턴)
+    pendingSnapshotReqId.clear();
+
+    if (result == "empty") {
+        snapshotThumbnail->setText("스냅샷 파일을 찾을 수 없습니다.");
+        return;
+    }
+    if (result != "ok" || data.isEmpty()) {
+        snapshotThumbnail->setText("스냅샷 불러오기 실패");
+        return;
+    }
+
+    QPixmap pixmap;
+    if (!pixmap.loadFromData(data, "JPG")) {
+        snapshotThumbnail->setText("스냅샷 불러오기 실패");
+        return;
+    }
+    snapshotThumbnail->setPixmap(pixmap.scaled(snapshotThumbnail->size(),
+        Qt::KeepAspectRatio, Qt::SmoothTransformation));
 }
 
 void EventLogPage::markFalseAlarm()

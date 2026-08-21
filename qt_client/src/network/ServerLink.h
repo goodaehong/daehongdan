@@ -52,7 +52,9 @@ public:
     // 평면도 원본 이미지(PNG 바이트, 최대 6MB) 업로드 + 변환 요청. 반환값 cmdId로
     // floorMapUploadResult/floorMapUploadTimedOut 매칭. 이미지 저장 + EvacPlanner 변환까지
     // 걸리는 작업이라 control(3초)보다 타임아웃을 길게 둔다.
-    QString sendSetFloorMap(const QByteArray &pngBytes);
+    // fileName: 원본 파일명(확장자 포함) — 서버가 등록 정보에 같이 저장해서 "언제·무슨 파일이
+    // 등록됐는지" 조회 때 돌려준다(PR #69). 없어도 되지만 안 주면 시각만으로 구분해야 한다.
+    QString sendSetFloorMap(const QByteArray &pngBytes, const QString &fileName);
 
     // ArUco 보정 파일(배치도/렌즈보정/Homography) 재로드 요청 — 서버 재시작 없이 해당 채널
     // 워커가 다음 프레임에 다시 읽는다(PR #65). cmdId가 없는 프로토콜이라 channel로만 매칭—
@@ -93,9 +95,11 @@ signals:
     // targetFan/targetValve/targetSiren: 서버가 내리려 한 목표값. fan/valve/siren(STM이 실제 수용한 값)과
     // 비교해서 어느 장치가 명령 미반영인지 판별한다 (emergency-mode #15).
     // linkReason: STM 링크 끊김 사유 문구. 정상이거나 구버전 서버면 빈 문자열 (emergency-mode #16).
+    // voice: 대피 음성 안내 송출 중 여부(0/1을 bool로). 사이렌(STM 부저)과 별개 장치라 따로 옴(PR #69).
     void actuatorStatusReceived(int fan, int valve, int siren, const QString &link,
                                  const QString &fanSrc, const QString &valveSrc, const QString &sirenSrc,
-                                 int targetFan, int targetValve, int targetSiren, const QString &linkReason);
+                                 int targetFan, int targetValve, int targetSiren, const QString &linkReason,
+                                 bool voice);
 
     void controlResult(const QString &cmdId, const QString &zone, const QString &target,
                         const QString &result, const QString &reason);
@@ -117,15 +121,18 @@ signals:
     void ignoreRegionsReceived(int channel, double overlapThreshold, const QVector<RoiRegion> &regions);
 
     // set_floor_map 응답(floor_map_result). ok=false면 gridSize 이하 필드는 비어있다(reason 참고).
+    // fileName/uploadedAt은 PR #69 — 언제·어떤 파일로 등록됐는지 화면에 보여주기 위함.
     void floorMapUploadResult(const QString &cmdId, bool ok, const QString &reason,
                                int gridSize, const QVector<QVector<int>> &bitmap,
                                const QVector<FloorMapMarker> &displays, const QVector<FloorMapMarker> &exits,
-                               const QVector<FloorMapRoute> &routes);
+                               const QVector<FloorMapRoute> &routes,
+                               const QString &fileName, qint64 uploadedAt);
     void floorMapUploadTimedOut(const QString &cmdId);
     // query target=floor_map 응답. available=false면 서버에 저장된 변환 결과가 아직 없음(result:"empty").
     void floorMapReceived(bool available, int gridSize, const QVector<QVector<int>> &bitmap,
                            const QVector<FloorMapMarker> &displays, const QVector<FloorMapMarker> &exits,
-                           const QVector<FloorMapRoute> &routes);
+                           const QVector<FloorMapRoute> &routes,
+                           const QString &fileName, qint64 uploadedAt);
 
     // query target=calib_status 응답 — 4채널 보정 단계 전부 한 번에(PR #65).
     void calibStatusReceived(const QVector<CalibChannelStatus> &channels);
@@ -136,6 +143,8 @@ signals:
     // query target=clip 응답. result: "ok"(data에 mp4 바이트) / "empty"(아직 저장 중,
     // 이벤트 후 약 15초 이내) / "error". ok가 아니면 data는 비어있다.
     void clipReceived(const QString &reqId, const QString &result, const QByteArray &data);
+    // query target=snapshot 응답(PR #69). 형태는 clipReceived와 동일(ok/empty/error), jpg 원본 바이트.
+    void snapshotReceived(const QString &reqId, const QString &result, const QByteArray &data);
 
 private slots:
     void onReadyRead();

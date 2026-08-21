@@ -161,14 +161,18 @@ MainWindow::MainWindow(QWidget *parent)
     // 평면도 "서버로 전송 및 적용" -> set_floor_map. 결과/타임아웃은 FloorMapPage 다이얼로그가
     // 직접 받아 처리하므로(자체 완결형 UI) MainWindow는 그냥 중계만 한다.
     connect(floorMapPage, &FloorMapPage::floorMapUploadRequested, this,
-            [this](const QByteArray &pngBytes) { serverLink->sendSetFloorMap(pngBytes); });
+            [this](const QByteArray &pngBytes, const QString &fileName) {
+                serverLink->sendSetFloorMap(pngBytes, fileName);
+            });
     // floorMapUploadResult는 cmdId가 맨 앞에 있는데(ROI ack와 같은 패턴) FloorMapPage는 업로드를
     // 한 번에 하나만 진행시켜 cmdId 매칭이 필요 없으므로 여기서 버리고 나머지만 넘긴다.
     connect(serverLink, &ServerLink::floorMapUploadResult, this,
             [this](const QString &, bool ok, const QString &reason, int gridSize,
                    const QVector<QVector<int>> &bitmap, const QVector<FloorMapMarker> &displays,
-                   const QVector<FloorMapMarker> &exits, const QVector<FloorMapRoute> &routes) {
-                floorMapPage->onUploadResult(ok, reason, gridSize, bitmap, displays, exits, routes);
+                   const QVector<FloorMapMarker> &exits, const QVector<FloorMapRoute> &routes,
+                   const QString &fileName, qint64 uploadedAt) {
+                floorMapPage->onUploadResult(ok, reason, gridSize, bitmap, displays, exits, routes,
+                                              fileName, uploadedAt);
             });
     connect(serverLink, &ServerLink::floorMapUploadTimedOut, floorMapPage, &FloorMapPage::onUploadTimedOut);
     // 접속 직후 query target=floor_map 응답 — 서버에 저장된 결과가 있으면(available) 그대로 반영.
@@ -176,9 +180,10 @@ MainWindow::MainWindow(QWidget *parent)
     connect(serverLink, &ServerLink::floorMapReceived, this,
             [this](bool available, int gridSize, const QVector<QVector<int>> &bitmap,
                    const QVector<FloorMapMarker> &displays, const QVector<FloorMapMarker> &exits,
-                   const QVector<FloorMapRoute> &routes) {
+                   const QVector<FloorMapRoute> &routes, const QString &fileName, qint64 uploadedAt) {
                 if (available)
-                    floorMapPage->applyServerData(gridSize, bitmap, displays, exits, routes);
+                    floorMapPage->applyServerData(gridSize, bitmap, displays, exits, routes,
+                                                   fileName, uploadedAt);
             });
 
     // 이벤트로그 자체는 서버가 control 처리 시 db.insertEvent()로 이미 남기므로 Qt가 중복으로
@@ -209,12 +214,14 @@ MainWindow::MainWindow(QWidget *parent)
     connect(serverLink, &ServerLink::actuatorStatusReceived, this,
             [this](int fan, int valve, int siren, const QString &link,
                    const QString &fanSrc, const QString &valveSrc, const QString &sirenSrc,
-                   int targetFan, int targetValve, int targetSiren, const QString &linkReason) {
+                   int targetFan, int targetValve, int targetSiren, const QString &linkReason,
+                   bool voice) {
                 currentFan = fan;
                 currentValve = valve;
                 currentSiren = siren;
                 monitorPage->setActuatorStatus(fan, valve, siren, link, fanSrc, valveSrc, sirenSrc,
                                                 targetFan, targetValve, targetSiren, linkReason);
+                monitorPage->setVoiceAnnouncementActive(voice);
             });
 
     connect(serverLink, &ServerLink::visionStatusReceived, this,
@@ -422,6 +429,16 @@ MainWindow::MainWindow(QWidget *parent)
                 eventLogPage->trackClipRequest(reqId);
             });
     connect(serverLink, &ServerLink::clipReceived, eventLogPage, &EventLogPage::onClipReceived);
+
+    // 이벤트로그 상세 패널 진입 시 스냅샷 썸네일 자동 조회(PR #69). clip과 동일한 reqId 추적 패턴.
+    connect(eventLogPage, &EventLogPage::snapshotRequested, this,
+            [this](const QString &path) {
+                QJsonObject params;
+                params["path"] = path;
+                const QString reqId = serverLink->sendQuery("snapshot", params);
+                eventLogPage->trackSnapshotRequest(reqId);
+            });
+    connect(serverLink, &ServerLink::snapshotReceived, eventLogPage, &EventLogPage::onSnapshotReceived);
 
     // sensor 메시지 흐름 감시(emergency-mode #19). 소켓은 붙어있어도 서버 내부(센서 스레드)가 멎으면
     // sensor가 안 오는데, connectionStateChanged만 보면 이 상태를 "연결됨"으로 잘못 표시하게 된다.

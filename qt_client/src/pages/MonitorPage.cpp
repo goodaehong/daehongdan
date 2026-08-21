@@ -98,6 +98,11 @@ void MonitorPage::setActuatorStatus(int fan, int valve, int siren, const QString
                                     targetFan, targetValve, targetSiren, linkReason);
 }
 
+void MonitorPage::setVoiceAnnouncementActive(bool active)
+{
+    videoWidgets[3]->setVoiceAnnouncementActive(active);   // Ch.4 = 사이렌&스피커 고정 배정
+}
+
 void MonitorPage::showControlStatus(const QString &text, const QString &color)
 {
     statusPanel->showCommandStatus(text, color);
