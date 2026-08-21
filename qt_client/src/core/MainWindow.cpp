@@ -256,6 +256,7 @@ MainWindow::MainWindow(QWidget *parent)
                     if (!zone.name.startsWith(zoneId))
                         continue;
                     const ZoneState oldState = zone.state;
+                    const QString oldCause = zone.cause;
                     zone.temp = temp;
                     zone.humidity = humidity;
                     zone.gasPpm = gasPpm;
@@ -274,8 +275,12 @@ MainWindow::MainWindow(QWidget *parent)
                     zone.hasLiveSensorData = true;
                     if (oldState != zone.state) {
                         zone.stateEnteredAt = QDateTime::currentDateTime();
-                        // 경고/위험 진입, 해제 등 상태가 바뀐 시점 = 서버가 이번 tick에 event_log를
-                        // 남겼을 시점이라 바로 재조회한다 (이벤트로그 "실시간" 반영, 30초 안 기다림).
+                    }
+                    // 상태(state)가 바뀐 시점뿐 아니라, 이미 같은 위험 단계에서 원인(cause)만
+                    // 바뀌는 경우(재감지/재대응 — emergency_reapply류)도 서버가 그때마다 새
+                    // event_log 행을 남긴다. state만 보면 이런 재발생은 15초 타이머까지
+                    // 놓쳐버리므로 cause 변화도 즉시 재조회 트리거에 포함한다.
+                    if (oldState != zone.state || oldCause != zone.cause) {
                         eventLogPage->requestRefresh();
                     }
 
