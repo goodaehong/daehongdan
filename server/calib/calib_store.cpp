@@ -2,6 +2,7 @@
 
 #include <mutex>
 #include <sstream>
+#include "aruco_config.h"
 
 namespace {
 
@@ -88,7 +89,10 @@ std::string CalibStore_ToJson() {
           << ",\"stage\":\""  << stageName(c.stage) << "\""
           << ",\"ready\":"    << (c.stage == CalibStage::Ready ? "true" : "false")
           << ",\"hint\":\""   << stageHint(c.stage) << "\""
-          << ",\"detail\":\"" << esc(c.detail) << "\"";
+          << ",\"detail\":\"" << esc(c.detail) << "\""
+          // 계산이 도는 동안 Qt가 "보정 중…"을 띄우고 버튼을 잠글 수 있게      
+          << ",\"running\":"  << (ArucoConfig_IsRunning(i + 1) ? "true" : "false");
+          
 
         // 실시간 값은 좌표 계산기가 실제로 도는 채널에서만 의미가 있다.       
         // 배치도가 없으면 마커를 세지도 않아 0/0이 나오는데,

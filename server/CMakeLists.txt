@@ -51,6 +51,7 @@ set(SERVER_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/floormap/floormap_store.cpp    
     ${CMAKE_CURRENT_SOURCE_DIR}/clip/clip_recorder.cpp       
     ${CMAKE_CURRENT_SOURCE_DIR}/calib/calib_store.cpp 
+    ${CMAKE_CURRENT_SOURCE_DIR}/calib/aruco_config.cpp   
     ${CMAKE_CURRENT_SOURCE_DIR}/audio/speaker_alert.cpp
 )
 
@@ -119,7 +120,8 @@ target_compile_definitions(server_main PRIVATE
     AUDIO_DEVICE="${SPEAKER_ALSA_DEVICE}"
     FIRE_ARUCO_CONFIG_PATH="${FIRE_CORE_DIR}/aruco_board_config.txt"
     FIRE_CAMERA_CALIBRATION_DIR="${FIRE_CORE_DIR}"
-    FIRE_STATIC_HOMOGRAPHY_DIR="${FIRE_CORE_DIR}")
+    FIRE_STATIC_HOMOGRAPHY_DIR="${FIRE_CORE_DIR}"
+    CALIB_SCRIPT_DIR="${FIRE_CORE_DIR}/calibration")
 
 if(ENABLE_TLS)
     find_package(OpenSSL REQUIRED)

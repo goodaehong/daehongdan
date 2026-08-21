@@ -68,7 +68,9 @@ namespace person_metadata_config
 
     // 첫 번째 데이터 트랙을 선택한다. '?'는 트랙이 없어도 영상 실행을 막지 않는다.
     constexpr const char* STREAM_MAP = "0:d:0?";
-    constexpr int SOCKET_TIMEOUT_US = 5000000;
+    // ffmpeg 6.0에서 -stimeout 이 제거돼 버전마다 옵션명이 갈린다.    
+    // 소켓 정지 대비는 RECONNECT_MS(2초) 재시작 로직이 담당하므로 미사용.
+    // constexpr int SOCKET_TIMEOUT_US = 5000000;  
     constexpr int RECONNECT_MS = 2000;
     constexpr int FRESH_MS = 1500;
     constexpr double MIN_CONFIDENCE = 0.30;

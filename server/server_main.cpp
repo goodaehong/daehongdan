@@ -30,6 +30,7 @@
 #include "audio/speaker_alert.h"   
 #include "clip/clip_recorder.h"    
 #include "calib/calib_store.h"    
+#include "calib/aruco_config.h"
 
 // 4채널 프레임 공유 저장소. 채널별 mutex로 워커/센서 스레드 간 경합 방지
 struct FrameStore {
@@ -60,6 +61,10 @@ struct DetectionState {
 DetectionState detState[4];
 
 Database g_db;   // 전역 DB. main에서 open
+
+// 보정 계산 완료 알림은 계산 스레드에서 오는데, 콜백이 함수 포인터라       
+// link 를 넘겨받을 수 없다. main 에서 여기 채워두고 그걸 쓴다
+static Link* g_link = nullptr;  
 
 // 감지 프레임을 jpg로 저장 → 경로 반환. 실패 시 빈 문자열
 std::string saveSnapshot(FrameStore& store, int ch, const std::string& zone, long ts) {
@@ -427,6 +432,7 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
     std::uint64_t frameId = 0;
     bool wasShowingBoxes = false;
     bool prevSmoke = false, prevPerson = false, prevFire = false;   // 로그: 변화 시에만 출력용
+    std::string prevPersonStatus;   // 사람 메타데이터 상태. 바뀔 때만 로그
 
     while (true) {
         cv::VideoCapture cap;
@@ -518,6 +524,13 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
                 std::cout << "[cam" << ch+1 << "] 사람 사라짐\n";
             prevPerson = nowPerson;
 
+            // 메타데이터 수신 상태가 바뀔 때만 찍는다. 이번 ffmpeg 옵션 문제처럼    
+            // 조용히 실패하면 count:0만 계속 나가서 원인을 알 수 없다
+            if (pf.status != prevPersonStatus) {
+                prevPersonStatus = pf.status;
+                std::cout << "[cam" << ch+1 << "] 사람 메타데이터 — " << pf.status << "\n";
+            }                                                                      
+
             // 사람 좌표 전송 — 매 프레임은 과함. 0.5초 간격(30fps 기준)
             if (frameId % 15 == 0) {
                 std::vector<PersonBox> persons;
@@ -585,6 +598,13 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
     }
 }
 
+// 보정 계산 스레드 → Qt 결과 전송. ArucoConfig 가 계산을 끝내면 부른다  
+static void onCalibRunDone(int ch, CalibRunResult r, const std::string& detail) { 
+    // 성공하면 사람이 "재로드"를 또 누르지 않아도 바로 반영되게 한다       
+    if (r == CalibRunResult::Ok) CalibStore_RequestReload(ch - 1);
+    if (g_link) QtLink_SendCalibRunDone(*g_link, ch, r, detail);  
+}                                                             
+
 int main() {
     setenv("OPENCV_FFMPEG_CAPTURE_OPTIONS",
            "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay", 1);   // 저지연 옵션
@@ -601,7 +621,9 @@ int main() {
     // 녹화가 끝나는 건 13초 뒤 저장 스레드다. 그때 DB 행에 경로만 채워 넣는다   
     ClipRecorder_Init([](long incidentId, long ts, const std::string& path) {
         g_db.updateClipPath(incidentId, ts, path);
-    });                                                                                                                   
+    });                            
+    g_link = link;                        // 계산 완료 알림에서 쓴다        
+    ArucoConfig_SetOnDone(onCalibRunDone);                                                                                                                           
     RoiStore_Load();   // 저장된 ROI 복원. 파일 없으면 빈 상태로 시작  
     FloorMapStore_Load();   // 저장된 평면도 변환 결과 복원 
     if (!Actuator_Init("/dev/stm_actuator"))          // STM 액추에이터 보드 (USB) (심볼릭링크)
@@ -636,6 +658,7 @@ int main() {
         cams[i].join();
     
     ClipRecorder_Shutdown();   // 녹화 중이던 것도 모인 데까지 저장하고 스레드 정리  
+    ArucoConfig_Shutdown();    // 계산 중인 스레드 마무리 
     link->stop();
     delete link;
     return 0;
