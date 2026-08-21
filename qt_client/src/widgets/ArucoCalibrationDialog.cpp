@@ -50,7 +50,7 @@ ArucoCalibrationDialog::ArucoCalibrationDialog(ServerLink *serverLink, QWidget *
 {
     setWindowTitle("카메라 좌표 보정 상태 (관리자)");
     setStyleSheet(QString("background-color:%1; color:%2;").arg(kCardBg, kTextPrimary));
-    setMinimumWidth(1020);
+    setMinimumWidth(1150);
     setMinimumHeight(520);
 
     auto *root = new QVBoxLayout(this);
@@ -93,14 +93,19 @@ ArucoCalibrationDialog::ArucoCalibrationDialog(ServerLink *serverLink, QWidget *
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table->setSelectionMode(QAbstractItemView::NoSelection);
     table->verticalHeader()->setVisible(false);
-    table->verticalHeader()->setDefaultSectionSize(44);
+    table->verticalHeader()->setDefaultSectionSize(52);
     table->horizontalHeader()->setHighlightSections(false);
-    table->setColumnWidth(kColChannel, 70);
-    table->setColumnWidth(kColStage, 140);
-    table->setColumnWidth(kColMarkers, 150);
-    table->setColumnWidth(kColError, 100);
-    table->setColumnWidth(kColLens, 100);
-    table->setColumnWidth(kColHomography, 130);
+    table->horizontalHeader()->setMinimumSectionSize(50);
+    table->setWordWrap(true);
+    // "안내"(kColHint)만 Stretch로 남기고 나머지는 실제 들어갈 값 중 제일 긴 것 기준으로
+    // 여유 있게 고정폭을 준다 — 이전엔 다 너무 빡빡하게 잡아서 헤더/본문이 잘렸었음.
+    // (가장 긴 값들: 단계="렌즈 보정값 없음", 마커헤더="검출/반영 마커", Homography=영문 10자)
+    table->setColumnWidth(kColChannel, 60);
+    table->setColumnWidth(kColStage, 150);
+    table->setColumnWidth(kColMarkers, 140);
+    table->setColumnWidth(kColError, 90);
+    table->setColumnWidth(kColLens, 90);
+    table->setColumnWidth(kColHomography, 120);
     table->setColumnWidth(kColReload, 110);
     table->horizontalHeader()->setSectionResizeMode(kColChannel, QHeaderView::Fixed);
     table->horizontalHeader()->setSectionResizeMode(kColStage, QHeaderView::Fixed);
@@ -205,6 +210,7 @@ void ArucoCalibrationDialog::onCalibStatusReceived(const QVector<CalibChannelSta
 
         auto *reloadBtn = new QPushButton("재로드", table);
         reloadBtn->setCursor(Qt::PointingHandCursor);
+        reloadBtn->setMinimumWidth(72);
         reloadBtn->setStyleSheet(QString(
             "QPushButton { background-color:%1; color:%2; border:1px solid %3; border-radius:6px; padding:5px 12px; }"
             "QPushButton:hover { border:1px solid %4; color:%4; }").arg(kBg, kTextPrimary, kCardBorder, kAccent));
