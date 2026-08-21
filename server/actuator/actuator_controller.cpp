@@ -24,7 +24,7 @@ static std::string g_linkReason = "UART 열려있지 않음";
 
 static std::mutex g_mtx;
 
-/ UART 포트를 열고 통신 설정을 건다. 성공하면 fd, 실패하면 -1            
+// UART 포트를 열고 통신 설정을 건다. 성공하면 fd, 실패하면 -1            
 // Actuator_Init 과 재연결이 같은 설정을 써야 해서 함수로 뺐다
 static int openPort(const char* devPath) {
     int fd = open(devPath, O_RDWR | O_NOCTTY);
