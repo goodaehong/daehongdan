@@ -18,7 +18,8 @@ void ClipRecorder_Push(int ch, const cv::Mat& frame);
 // 그 채널이 이미 녹화 중이면 false (한 사태에 클립이 여러 개 생기는 것 방지)
 bool ClipRecorder_Start(int ch, const std::string& zone, long ts, long incidentId);
 
-// mp4 → base64. Qt 재생 요청 응답용. 실패 시 빈 문자열
-std::string ClipRecorder_ReadBase64(const std::string& path);
+// 파일 하나를 통째로 base64 문자열로. 실패 시 빈 문자열              
+// mp4·jpg 구분 없이 쓴다 (Qt가 파이 안의 파일을 직접 못 열어서 내용을 실어 보냄)
+std::string ClipRecorder_ReadBase64(const std::string& path); 
 
 void ClipRecorder_Shutdown();

@@ -128,6 +128,7 @@ void QtLink_SendActuator(Link& link, const ActuatorSnapshot& st) {
         << ",\"sirenSrc\":\"" << st.sirenSrc << "\""
         << ",\"link\":\"" << (st.linkOk ? "ok" : "down") << "\""   // STM 연결 상태
         << ",\"linkReason\":\"" << jsonEscape(st.linkReason) << "\""     
+        << ",\"voice\":" << (SpeakerAlert_IsActive() ? 1 : 0)   // 대피 음성 (사이렌과 별개)  
         << ",\"target\":{\"fan\":" << t.fan << ",\"valve\":" << t.valve
         << ",\"siren\":" << t.siren << "}"
         << "}";                                                  
@@ -296,6 +297,30 @@ static std::string clipResult(const std::string& reqId, const std::string& path)
     return oss.str();
 }                                  
 
+// query target="snapshot" 응답. jpg를 base64로 실어 보낸다.             
+// 경로만 보내면 Qt(윈도우)가 파이 안의 파일을 못 연다 — 클립과 같은 이유
+static std::string snapshotResult(const std::string& reqId, const std::string& path) {
+    std::ostringstream oss;
+    oss << "{\"type\":\"query_result\",\"reqId\":\"" << jsonEscape(reqId)
+        << "\",\"target\":\"snapshot\"";
+
+    // 경로는 Qt가 보낸 값이다. 그대로 열면 서버의 아무 파일이나 새어나간다
+    const std::string dir = SNAPSHOT_DIR;
+    if (path.size() <= dir.size() || path.compare(0, dir.size(), dir) != 0
+        || path.find("..") != std::string::npos) {
+        oss << ",\"result\":\"error\",\"reason\":\"허용되지 않은 경로\"}";
+        return oss.str();
+    }
+
+    std::string data = ClipRecorder_ReadBase64(path);   // 파일 → base64 (형식 무관)
+    if (data.empty()) oss << ",\"result\":\"empty\"";
+    else oss << ",\"result\":\"ok\",\"format\":\"jpg\""
+             << ",\"path\":\"" << jsonEscape(path) << "\""
+             << ",\"data\":\"" << data << "\"";
+    oss << "}";
+    return oss.str();
+}                                                                     
+
 // query target="calib_status" 응답. 4채널 보정 단계 + 실시간 마커 수·오차     
 static std::string calibStatusResult(const std::string& reqId) {
     std::ostringstream oss;
@@ -352,7 +377,10 @@ void QtLink_RecvWorker(Link& link, AlarmState& alarm, Database& db) {
                 link.send(clipResult(jsonStr(line, "reqId"),
                                      jsonStr(line, "path")));    
             else if (jsonStr(line, "target") == "calib_status")               
-                link.send(calibStatusResult(jsonStr(line, "reqId")));                            
+                link.send(calibStatusResult(jsonStr(line, "reqId")));       
+            else if (jsonStr(line, "target") == "snapshot")                   
+                link.send(snapshotResult(jsonStr(line, "reqId"),
+                                         jsonStr(line, "path")));                      
 
             else
                 link.send(handleQuery(db, line));
