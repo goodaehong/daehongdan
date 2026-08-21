@@ -28,28 +28,38 @@ public:
 public slots:
     // query target=floor_map 응답(available=true) 또는 접속 직후 서버가 저장된 결과를 돌려줬을 때
     // MainWindow가 호출. 업로드 다이얼로그와 무관하게 그냥 화면에 반영만 한다.
+    // fileName/uploadedAt: PR #69 — 언제·어떤 파일로 등록됐는지(서버가 재시작해도 유지되는 값).
     void applyServerData(int gridSize, const QVector<QVector<int>> &bitmap,
                           const QVector<FloorMapMarker> &displays, const QVector<FloorMapMarker> &exits,
-                          const QVector<FloorMapRoute> &routes);
+                          const QVector<FloorMapRoute> &routes,
+                          const QString &fileName, qint64 uploadedAt);
     // set_floor_map 업로드 응답. 다이얼로그가 이미 닫혔어도(취소 등) 안전하게 무시한다.
     void onUploadResult(bool ok, const QString &reason, int gridSize, const QVector<QVector<int>> &bitmap,
                          const QVector<FloorMapMarker> &displays, const QVector<FloorMapMarker> &exits,
-                         const QVector<FloorMapRoute> &routes);
+                         const QVector<FloorMapRoute> &routes,
+                         const QString &fileName, qint64 uploadedAt);
     void onUploadTimedOut();
 
 signals:
     // 설정 상태가 바뀔 때마다(최초 등록 등) 발생. MainWindow가 탭 배지 갱신에 사용.
     void configuredChanged(bool configured);
     // "이 이미지로 적용" 클릭 시 발생. MainWindow가 받아서 serverLink->sendSetFloorMap()으로 넘긴다.
-    void floorMapUploadRequested(const QByteArray &pngBytes);
+    // fileName은 사용자가 고른 원본 파일명(확장자 포함) — 서버가 등록 정보에 같이 저장한다.
+    void floorMapUploadRequested(const QByteArray &pngBytes, const QString &fileName);
 
 private:
     void openSetupPanel();
     void updateEmptyState();
     void setDialogBusy(bool busy, const QString &statusText);
+    // 페이지 상단의 "등록: 파일명 · 시각" 안내를 갱신. fileName이 비어있으면(구버전 서버 등)
+    // 파일명 없이 시각만 보여준다.
+    void updateRegisteredInfo(const QString &fileName, qint64 uploadedAt);
 
     FloorMapGridWidget *gridWidget = nullptr;
     QLabel *emptyStateLabel = nullptr;
+    // "등록: map.png · 2026-08-21 14:30" — 자동복원됐을 때 이게 언제 올라간 평면도인지 확인용
+    // (사용자 요청: "언제 등록된건지 확인할 수 있으면 좋을듯").
+    QLabel *registeredInfoLabel = nullptr;
     QPushButton *resetButton = nullptr;
     // 지도 미등록 시 탭 진입 즉시 눈에 띄도록 페이지 상단에 표시하는 안내 배너.
     QWidget *notConfiguredBanner = nullptr;
@@ -66,6 +76,7 @@ private:
     // 변환 성공 후에만 보이는 닫기 버튼 — 자동으로 닫지 않고 결과를 확인한 뒤 직접 닫게 한다.
     QPushButton *closeButton = nullptr;
     QImage pendingOriginalImage;
+    QString pendingFileName;   // 선택한 원본 파일명(확장자 포함) — 적용 시 서버로 같이 보낸다
 
     bool hasData = false;
 };

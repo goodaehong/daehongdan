@@ -285,7 +285,7 @@ QString ServerLink::sendSetIgnoreRegions(int channel, const QVector<RoiRegion> &
     return cmdId;
 }
 
-QString ServerLink::sendSetFloorMap(const QByteArray &pngBytes)
+QString ServerLink::sendSetFloorMap(const QByteArray &pngBytes, const QString &fileName)
 {
     const QString cmdId = generateCmdId();
 
@@ -294,6 +294,7 @@ QString ServerLink::sendSetFloorMap(const QByteArray &pngBytes)
     obj["cmdId"] = cmdId;
     obj["imageFormat"] = "png";
     obj["imageBase64"] = QString::fromLatin1(pngBytes.toBase64());
+    obj["fileName"] = fileName;
     sendLine(obj);
 
     auto *timer = new QTimer(this);
@@ -370,6 +371,21 @@ void ServerLink::handleLine(const QByteArray &line)
         emit detectionReceived(obj.value("channel").toInt(), obj.value("frameId").toInt(),
                                 obj.value("srcW").toInt(), obj.value("srcH").toInt(),
                                 obj.value("alarm").toBool(), boxes);
+    } else if (type == "person") {
+        QVector<DetectionBox> boxes;
+        for (const QJsonValue &v : obj.value("boxes").toArray()) {
+            const QJsonObject b = v.toObject();
+            DetectionBox box;
+            box.x = b.value("x").toInt();
+            box.y = b.value("y").toInt();
+            box.w = b.value("w").toInt();
+            box.h = b.value("h").toInt();
+            box.cls = "PERSON";   // 명세서엔 person boxes[] 원소에 cls가 없음 — 여기서 고정으로 채움
+            box.score = b.value("score").toDouble();
+            boxes.append(box);
+        }
+        emit personReceived(obj.value("channel").toInt(), obj.value("srcW").toInt(),
+                             obj.value("srcH").toInt(), obj.value("count").toInt(), boxes);
     } else if (type == "sensor") {
         // warnRemain은 warning 상태일 때만 서버가 채워 보냄. 없으면 -1로 "해당없음" 표시.
         const int warnRemain = obj.contains("warnRemain") ? obj.value("warnRemain").toInt() : -1;
@@ -417,10 +433,13 @@ void ServerLink::handleLine(const QByteArray &line)
         const int targetFan = target.contains("fan") ? target.value("fan").toInt() : fan;
         const int targetValve = target.contains("valve") ? target.value("valve").toInt() : valve;
         const int targetSiren = target.contains("siren") ? target.value("siren").toInt() : siren;
+        // voice 없는 구버전 서버는 false(=꺼짐)로 취급 — 없다고 아이콘이 잘못 켜지면 안 됨.
+        const bool voice = obj.value("voice").toInt(0) != 0;
         emit actuatorStatusReceived(fan, valve, siren,
                                      obj.value("link").toString(), obj.value("fanSrc").toString(),
                                      obj.value("valveSrc").toString(), obj.value("sirenSrc").toString(),
-                                     targetFan, targetValve, targetSiren, obj.value("linkReason").toString());
+                                     targetFan, targetValve, targetSiren, obj.value("linkReason").toString(),
+                                     voice);
     } else if (type == "control_ack") {
         const QString cmdId = obj.value("cmdId").toString();
         QTimer *timer = pendingCommands.take(cmdId);
@@ -456,7 +475,9 @@ void ServerLink::handleLine(const QByteArray &line)
                                    floorMapBitmapFromJson(obj.value("bitmap").toArray()),
                                    floorMapMarkersFromJson(obj.value("displays").toArray()),
                                    floorMapMarkersFromJson(obj.value("exits").toArray()),
-                                   floorMapRoutesFromJson(obj.value("routes").toArray()));
+                                   floorMapRoutesFromJson(obj.value("routes").toArray()),
+                                   obj.value("fileName").toString(),
+                                   qint64(obj.value("uploadedAt").toDouble()));
     } else if (type == "reload_calibration_result") {
         // cmdId가 없는 프로토콜 — channel로만 구분(PR #65). accepted일 뿐 완료 여부는 아님.
         emit calibReloadResult(obj.value("channel").toInt(),
@@ -480,7 +501,9 @@ void ServerLink::handleLine(const QByteArray &line)
                                    floorMapBitmapFromJson(obj.value("bitmap").toArray()),
                                    floorMapMarkersFromJson(obj.value("displays").toArray()),
                                    floorMapMarkersFromJson(obj.value("exits").toArray()),
-                                   floorMapRoutesFromJson(obj.value("routes").toArray()));
+                                   floorMapRoutesFromJson(obj.value("routes").toArray()),
+                                   obj.value("fileName").toString(),
+                                   qint64(obj.value("uploadedAt").toDouble()));
         } else if (target == "clip") {
             // result: "ok"/"empty"/"error". data는 mp4 원본을 base64로 실은 것 — ok일 때만 채워짐.
             const QString result = obj.value("result").toString();
@@ -488,6 +511,13 @@ void ServerLink::handleLine(const QByteArray &line)
                 ? QByteArray::fromBase64(obj.value("data").toString().toLatin1())
                 : QByteArray();
             emit clipReceived(reqId, result, data);
+        } else if (target == "snapshot") {
+            // clip과 동일한 형태(ok/empty/error), jpg 원본 바이트(PR #69).
+            const QString result = obj.value("result").toString();
+            const QByteArray data = (result == "ok")
+                ? QByteArray::fromBase64(obj.value("data").toString().toLatin1())
+                : QByteArray();
+            emit snapshotReceived(reqId, result, data);
         } else if (obj.value("result").toString() == "failed") {
             emit queryFailed(reqId, obj.value("reason").toString());
         } else {

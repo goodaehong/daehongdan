@@ -13,8 +13,11 @@ class QLabel;
 class QPushButton;
 class QTimeEdit;
 class QTimer;
+class QStackedLayout;
+class QSlider;
 class GasGraphWidget;
 class QJsonArray;
+class ClipPlayerWidget;
 
 struct EventEntry {
     QString date;        // 표시용 "yyyy-MM-dd"
@@ -31,6 +34,8 @@ struct EventEntry {
     // 이벤트 시점 13초(전 3초+후 10초) mp4 클립 경로. 비어있으면 클립 없음(수동제어 등) 또는
     // 아직 저장 중(이벤트 후 약 15초 이내 — PR #63). 서버 원본 그대로 query target=clip에 실어보낸다.
     QString clipPath;
+    // 감지 시점 jpg 스냅샷 경로. clipPath와 별개 파일 — query target=snapshot에 그대로 실어보낸다(PR #69).
+    QString snapshotPath;
 };
 
 // 이벤트 로그 화면 (세로 3분할): 좌상단 목록+필터, 좌하단 가스농도 그래프, 우측 상세 패널.
@@ -58,6 +63,10 @@ public slots:
     // MainWindow가 sendQuery("clip", ...)로 받은 reqId를 여기 등록해서, 나중에 onClipReceived가
     // "지금 기다리는 그 요청" 응답인지 판별하게 한다.
     void trackClipRequest(const QString &reqId);
+    // query target=snapshot 응답(PR #69). 형태는 onClipReceived와 동일 — jpg 원본 바이트를 받아
+    // 썸네일로 표시한다. reqId가 다르면(다른 행 클릭 등) 무시.
+    void onSnapshotReceived(const QString &reqId, const QString &result, const QByteArray &data);
+    void trackSnapshotRequest(const QString &reqId);
     // 조회 범위(날짜 필터가 있으면 그 하루, 없으면 최근 24시간) 계산해서 eventLogRequested emit.
     // MainWindow가 실제 이벤트(상태 전환/제어 성공/비상 전환·해제 등) 발생 시점마다 바로 호출해서
     // 이벤트로그가 사실상 실시간으로 갱신되게 한다 — 30초 주기는 그 사이 놓친 것만 잡는 안전망.
@@ -71,6 +80,9 @@ signals:
     void eventLogRequested(qint64 from, qint64 to);
     // "재생" 클릭 시 발생 — MainWindow가 받아서 serverLink->sendQuery("clip", {"path":path})로 넘긴다.
     void clipPlayRequested(const QString &path);
+    // 상세 패널을 열 때(스냅샷 경로가 있으면) 자동 발생 — MainWindow가 받아서
+    // serverLink->sendQuery("snapshot", {"path":path})로 넘긴다.
+    void snapshotRequested(const QString &path);
 
 private slots:
     void applyFilter();
@@ -114,11 +126,24 @@ private:
     QPushButton *falseAlarmButton;
     int selectedEventRow = -1;
 
-    // 이벤트 클립(PR #63) 재생 UI. clipStatusLabel은 "스냅샷 없음"/"저장 중"/에러 문구를,
-    // clipPlayButton은 clipPath가 있을 때만 보여준다.
+    // 이벤트 클립(PR #63) 재생 UI. 썸네일 위에 유튜브처럼 재생 버튼을 오버레이하고, 누르면
+    // videoStack이 1번 페이지(ClipPlayerWidget, libvlc 임베드)로 전환되어 Qt 안에서 바로 재생된다
+    // (예전엔 임시파일 저장 후 OS 기본 플레이어로 새 창을 열었음). clipStatusLabel은
+    // "클립 없음"/"저장 중"/에러 문구를 보여준다.
+    QStackedLayout *videoStack;
     QLabel *clipStatusLabel;
-    QPushButton *clipPlayButton;
+    QPushButton *clipPlayOverlayButton;
+    ClipPlayerWidget *clipPlayer;
+    // 재생바: 클립 재생 중(videoStack 1번 페이지)에만 보인다. ClipPlayerWidget::positionChanged를
+    // 받아 갱신하고, 사용자가 슬라이더를 드래그하면 clipPlayer->seek()으로 그 지점부터 재생한다.
+    QSlider *clipSeekSlider;
+    QLabel *clipTimeLabel;
     QString pendingClipReqId;   // 지금 기다리는 clip 요청. 비어있으면 대기 중인 요청 없음
+
+    // 스냅샷 썸네일(PR #69). clipStatusLabel/clipPlayOverlayButton과 별개로 jpg 미리보기를 보여준다 —
+    // showDetail()에서 snapshotPath가 있으면 자동으로 조회를 요청한다(재생 버튼처럼 수동 클릭 안 함).
+    QLabel *snapshotThumbnail;
+    QString pendingSnapshotReqId;
 };
 
 #endif // EVENTLOGPAGE_H

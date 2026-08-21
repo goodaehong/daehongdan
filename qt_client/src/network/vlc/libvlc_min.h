@@ -23,6 +23,10 @@ void libvlc_media_player_release(libvlc_media_player_t *p_mi);
 void libvlc_media_player_set_hwnd(libvlc_media_player_t *p_mi, void *drawable);
 int libvlc_media_player_play(libvlc_media_player_t *p_mi);
 void libvlc_media_player_stop(libvlc_media_player_t *p_mi);
+// 재생바(ClipPlayerWidget) 용 — 현재 재생 위치/전체 길이(ms) 조회 및 이동.
+long long libvlc_media_player_get_time(libvlc_media_player_t *p_mi);
+void libvlc_media_player_set_time(libvlc_media_player_t *p_mi, long long i_time);
+long long libvlc_media_player_get_length(libvlc_media_player_t *p_mi);
 // 소스 프레임을 지정한 W:H 비율로 잘라낸 뒤 렌더 타겟에 맞춰 스케일한다. 렌더 타겟과 같은
 // 비율을 넘기면 원본 비율 유지(레터박스) 없이 타겟을 꽉 채운다 — 초과분은 크롭됨(CSS cover와 동일).
 void libvlc_video_set_crop_geometry(libvlc_media_player_t *p_mi, const char *psz_geometry);
