@@ -63,19 +63,12 @@ ArucoCalibrationDialog::ArucoCalibrationDialog(ServerLink *serverLink, QWidget *
     title->setStyleSheet(QString("color:%1; font-size:18px; font-weight:bold; font-family:\"hanwhaGothic EL\";").arg(kTextPrimary));
     titleRow->addWidget(title);
     titleRow->addStretch();
-    refreshButton = new QPushButton("↻ 새로고침", this);
-    refreshButton->setCursor(Qt::PointingHandCursor);
-    refreshButton->setStyleSheet(QString(
-        "QPushButton { background-color:%1; color:white; border:none; border-radius:8px; padding:8px 18px; font-weight:bold; }"
-        "QPushButton:hover { background-color:#7c6ce8; }").arg(kAccent));
-    connect(refreshButton, &QPushButton::clicked, this, &ArucoCalibrationDialog::onRefreshClicked);
-    titleRow->addWidget(refreshButton);
     root->addLayout(titleRow);
 
     auto *desc = new QLabel(
         "채널별 ArUco 좌표 보정입니다. \"설정\"에서 마커 좌표를 입력·저장하고, \"실행\"으로 서버가 "
         "실제로 마커를 검출해 보정을 계산하게 합니다(수 초~90초, 최대 180초 뒤 자동 중단). "
-        "\"재로드\"는 이미 계산된 보정 파일을 서버 재시작 없이 다시 적용합니다.",
+        "계산이 끝나면 서버가 알아서 결과를 적용하고, 이 화면도 자동으로 다시 조회합니다.",
         this);
     desc->setWordWrap(true);
     desc->setStyleSheet(QString("color:%1; font-size:13px;").arg(kTextSecondary));
@@ -108,7 +101,7 @@ ArucoCalibrationDialog::ArucoCalibrationDialog(ServerLink *serverLink, QWidget *
     table->setColumnWidth(kColError, 90);
     table->setColumnWidth(kColLens, 90);
     table->setColumnWidth(kColHomography, 120);
-    table->setColumnWidth(kColActions, 260); // 설정/실행·중단/재로드 버튼 3개가 한 줄에 들어가야 함
+    table->setColumnWidth(kColActions, 180); // 설정/실행·중단 버튼 2개가 한 줄에 들어가야 함
     table->horizontalHeader()->setSectionResizeMode(kColChannel, QHeaderView::Fixed);
     table->horizontalHeader()->setSectionResizeMode(kColStage, QHeaderView::Fixed);
     table->horizontalHeader()->setSectionResizeMode(kColHint, QHeaderView::Stretch);
@@ -130,10 +123,9 @@ ArucoCalibrationDialog::ArucoCalibrationDialog(ServerLink *serverLink, QWidget *
 
     autoRefreshTimer = new QTimer(this);
     autoRefreshTimer->setSingleShot(true);
-    connect(autoRefreshTimer, &QTimer::timeout, this, &ArucoCalibrationDialog::onRefreshClicked);
+    connect(autoRefreshTimer, &QTimer::timeout, this, &ArucoCalibrationDialog::requestStatus);
 
     connect(serverLink, &ServerLink::calibStatusReceived, this, &ArucoCalibrationDialog::onCalibStatusReceived);
-    connect(serverLink, &ServerLink::calibReloadResult, this, &ArucoCalibrationDialog::onCalibReloadResult);
     connect(serverLink, &ServerLink::runCalibrationResult, this, &ArucoCalibrationDialog::onRunCalibrationResult);
     connect(serverLink, &ServerLink::cancelCalibrationResult, this, &ArucoCalibrationDialog::onCancelCalibrationResult);
     connect(serverLink, &ServerLink::calibrationDone, this, &ArucoCalibrationDialog::onCalibrationDone);
@@ -148,30 +140,6 @@ void ArucoCalibrationDialog::requestStatus()
     // 보이므로, 새로 조회할 때마다 기본 색으로 되돌린다.
     statusLabel->setStyleSheet(QString("color:%1; font-size:13px;").arg(kTextSecondary));
     statusLabel->setText("불러오는 중...");
-}
-
-void ArucoCalibrationDialog::onRefreshClicked()
-{
-    requestStatus();
-}
-
-void ArucoCalibrationDialog::onReloadClicked(int channel)
-{
-    statusLabel->setText(QString("Ch.%1 재로드 요청 중...").arg(channel));
-    serverLink->sendReloadCalibration(channel);
-}
-
-void ArucoCalibrationDialog::onCalibReloadResult(int channel, bool accepted, const QString &reason)
-{
-    if (!accepted) {
-        statusLabel->setText(QString("실패: Ch.%1 재로드 요청 거부 — %2")
-                                  .arg(channel).arg(reason.isEmpty() ? "알 수 없는 사유" : reason));
-        return;
-    }
-    statusLabel->setText(QString("접수됨: Ch.%1 재로드 — 해당 채널 워커가 다음 프레임에 다시 읽습니다. "
-                                  "%2초 후 자동으로 상태를 다시 확인합니다.")
-                              .arg(channel).arg(kAutoRefreshDelayMs / 1000));
-    autoRefreshTimer->start(kAutoRefreshDelayMs);
 }
 
 void ArucoCalibrationDialog::onCalibStatusReceived(const QVector<CalibChannelStatus> &channels)
@@ -242,18 +210,12 @@ void ArucoCalibrationDialog::onCalibStatusReceived(const QVector<CalibChannelSta
         }
         runOrCancelBtn->setCursor(Qt::PointingHandCursor);
 
-        auto *reloadBtn = new QPushButton("재로드", table);
-        reloadBtn->setCursor(Qt::PointingHandCursor);
-        reloadBtn->setStyleSheet(actionBtnStyle);
-        connect(reloadBtn, &QPushButton::clicked, this, [this, channel]() { onReloadClicked(channel); });
-
         auto *cellWrap = new QWidget(table);
         auto *cellLayout = new QHBoxLayout(cellWrap);
         cellLayout->setContentsMargins(6, 4, 6, 4);
         cellLayout->setSpacing(4);
         cellLayout->addWidget(configBtn);
         cellLayout->addWidget(runOrCancelBtn);
-        cellLayout->addWidget(reloadBtn);
         table->setCellWidget(row, kColActions, cellWrap);
     }
 }
