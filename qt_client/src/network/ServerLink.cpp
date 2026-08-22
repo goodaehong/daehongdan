@@ -139,9 +139,70 @@ QVector<CalibChannelStatus> calibStatusListFromJson(const QJsonArray &arr)
             s.lensApplied = o.value("lensApplied").toBool();
             s.staticHomography = o.value("staticHomography").toBool();
         }
+        // running 필드가 없는 구버전 서버는 false(계산 중 아님)로 취급.
+        s.running = o.value("running").toBool();
         out.append(s);
     }
     return out;
+}
+
+// ArucoChannelConfig -> set_aruco_config 본문(channel 제외 — 호출부가 따로 채움).
+QJsonObject arucoConfigToJson(const ArucoChannelConfig &c)
+{
+    QJsonObject factory;
+    factory["minX"] = c.factoryMinX; factory["minY"] = c.factoryMinY;
+    factory["maxX"] = c.factoryMaxX; factory["maxY"] = c.factoryMaxY;
+
+    QJsonObject board;
+    board["minX"] = c.boardMinX; board["minY"] = c.boardMinY;
+    board["maxX"] = c.boardMaxX; board["maxY"] = c.boardMaxY;
+
+    QJsonArray markers;
+    for (const ArucoMarkerConfig &m : c.markers) {
+        QJsonObject mo;
+        mo["id"] = m.id;
+        mo["x"] = m.x;
+        mo["y"] = m.y;
+        mo["sizeCm"] = m.sizeCm;
+        mo["rotation"] = m.rotation;
+        markers.append(mo);
+    }
+
+    QJsonObject obj;
+    obj["factory"] = factory;
+    obj["modelScale"] = c.modelScale;
+    obj["board"] = board;
+    obj["markers"] = markers;
+    return obj;
+}
+
+// query target=aruco_config 응답 -> ArucoChannelConfig. 필드가 통째로 없으면(설정 전) 빈 값 그대로.
+ArucoChannelConfig arucoConfigFromJson(const QJsonObject &obj)
+{
+    ArucoChannelConfig c;
+    c.channel = obj.value("channel").toInt();
+    const QJsonObject factory = obj.value("factory").toObject();
+    c.factoryMinX = factory.value("minX").toDouble();
+    c.factoryMinY = factory.value("minY").toDouble();
+    c.factoryMaxX = factory.value("maxX").toDouble();
+    c.factoryMaxY = factory.value("maxY").toDouble();
+    c.modelScale = obj.value("modelScale").toDouble();
+    const QJsonObject board = obj.value("board").toObject();
+    c.boardMinX = board.value("minX").toDouble();
+    c.boardMinY = board.value("minY").toDouble();
+    c.boardMaxX = board.value("maxX").toDouble();
+    c.boardMaxY = board.value("maxY").toDouble();
+    for (const QJsonValue &v : obj.value("markers").toArray()) {
+        const QJsonObject mo = v.toObject();
+        ArucoMarkerConfig m;
+        m.id = mo.value("id").toInt();
+        m.x = mo.value("x").toDouble();
+        m.y = mo.value("y").toDouble();
+        m.sizeCm = mo.value("sizeCm").toDouble();
+        m.rotation = mo.value("rotation").toDouble();
+        c.markers.append(m);
+    }
+    return c;
 }
 }
 
@@ -318,6 +379,37 @@ void ServerLink::sendReloadCalibration(int channel)
     sendLine(obj);
 }
 
+void ServerLink::sendSetArucoConfig(const ArucoChannelConfig &config)
+{
+    QJsonObject obj = arucoConfigToJson(config);
+    obj["type"] = "set_aruco_config";
+    obj["channel"] = config.channel;
+    sendLine(obj);
+}
+
+QString ServerLink::sendQueryArucoConfig(int channel)
+{
+    QJsonObject params;
+    params["channel"] = channel;
+    return sendQuery("aruco_config", params);
+}
+
+void ServerLink::sendRunCalibration(int channel)
+{
+    QJsonObject obj;
+    obj["type"] = "run_calibration";
+    obj["channel"] = channel;
+    sendLine(obj);
+}
+
+void ServerLink::sendCancelCalibration(int channel)
+{
+    QJsonObject obj;
+    obj["type"] = "cancel_calibration";
+    obj["channel"] = channel;
+    sendLine(obj);
+}
+
 void ServerLink::sendFalseAlarmReport(int channel, int frameId, const QString &admin)
 {
     QJsonObject obj;
@@ -483,11 +575,31 @@ void ServerLink::handleLine(const QByteArray &line)
         emit calibReloadResult(obj.value("channel").toInt(),
                                 obj.value("result").toString() == "accepted",
                                 obj.value("reason").toString());
+    } else if (type == "set_aruco_config_result") {
+        emit arucoConfigResult(obj.value("channel").toInt(),
+                                obj.value("result").toString() == "ok",
+                                obj.value("reason").toString());
+    } else if (type == "run_calibration_result") {
+        emit runCalibrationResult(obj.value("channel").toInt(),
+                                   obj.value("result").toString() == "accepted",
+                                   obj.value("reason").toString());
+    } else if (type == "cancel_calibration_result") {
+        emit cancelCalibrationResult(obj.value("channel").toInt(),
+                                      obj.value("result").toString() == "accepted",
+                                      obj.value("reason").toString());
+    } else if (type == "calibration_done") {
+        // 서버가 요청 없이 먼저 보내는 알림 — ok/error/cancelled/timeout.
+        emit calibrationDone(obj.value("channel").toInt(), obj.value("result").toString(),
+                              obj.value("reason").toString());
     } else if (type == "query_result") {
         const QString reqId = obj.value("reqId").toString();
         const QString target = obj.value("target").toString();
         if (target == "calib_status") {
             emit calibStatusReceived(calibStatusListFromJson(obj.value("channels").toArray()));
+        } else if (target == "aruco_config") {
+            // 미설정 채널은 result:"empty"로 옴 — 그때는 필드 자체가 비어있으니 빈 구조체 그대로.
+            const bool available = obj.value("result").toString() != "empty";
+            emit arucoConfigReceived(obj.value("channel").toInt(), available, arucoConfigFromJson(obj));
         } else if (target == "ignore_regions") {
             // event_log/sensor_log와 달리 rows 배열로 안 오고 channel/regions가 바로 최상위에 있다
             // (접속 직후 push는 reqId 자체가 없음 — Qt는 push든 query 응답이든 구분 없이 반영한다).

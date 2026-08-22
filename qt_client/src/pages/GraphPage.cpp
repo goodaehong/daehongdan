@@ -94,7 +94,8 @@ QWidget *GraphPage::createControlBar()
     static const QStringList kPeriodNames = { "10분", "1시간", "6시간", "하루" };
     const QString periodBtnStyle = QString(
         "QPushButton { color:%1; background:transparent; border:1px solid %2; border-radius:6px; padding:6px 14px; font-size:14px; }"
-        "QPushButton:checked { background-color:%3; color:white; border:1px solid %3; }")
+        "QPushButton:checked { background-color:%3; color:white; border:1px solid %3; }"
+        "QPushButton:disabled { color:#4a4658; border:1px solid #2a2a38; background:transparent; }")
         .arg(kTextSecondary, kCardBorder, kAccent);
 
     periodButtons.clear();
@@ -121,9 +122,9 @@ QWidget *GraphPage::createControlBar()
     connect(dateButton, &QPushButton::clicked, this, &GraphPage::showDatePicker);
     row->addWidget(dateButton);
 
-    prevButton = new QPushButton("◀️ 이전", bar);
-    todayButton = new QPushButton("지금", bar);
-    nextButton = new QPushButton("다음 ▶️", bar);
+    prevButton = new QPushButton("◀️ 이전 날", bar);
+    todayButton = new QPushButton("현재", bar);
+    nextButton = new QPushButton("다음 날 ▶️", bar);
     for (QPushButton *btn : { prevButton, todayButton, nextButton }) {
         btn->setStyleSheet(navBtnStyle);
         row->addWidget(btn);
@@ -179,6 +180,7 @@ void GraphPage::selectPeriod(int index)
         periodButtons[i]->setChecked(i == index);
     // 10분/1시간은 원본 그대로(선 1개), 6시간/하루는 구간 집계(AVG+MAX 두 선)라 범례를 켠다.
     legendLabel->setVisible(index >= 2);
+    updateNavButtons(); // "하루" + 과거 날짜 조합이면 짧은 기간 버튼을 잠가야 하니 다시 계산
     requestCurrentPeriod();
 }
 
@@ -187,6 +189,13 @@ void GraphPage::updateNavButtons()
     const bool isToday = currentDate == QDate::currentDate();
     nextButton->setEnabled(!isToday);
     todayButton->setEnabled(!isToday);
+
+    // "하루"로 과거 날짜를 보는 중엔 10분/1시간/6시간("지금 기준 최근 N")이 의미가 안 맞는다 —
+    // requestCurrentPeriod()가 그 날 23:59:59부터 거슬러 올라가는 걸로 어색하게 처리하고
+    // 있었으므로, 아예 못 누르게 잠근다. "하루" 버튼 자신은 항상 눌려있는 채로 둔다.
+    const bool restrictShortPeriods = (currentPeriodIndex == periodButtons.size() - 1) && !isToday;
+    for (int i = 0; i < periodButtons.size() - 1; ++i)
+        periodButtons[i]->setEnabled(!restrictShortPeriods);
 }
 
 void GraphPage::showDatePicker()
@@ -202,6 +211,8 @@ void GraphPage::showDatePicker()
 
     auto *calendar = new QCalendarWidget(popup);
     calendar->setGridVisible(true);
+    // 기본값은 왼쪽에 ISO 주차 번호(31~36 등)를 같이 보여주는데, 날짜(1~31)와 헷갈려서 숨긴다.
+    calendar->setVerticalHeaderFormat(QCalendarWidget::NoVerticalHeader);
     calendar->setMaximumDate(QDate::currentDate()); // 미래 날짜는 데이터가 없으니 선택 불가
     calendar->setSelectedDate(currentDate);
     calendar->setStyleSheet(

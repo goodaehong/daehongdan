@@ -75,10 +75,6 @@ MainWindow::MainWindow(QWidget *parent)
     floorMapPage = new FloorMapPage(centralArea);
     helpPage = new HelpPage(centralArea);
 
-    connect(monitorPage, &MonitorPage::demoStateRequested, this, [this](ZoneState state) {
-        setZoneState(currentZone, state);
-    });
-
     serverLink = new ServerLink(this);
 
     connect(graphPage, &GraphPage::sensorLogRequested, this,
@@ -173,6 +169,8 @@ MainWindow::MainWindow(QWidget *parent)
                    const QString &fileName, qint64 uploadedAt) {
                 floorMapPage->onUploadResult(ok, reason, gridSize, bitmap, displays, exits, routes,
                                               fileName, uploadedAt);
+                if (ok)
+                    helpPage->updateFloorMapExample(gridSize, bitmap, displays, exits, routes);
             });
     connect(serverLink, &ServerLink::floorMapUploadTimedOut, floorMapPage, &FloorMapPage::onUploadTimedOut);
     // 접속 직후 query target=floor_map 응답 — 서버에 저장된 결과가 있으면(available) 그대로 반영.
@@ -181,9 +179,11 @@ MainWindow::MainWindow(QWidget *parent)
             [this](bool available, int gridSize, const QVector<QVector<int>> &bitmap,
                    const QVector<FloorMapMarker> &displays, const QVector<FloorMapMarker> &exits,
                    const QVector<FloorMapRoute> &routes, const QString &fileName, qint64 uploadedAt) {
-                if (available)
+                if (available) {
                     floorMapPage->applyServerData(gridSize, bitmap, displays, exits, routes,
                                                    fileName, uploadedAt);
+                    helpPage->updateFloorMapExample(gridSize, bitmap, displays, exits, routes);
+                }
             });
 
     // 이벤트로그 자체는 서버가 control 처리 시 db.insertEvent()로 이미 남기므로 Qt가 중복으로
@@ -672,33 +672,6 @@ void MainWindow::switchZone(int index)
     refreshZoneUi();
 }
 
-void MainWindow::setZoneState(int zoneIndex, ZoneState state)
-{
-    const ZoneState oldState = zones[zoneIndex].state;
-    zones[zoneIndex].state = state;
-    if (oldState != state)
-        zones[zoneIndex].stateEnteredAt = QDateTime::currentDateTime();
-    const QString zoneId = zones[zoneIndex].name.left(1);
-    // DEMO 버튼으로도 sensorReceived와 동일하게 "새로 Warning 진입" 시 팝업 (테스트용).
-    // 경고 단계 원인은 3가지(smoke_visual/fire_visual/flame_sensor) 중 데모에서는 smoke_visual로 고정.
-    // 실제 warnRemain은 서버만 아니까, 데모에서는 로컬 타이머로 10초를 직접 세어 실제 흐름을 재현한다.
-    if (oldState != ZoneState::Warning && state == ZoneState::Warning) {
-        const QString &zoneName = zones[zoneIndex].name;
-        showWarningAlert(zoneName, zoneId, "smoke_visual", 10);
-        startDemoWarningCountdown(zoneIndex, zoneId, 10);
-    }
-    if (oldState == ZoneState::Warning && state != ZoneState::Warning) {
-        stopDemoWarningCountdown();
-        if (WarningAlertDialog *dlg = activeWarningDialogs.value(zoneId))
-            dlg->dismiss();
-    }
-    // DEMO 버튼은 로컬 시뮬레이션이라 서버 DB에 안 남음 — 이벤트로그는 이제 서버 조회로만 채워지므로
-    // 여기서 로컬 addEntry()를 만들지 않는다. (DEMO로 위험을 눌러도 로그 목록엔 안 뜨는 게 정상)
-    if (zoneIndex == currentZone)
-        refreshZoneUi();
-    updateDangerIndicators();
-}
-
 void MainWindow::refreshZoneUi()
 {
     const Zone &zone = zones[currentZone];
@@ -732,43 +705,10 @@ void MainWindow::showWarningAlert(const QString &zoneName, const QString &zoneId
     connect(dialog, &WarningAlertDialog::finished, this, [this, zoneId, dialog]() {
         if (activeWarningDialogs.value(zoneId) == dialog)
             activeWarningDialogs.remove(zoneId);
-        // 확인 버튼으로 닫혔든, 상태 전환으로 자동으로 닫혔든 DEMO 카운트다운은 더 이상 필요 없다.
-        stopDemoWarningCountdown();
         dialog->deleteLater();
         warningAlertArea->setVisible(!activeWarningDialogs.isEmpty());
     });
     dialog->show();
-}
-
-void MainWindow::startDemoWarningCountdown(int zoneIndex, const QString &zoneId, int seconds)
-{
-    stopDemoWarningCountdown();
-    demoWarningZoneIndex = zoneIndex;
-    demoWarningZoneId = zoneId;
-    demoWarningRemain = seconds;
-    if (!demoWarningTimer) {
-        demoWarningTimer = new QTimer(this);
-        connect(demoWarningTimer, &QTimer::timeout, this, [this]() {
-            --demoWarningRemain;
-            if (WarningAlertDialog *dlg = activeWarningDialogs.value(demoWarningZoneId))
-                dlg->setRemainingSeconds(demoWarningRemain);
-            if (demoWarningRemain <= 0) {
-                demoWarningTimer->stop();
-                // 서버 없는 DEMO에서도 "10초 무응답 -> 자동 위험 전환" 흐름을 그대로 재현.
-                if (demoWarningZoneIndex >= 0 && demoWarningZoneIndex < zones.size()
-                        && zones[demoWarningZoneIndex].state == ZoneState::Warning) {
-                    setZoneState(demoWarningZoneIndex, ZoneState::Danger);
-                }
-            }
-        });
-    }
-    demoWarningTimer->start(1000);
-}
-
-void MainWindow::stopDemoWarningCountdown()
-{
-    if (demoWarningTimer)
-        demoWarningTimer->stop();
 }
 
 void MainWindow::updateDangerIndicators()

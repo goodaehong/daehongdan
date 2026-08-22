@@ -11,12 +11,13 @@ class QLabel;
 class QTimer;
 class ServerLink;
 
-// 관리자 전용 "카메라 좌표 보정 상태" 화면 (PR #65 기준으로 재작성, 2026-08-20).
+// 관리자 전용 "카메라 좌표 보정" 화면 (2026-08-21, 좌표 입력·실행 프로토콜 반영).
 //
-// 실제 서버 범위는 애초 확정안보다 좁다 — Qt는 상태 조회 + 재로드 요청만 하고,
-// 좌표 설정 자체(aruco_board_config.txt 작성)는 여전히 SSH로 수동 작업한다.
-// (예전엔 Qt에서 좌표를 입력해 저장하는 화면을 만들었었는데, 그 프로토콜을 서버가
-// 구현하지 않아서 걷어내고 이 화면으로 교체함.)
+// 채널별로 상태를 한눈에 보여주고, 행마다 두 가지 동작을 할 수 있다:
+//   설정 — ArucoConfigDialog로 공장/모형/보드 범위와 마커 좌표를 입력·저장
+//   실행/중단 — 서버가 실제로 마커를 검출해 보정 계산을 돌리는 것을 시작/중단
+// (재로드는 실행 성공 시 서버가 알아서 하고, 상태는 각 동작 뒤 자동으로 다시 조회되므로
+//  수동 재로드/새로고침 버튼은 두지 않는다.)
 class ArucoCalibrationDialog : public QDialog
 {
     Q_OBJECT
@@ -25,21 +26,25 @@ public:
     explicit ArucoCalibrationDialog(ServerLink *serverLink, QWidget *parent = nullptr);
 
 private slots:
-    void onRefreshClicked();
-    void onReloadClicked(int channel);
+    void onConfigClicked(int channel);
+    void onRunClicked(int channel);
+    void onCancelClicked(int channel);
 
     void onCalibStatusReceived(const QVector<CalibChannelStatus> &channels);
-    void onCalibReloadResult(int channel, bool accepted, const QString &reason);
+    void onRunCalibrationResult(int channel, bool accepted, const QString &reason);
+    void onCancelCalibrationResult(int channel, bool accepted, const QString &reason);
+    // 서버가 먼저 보내는 완료 알림 — ok/error/cancelled/timeout. cancelled는 오류로 안 보여준다.
+    void onCalibrationDone(int channel, const QString &result, const QString &reason);
 
 private:
     void requestStatus();
 
     ServerLink *serverLink;
 
-    QPushButton *refreshButton = nullptr;
     QLabel *statusLabel = nullptr;
     QTableWidget *table = nullptr;
-    // 재로드는 완료 응답이 없어서(접수만 옴), 몇 초 뒤 자동으로 다시 조회해서 반영한다.
+    // 실행/중단은 완료 응답이 없어서(접수만 옴), 몇 초 뒤 자동으로 다시 조회해서 반영한다.
+    // calibration_done을 받았을 때도 즉시 같은 타이머로 재조회한다.
     QTimer *autoRefreshTimer = nullptr;
 };
 
