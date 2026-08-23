@@ -7,6 +7,7 @@
 #include <QFont>
 #include <QFontMetrics>
 #include <QMouseEvent>
+#include <QDateTime>
 #include <algorithm>
 #include <numeric>
 
@@ -31,12 +32,17 @@ void GasGraphWidget::setData(const QVector<double> &values, const QStringList &x
     setSeries(values, {}, xLabels);
 }
 
-void GasGraphWidget::setSeries(const QVector<double> &avgValues, const QVector<double> &maxValues, const QStringList &xLabels)
+void GasGraphWidget::setSeries(const QVector<double> &avgValues, const QVector<double> &maxValues, const QStringList &xLabels,
+                                const QVector<qint64> &sampleTimesSecs, qint64 rangeFromSecs, qint64 rangeToSecs)
 {
     m_values = avgValues;
     // 크기가 안 맞으면(방어적으로) max 선은 그리지 않는다.
     m_maxValues = (maxValues.size() == avgValues.size()) ? maxValues : QVector<double>();
     m_xLabels = xLabels;
+    m_sampleTimes = (sampleTimesSecs.size() == avgValues.size()) ? sampleTimesSecs : QVector<qint64>();
+    m_hasRange = !m_sampleTimes.isEmpty() && rangeToSecs > rangeFromSecs;
+    m_rangeFrom = rangeFromSecs;
+    m_rangeTo = rangeToSecs;
     update();
 }
 
@@ -110,7 +116,13 @@ void GasGraphWidget::paintEvent(QPaintEvent *)
     maxVal = niceMax;
 
     auto pointForSeries = [&](const QVector<double> &series, int i) {
-        const double xRatio = double(i) / double(series.size() - 1);
+        // 시간 범위가 있으면(정각 정렬 구간) 인덱스 균등이 아니라 실제 경과 시간 비율로 배치한다 —
+        // 구간이 아직 안 끝났으면(예: 14:20~14:30인데 지금 14:23) 마지막 표본 오른쪽이 비어 보인다.
+        double xRatio;
+        if (m_hasRange && m_sampleTimes.size() == series.size())
+            xRatio = qBound(0.0, double(m_sampleTimes[i] - m_rangeFrom) / double(m_rangeTo - m_rangeFrom), 1.0);
+        else
+            xRatio = double(i) / double(series.size() - 1);
         const double yRatio = (series[i] - minVal) / (maxVal - minVal);
         return QPointF(area.left() + xRatio * area.width(),
                         area.bottom() - yRatio * area.height());
@@ -316,10 +328,19 @@ void GasGraphWidget::paintEvent(QPaintEvent *)
 
     painter.setFont(axisFont);
     painter.setPen(QColor(axisTextColor));
-    if (!m_xLabels.isEmpty())
-        painter.drawText(QRect(area.left(), area.bottom() + 12, 100, 20), Qt::AlignLeft, m_xLabels.first());
-    if (m_xLabels.size() > 1)
-        painter.drawText(QRect(area.right() - 100, area.bottom() + 12, 100, 20), Qt::AlignRight, m_xLabels.last());
+    if (m_hasRange) {
+        // 마지막 표본이 아니라 구간 경계 자체(예: 14:20~14:30)를 양 끝 라벨로 쓴다 — 표본이
+        // 구간을 다 못 채웠어도(진행 중인 실시간 구간) 축은 항상 구간 전체를 나타내야 한다.
+        painter.drawText(QRect(area.left(), area.bottom() + 12, 100, 20), Qt::AlignLeft,
+                          QDateTime::fromSecsSinceEpoch(m_rangeFrom).toString("HH:mm"));
+        painter.drawText(QRect(area.right() - 100, area.bottom() + 12, 100, 20), Qt::AlignRight,
+                          QDateTime::fromSecsSinceEpoch(m_rangeTo).toString("HH:mm"));
+    } else {
+        if (!m_xLabels.isEmpty())
+            painter.drawText(QRect(area.left(), area.bottom() + 12, 100, 20), Qt::AlignLeft, m_xLabels.first());
+        if (m_xLabels.size() > 1)
+            painter.drawText(QRect(area.right() - 100, area.bottom() + 12, 100, 20), Qt::AlignRight, m_xLabels.last());
+    }
 
     // 값 박스는 데이터 포인트 hover와 사건 마커 hover 양쪽에서 같은 모양으로 쓰므로 람다로 뺀다.
     auto drawTip = [&](const QStringList &lines, const QPointF &anchor) {
@@ -446,7 +467,23 @@ void GasGraphWidget::mouseMoveEvent(QMouseEvent *event)
     }
 
     const double ratio = qBound(0.0, double(pos.x() - area.left()) / double(area.width()), 1.0);
-    int index = qRound(ratio * (m_values.size() - 1));
+    int index;
+    if (m_hasRange && m_sampleTimes.size() == m_values.size()) {
+        // 점들이 더 이상 인덱스 균등 간격이 아니므로(시간 비율 배치), 마우스 x를 실제 시각으로
+        // 환산한 뒤 가장 가까운 표본을 찾는다. 표본 수가 많아야 수백 개 수준이라 선형 탐색으로 충분.
+        const qint64 targetTime = m_rangeFrom + qint64(ratio * double(m_rangeTo - m_rangeFrom));
+        qint64 bestDiff = -1;
+        index = 0;
+        for (int i = 0; i < m_sampleTimes.size(); ++i) {
+            const qint64 diff = std::abs(m_sampleTimes[i] - targetTime);
+            if (bestDiff < 0 || diff < bestDiff) {
+                bestDiff = diff;
+                index = i;
+            }
+        }
+    } else {
+        index = qRound(ratio * (m_values.size() - 1));
+    }
     index = qBound(0, index, m_values.size() - 1);
 
     if (index != m_hoverIndex) {

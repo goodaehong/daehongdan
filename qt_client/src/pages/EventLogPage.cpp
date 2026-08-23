@@ -41,7 +41,9 @@ const QString kTextPrimary = "#f5f5fa";
 const QString kTextSecondary = "#8d87a0";
 const QString kAccent = "#8b7cf6";
 const QStringList kZoneFilterNames = { "전체", "A공장", "B공장", "C공장", "D공장" };
-const QStringList kSeverityFilterNames = { "전체", "안전", "경고", "위험" };
+// "안전"은 필터에서 뺀다 — event_log는 사건 기록용이라 안전(평상시) 값 흐름을 담기엔 안 맞고
+// (그건 그래프 탭 sensor_log 담당), 위험 해제 시점은 이미 별도 "resolve" 이벤트로 기록되고 있다.
+const QStringList kSeverityFilterNames = { "전체", "경고", "위험" };
 const QStringList kPeriodFilterNames = { "전체 기간", "최근 1시간", "최근 6시간", "최근 24시간" };
 const QStringList kStatusFilterNames = { "전체", "해결됨", "오탐 처리됨" };
 
@@ -865,13 +867,7 @@ void EventLogPage::applyFilter()
 
         const bool zoneMatch = (zone == "전체") || (entry.zone == zone);
 
-        bool severityMatch = true;
-        if (severityFilter != "전체") {
-            // "정보"는 위험도 표기가 없는 성공/확인성 로그라 "안전"과 같은 취급으로 묶는다.
-            severityMatch = severityFilter == "안전"
-                ? (entry.severity == "안전" || entry.severity == "정보")
-                : (entry.severity == severityFilter);
-        }
+        const bool severityMatch = (severityFilter == "전체") || (entry.severity == severityFilter);
 
         bool periodMatch = true;
         if (periodFilter == "최근 1시간")
