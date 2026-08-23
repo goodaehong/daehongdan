@@ -591,6 +591,7 @@ void EventLogPage::loadEntriesFromServer(const QJsonArray &rows)
 
         entry.clipPath = row.value("clipPath").toString();
         entry.snapshotPath = row.value("snapshotPath").toString();
+        entry.incidentId = qint64(row.value("incidentId").toDouble());
 
         appendRow(entry);
     }
@@ -656,6 +657,21 @@ void EventLogPage::showDetail(int row, int)
     detailResponseValue->setText(entry.response);
     detailStatusValue->setText(entry.status);
     detailDurationValue->setText(entry.duration);
+
+    // 다른 행으로 옮겨왔으니 대기 중이던 오탐 신고 응답은 더 이상 유효하지 않다(응답 오면
+    // pendingFalseAlarmIncidentId 비교에서 자동으로 무시됨). 버튼은 이 행 기준으로 다시 세팅.
+    pendingFalseAlarmIncidentId = -1;
+    if (entry.status == "오탐 처리됨") {
+        falseAlarmButton->setEnabled(false);
+        falseAlarmButton->setText("오탐 처리됨");
+    } else if (entry.incidentId <= 0) {
+        // 수동 제어 등 사태(incident) 자체가 없는 행은 오탐 신고 대상이 아니다.
+        falseAlarmButton->setEnabled(false);
+        falseAlarmButton->setText("오탐 신고");
+    } else {
+        falseAlarmButton->setEnabled(true);
+        falseAlarmButton->setText("오탐 신고");
+    }
 
     // 클립은 이벤트 후 약 15초는 지나야 저장이 끝난다 — 경고/위험/비상류가 아니면(수동제어 등)
     // 애초에 clipPath 자체가 안 옴. 두 경우 다 문구만 다르게 안내.
@@ -777,10 +793,46 @@ void EventLogPage::markFalseAlarm()
 {
     if (selectedEventRow < 0 || selectedEventRow >= eventEntries.size())
         return;
-    eventEntries[selectedEventRow].status = "오탐 처리됨";
-    detailStatusValue->setText("오탐 처리됨");
-    if (auto *item = eventTable->item(selectedEventRow, 4))
-        item->setText("오탐 처리됨");
+    const EventEntry &entry = eventEntries[selectedEventRow];
+    if (entry.incidentId <= 0)
+        return; // 사태 번호가 없는 행(수동 제어 등)은 신고 대상이 아님 — 버튼도 비활성 상태
+
+    pendingFalseAlarmIncidentId = entry.incidentId;
+    falseAlarmButton->setEnabled(false);
+    falseAlarmButton->setText("신고 중...");
+    // 서버 zone은 "A" 한 글자 — entry.zone은 화면 표시용 "A공장" 형태라 앞글자만 뗀다.
+    emit falseAlarmReportRequested(entry.incidentId, "admin", entry.zone.left(1));
+}
+
+void EventLogPage::onFalseAlarmResult(qint64 incidentId, bool ok, int updated, const QString &reason)
+{
+    if (incidentId != pendingFalseAlarmIncidentId)
+        return; // 이미 다른 행을 클릭해서 이 응답은 더 이상 유효하지 않음(클립/스냅샷과 동일한 패턴)
+    pendingFalseAlarmIncidentId = -1;
+
+    if (!ok) {
+        falseAlarmButton->setEnabled(true);
+        falseAlarmButton->setText("오탐 신고");
+        QMessageBox::warning(this, "오탐 신고 실패", reason.isEmpty() ? "알 수 없는 오류" : reason);
+        return;
+    }
+
+    // 사태 단위 처리라(PR #75), 같은 incidentId를 가진 행이 전부(경고→위험→해제 등 여러 줄)
+    // 한 번에 "오탐 처리됨"으로 바뀐다 — 화면에서도 그 행들을 전부 같이 갱신한다.
+    for (int row = 0; row < eventEntries.size(); ++row) {
+        if (eventEntries[row].incidentId != incidentId)
+            continue;
+        eventEntries[row].status = "오탐 처리됨";
+        if (auto *item = eventTable->item(row, 5))
+            item->setText("오탐 처리됨");
+    }
+    if (selectedEventRow >= 0 && selectedEventRow < eventEntries.size()
+            && eventEntries[selectedEventRow].incidentId == incidentId) {
+        detailStatusValue->setText("오탐 처리됨");
+    }
+    falseAlarmButton->setEnabled(false);
+    falseAlarmButton->setText("오탐 처리됨");
+    Q_UNUSED(updated);
 }
 
 void EventLogPage::showDatePicker()

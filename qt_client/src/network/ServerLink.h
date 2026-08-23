@@ -36,7 +36,9 @@ public:
     QString sendEmergencyTrigger(const QString &zone, const QString &cause, const QString &admin);
     // checklist: "현장 확인" 항목 키 목록(예: "gas_smell","valve_closed","personnel_returned"). 원인별로 다름.
     QString sendEmergencyClear(const QString &zone, const QString &admin, const QStringList &checklist);
-    void sendFalseAlarmReport(int channel, int frameId, const QString &admin);
+    // 오탐 신고(PR #75) — 사태(incident) 단위로 처리된다. 서버가 그 incidentId를 가진 모든
+    // event_log 행을 "오탐 처리됨"으로 한 번에 바꾸고 false_alarm_ack로 응답한다.
+    void sendFalseAlarmReport(qint64 incidentId, const QString &admin, const QString &zone);
     // 관리자가 경고 팝업의 "확인"을 눌렀을 때만 호출. 무응답 자동 전환은 서버가 자체 타이머로 판단한다.
     void sendWarningAck(const QString &zone, const QString &admin);
 
@@ -170,6 +172,9 @@ signals:
     void clipReceived(const QString &reqId, const QString &result, const QByteArray &data);
     // query target=snapshot 응답(PR #69). 형태는 clipReceived와 동일(ok/empty/error), jpg 원본 바이트.
     void snapshotReceived(const QString &reqId, const QString &result, const QByteArray &data);
+    // false_alarm_ack 응답(PR #75). ok=false면 updated는 의미 없고 reason에 실패 사유가 채워진다
+    // (해당 사태를 못 찾음 등).
+    void falseAlarmResult(qint64 incidentId, bool ok, int updated, const QString &reason);
 
 private slots:
     void onReadyRead();

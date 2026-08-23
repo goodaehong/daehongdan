@@ -445,6 +445,13 @@ MainWindow::MainWindow(QWidget *parent)
             });
     connect(serverLink, &ServerLink::snapshotReceived, eventLogPage, &EventLogPage::onSnapshotReceived);
 
+    // "오탐 신고" 클릭 시 발생(PR #75) — 사태(incident) 단위로 서버에 전송.
+    connect(eventLogPage, &EventLogPage::falseAlarmReportRequested, this,
+            [this](qint64 incidentId, const QString &admin, const QString &zoneId) {
+                serverLink->sendFalseAlarmReport(incidentId, admin, zoneId);
+            });
+    connect(serverLink, &ServerLink::falseAlarmResult, eventLogPage, &EventLogPage::onFalseAlarmResult);
+
     // sensor 메시지 흐름 감시(emergency-mode #19). 소켓은 붙어있어도 서버 내부(센서 스레드)가 멎으면
     // sensor가 안 오는데, connectionStateChanged만 보면 이 상태를 "연결됨"으로 잘못 표시하게 된다.
     sensorWatchdogTimer = new QTimer(this);

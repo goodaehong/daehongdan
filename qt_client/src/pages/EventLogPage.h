@@ -36,6 +36,10 @@ struct EventEntry {
     QString clipPath;
     // 감지 시점 jpg 스냅샷 경로. clipPath와 별개 파일 — query target=snapshot에 그대로 실어보낸다(PR #69).
     QString snapshotPath;
+    // 사태(incident) 번호. 경고→위험→해제로 이어지는 한 사태의 여러 행이 같은 값을 공유한다.
+    // 오탐 신고(PR #75)가 이 단위로 처리되므로, 한 행을 오탐 신고하면 같은 incidentId를 가진
+    // 다른 행들도 전부 "오탐 처리됨"으로 같이 바뀐다.
+    qint64 incidentId = 0;
 };
 
 // 이벤트 로그 화면 (세로 3분할): 좌상단 목록+필터, 좌하단 가스농도 그래프, 우측 상세 패널.
@@ -67,6 +71,9 @@ public slots:
     // 썸네일로 표시한다. reqId가 다르면(다른 행 클릭 등) 무시.
     void onSnapshotReceived(const QString &reqId, const QString &result, const QByteArray &data);
     void trackSnapshotRequest(const QString &reqId);
+    // false_alarm_ack 응답(PR #75). ok면 같은 incidentId를 가진 모든 행을 "오탐 처리됨"으로
+    // 반영하고, 실패면 reason을 안내창으로 보여준다(사태를 못 찾음 등).
+    void onFalseAlarmResult(qint64 incidentId, bool ok, int updated, const QString &reason);
     // 조회 범위(날짜 필터가 있으면 그 하루, 없으면 최근 24시간) 계산해서 eventLogRequested emit.
     // MainWindow가 실제 이벤트(상태 전환/제어 성공/비상 전환·해제 등) 발생 시점마다 바로 호출해서
     // 이벤트로그가 사실상 실시간으로 갱신되게 한다 — 30초 주기는 그 사이 놓친 것만 잡는 안전망.
@@ -83,6 +90,9 @@ signals:
     // 상세 패널을 열 때(스냅샷 경로가 있으면) 자동 발생 — MainWindow가 받아서
     // serverLink->sendQuery("snapshot", {"path":path})로 넘긴다.
     void snapshotRequested(const QString &path);
+    // "오탐 신고" 클릭 시 발생(PR #75) — MainWindow가 받아서
+    // serverLink->sendFalseAlarmReport(incidentId, admin, zoneId)로 넘긴다.
+    void falseAlarmReportRequested(qint64 incidentId, const QString &admin, const QString &zoneId);
 
 private slots:
     void applyFilter();
@@ -125,6 +135,8 @@ private:
     QLabel *detailDurationValue;
     QPushButton *falseAlarmButton;
     int selectedEventRow = -1;
+    // 응답(false_alarm_ack) 오기 전까지 버튼을 잠가서 중복 신고를 막는다. -1이면 대기 중인 요청 없음.
+    qint64 pendingFalseAlarmIncidentId = -1;
 
     // 이벤트 클립(PR #63) 재생 UI. 썸네일 위에 유튜브처럼 재생 버튼을 오버레이하고, 누르면
     // videoStack이 1번 페이지(ClipPlayerWidget, libvlc 임베드)로 전환되어 Qt 안에서 바로 재생된다
