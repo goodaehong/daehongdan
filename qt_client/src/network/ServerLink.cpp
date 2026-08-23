@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QDateTime>
+#include <QDebug>
 
 namespace {
 constexpr int kControlTimeoutMs = 3000;
@@ -423,7 +424,10 @@ void ServerLink::sendFalseAlarmReport(qint64 incidentId, const QString &admin, c
 void ServerLink::sendLine(const QJsonObject &obj)
 {
     const QByteArray line = QJsonDocument(obj).toJson(QJsonDocument::Compact) + "\n";
-    socket->write(line);
+    const qint64 written = socket->write(line);
+    if (written != line.size())
+        qWarning() << "[ServerLink] write() 불일치 — 보내려던 바이트:" << line.size()
+                    << "실제 기록:" << written << "소켓 에러:" << socket->errorString();
 }
 
 void ServerLink::onReadyRead()
