@@ -203,6 +203,33 @@ static void handleEmergency(Link& link, Database& db, AlarmState& alarm,
     link.send(oss.str());
 }
 
+// 관리자 오탐 판정. 그 사태의 로그를 "오탐 처리됨"으로 바꾸고           
+// 누가 언제 판정했는지 별도 행으로 남긴다 (되돌릴 근거가 필요해서)
+static void handleFalseAlarmReport(Link& link, Database& db, const std::string& line) {
+    const long incidentId = jsonLong(line, "incidentId", 0);
+    const std::string admin = jsonStr(line, "admin");
+    const std::string zone  = jsonStr(line, "zone");
+
+    const int changed = db.markFalseAlarm(incidentId);
+    if (changed > 0) {
+        db.insertEvent(std::time(nullptr), zone.empty() ? "A" : zone,
+                       "false_alarm", "", "", "", "manual", "오탐 판정", admin,
+                       0, 0, "오탐 처리됨", 0, "", incidentId, "");
+        std::cout << "[오탐] 사태 " << incidentId << " 오탐 처리 (" << changed
+                  << "행, " << admin << ")\n";
+    } else {
+        std::cerr << "[오탐] 사태 " << incidentId << " 없음 — 처리 안 함\n";
+    }
+
+    std::ostringstream oss;
+    oss << "{\"type\":\"false_alarm_ack\",\"incidentId\":" << incidentId
+        << ",\"result\":\"" << (changed > 0 ? "ok" : "error") << "\"";
+    if (changed > 0) oss << ",\"updated\":" << changed;
+    else             oss << ",\"reason\":\"해당 사태를 찾을 수 없습니다\"";
+    oss << ",\"ts\":" << std::time(nullptr) << "}";
+    link.send(oss.str());
+}                                                                        
+
 // ROI 설정 반영 + set_ignore_regions_ack 응답                       
 // 검증 실패 시 기존 설정을 유지한다 (RoiStore_Apply 안에서 처리)
 static void handleSetIgnoreRegions(Link& link, const std::string& line) {
@@ -436,7 +463,9 @@ void QtLink_RecvWorker(Link& link, AlarmState& alarm, Database& db) {
         else if (line.find("\"type\":\"emergency_trigger\"") != std::string::npos) 
             handleEmergency(link, db, alarm, line, true);
         else if (line.find("\"type\":\"emergency_clear\"") != std::string::npos)
-            handleEmergency(link, db, alarm, line, false);                                               
+            handleEmergency(link, db, alarm, line, false);     
+        else if (line.find("\"type\":\"false_alarm_report\"") != std::string::npos)  
+            handleFalseAlarmReport(link, db, line);                                                                       
         else if (line.find("\"type\":\"set_ignore_regions\"") != std::string::npos)   
             handleSetIgnoreRegions(link, line);
         else if (line.find("\"type\":\"set_floor_map\"") != std::string::npos)        

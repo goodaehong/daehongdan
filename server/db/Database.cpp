@@ -163,6 +163,21 @@ void Database::resolveIncident(long incidentId, long durationMs) {   //  duratio
     sqlite3_finalize(st);
 }          
 
+// ── 오탐 판정 ── 그 사태의 모든 행을 "오탐 처리됨"으로 바꾼다            
+// 해제(resolve)까지 포함해 통째로 바꾼다 — 사건 자체가 오탐이었다는 뜻이라
+// 일부만 오탐으로 남기면 목록에서 상태가 뒤섞인다
+int Database::markFalseAlarm(long incidentId) {
+    std::lock_guard<std::mutex> lock(mtx_);
+    if (!db_ || incidentId <= 0) return 0;
+    const char* sql = "UPDATE event_log SET status='오탐 처리됨' WHERE incident_id=?;";
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &st, nullptr) != SQLITE_OK) return 0;
+    sqlite3_bind_int64(st, 1, incidentId);
+    sqlite3_step(st);
+    sqlite3_finalize(st);
+    return sqlite3_changes(db_);   // 실제로 바뀐 행 수
+}                                                             
+
 // ── DB에 남은 마지막 사태 번호 ──                                       
 // 사태 번호는 메모리 카운터라 서버를 껐다 켜면 1부터 다시 나온다.
 // 그러면 옛 로그와 번호가 겹쳐 해결 처리·클립 경로가 엉뚱한 행을 건드린다
