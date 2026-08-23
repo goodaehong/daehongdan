@@ -67,6 +67,12 @@ public:
     void updateClipPath(long incidentId, long clipTs,               
                         const std::string& clipPath);  
 
+    // 관리자가 오탐으로 판정한 사태의 행들을 "오탐 처리됨"으로 바꾼다.     
+    // 한 사태의 여러 줄(경고→위험→해제)이 같은 판정을 받아야 하므로 사태 단위.
+    // 바뀐 행 수를 돌려준다 (0이면 그 번호의 사태가 없다는 뜻)
+    int markFalseAlarm(long incidentId);                               
+                  
+
     // ── 조회 ──                                                         
     // 기간 내 이벤트를 최신순으로. 필터(구역·심각도 등)는 Qt가 처리한다
     std::vector<EventRow> queryEvents(long from, long to, int limit);   
