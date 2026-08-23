@@ -410,13 +410,13 @@ void ServerLink::sendCancelCalibration(int channel)
     sendLine(obj);
 }
 
-void ServerLink::sendFalseAlarmReport(int channel, int frameId, const QString &admin)
+void ServerLink::sendFalseAlarmReport(qint64 incidentId, const QString &admin, const QString &zone)
 {
     QJsonObject obj;
     obj["type"] = "false_alarm_report";
-    obj["channel"] = channel;
-    obj["frameId"] = frameId;
+    obj["incidentId"] = incidentId;
     obj["admin"] = admin;
+    obj["zone"] = zone;
     sendLine(obj);
 }
 
@@ -587,6 +587,11 @@ void ServerLink::handleLine(const QByteArray &line)
         emit cancelCalibrationResult(obj.value("channel").toInt(),
                                       obj.value("result").toString() == "accepted",
                                       obj.value("reason").toString());
+    } else if (type == "false_alarm_ack") {
+        // result:"ok"면 updated에 실제로 바뀐 행 수, 아니면 reason에 실패 사유(사태 없음 등).
+        const bool ok = obj.value("result").toString() == "ok";
+        emit falseAlarmResult(qint64(obj.value("incidentId").toDouble()), ok,
+                               obj.value("updated").toInt(), obj.value("reason").toString());
     } else if (type == "calibration_done") {
         // 서버가 요청 없이 먼저 보내는 알림 — ok/error/cancelled/timeout.
         emit calibrationDone(obj.value("channel").toInt(), obj.value("result").toString(),
