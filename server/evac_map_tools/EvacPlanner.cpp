@@ -43,7 +43,7 @@ const cv::Scalar kWhiteLower(200, 200, 200), kWhiteUpper(255, 255, 255);
 const int dy[] = { -1, 1, 0, 0 };
 const int dx[] = { 0, 0, -1, 1 };
 
-// --- 내부 유틸리티 함수들 ---
+// --- 내부 유틸리티 및 파일 출력 함수들 (복구됨) ---
 cv::Mat makeMask(const cv::Mat& img, const cv::Scalar& lower, const cv::Scalar& upper) {
     cv::Mat mask;
     cv::inRange(img, lower, upper, mask);
@@ -108,6 +108,113 @@ cv::Point snapAdjacentToWall(const std::vector<std::vector<int>>& grid, cv::Poin
     return p;
 }
 
+void saveBitmapText(const std::vector<std::vector<int>>& grid, const std::string& path) {
+    std::ofstream f(path);
+    for (int y = 0; y < OUT_SIZE; y++) {
+        for (int x = 0; x < OUT_SIZE; x++) {
+            f << grid[y][x] << (x == OUT_SIZE - 1 ? "" : " ");
+        }
+        f << "\n";
+    }
+}
+
+void saveDebugText(const std::vector<std::vector<int>>& grid, const std::vector<Location>& displays,
+                   const std::vector<Location>& exits, const std::string& path) {
+    std::ofstream f(path);
+    for (int y = 0; y < OUT_SIZE; y++) {
+        for (int x = 0; x < OUT_SIZE; x++) {
+            char c = (grid[y][x] != 0) ? '#' : '.';
+            for (const auto& d : displays) if (d.p.x == x && d.p.y == y) c = 'S';
+            for (const auto& e : exits) if (e.p.x == x && e.p.y == y) c = 'E';
+            f << c;
+        }
+        f << "\n";
+    }
+}
+
+void saveColorPreview(const std::vector<std::vector<int>>& grid, const std::vector<Location>& displays,
+                      const std::vector<Location>& exits, const std::string& path, int scale = 8) {
+    cv::Mat color(OUT_SIZE, OUT_SIZE, CV_8UC3, cv::Scalar(0, 0, 0));
+    for (int y = 0; y < OUT_SIZE; y++) {
+        for (int x = 0; x < OUT_SIZE; x++) {
+            if (grid[y][x] != 0) color.at<cv::Vec3b>(y, x) = cv::Vec3b(255, 255, 255);
+        }
+    }
+    for (const auto& d : displays) color.at<cv::Vec3b>(d.p.y, d.p.x) = cv::Vec3b(0, 140, 255);
+    for (const auto& e : exits) color.at<cv::Vec3b>(e.p.y, e.p.x) = cv::Vec3b(0, 255, 0);
+
+    cv::Mat preview;
+    cv::resize(color, preview, cv::Size(OUT_SIZE * scale, OUT_SIZE * scale), 0, 0, cv::INTER_NEAREST);
+    cv::imwrite(path, preview);
+}
+
+void saveRoutesText(const std::vector<Route>& routes, const std::string& path) {
+    std::ofstream f(path);
+    for (const auto& r : routes) {
+        f << "Start ID: " << r.start_id << " -> Exit ID: " << r.exit_id << "\n";
+        if (!r.is_reachable) {
+            f << "Status: Unreachable (Blocked by Fire or Wall)\n\n";
+            continue;
+        }
+        f << "Waypoints(" << r.waypoints.size() << "): ";
+        for (size_t i = 0; i < r.waypoints.size(); ++i) {
+            f << "(" << r.waypoints[i].y << "," << r.waypoints[i].x << ")";
+            if (i < r.waypoints.size() - 1) f << " -> ";
+        }
+        f << "\n\n";
+    }
+}
+
+void savePerStartDebugs(const std::vector<std::vector<int>>& grid, const std::vector<Location>& starts, const std::vector<Route>& routes, const std::vector<FireCell>& fires) {
+    for (const auto& start : starts) {
+        std::vector<std::string> debugMap(OUT_SIZE, std::string(OUT_SIZE, '.'));
+        for (int y = 0; y < OUT_SIZE; ++y) {
+            for (int x = 0; x < OUT_SIZE; ++x) {
+                if (grid[y][x] == 1) debugMap[y][x] = '#';
+            }
+        }
+        for (const auto& fire : fires) {
+            int min_x = fire.x - fire.radius - 2;
+            int max_x = fire.x + fire.radius + 2;
+            int min_y = fire.y - (2 * fire.radius) - 2; 
+            int max_y = fire.y + 2;
+            for (int y = std::max(0, min_y); y <= std::min(OUT_SIZE - 1, max_y); ++y) {
+                for (int x = std::max(0, min_x); x <= std::min(OUT_SIZE - 1, max_x); ++x) {
+                    debugMap[y][x] = '*';
+                }
+            }
+            if (fire.y >= 0 && fire.y < OUT_SIZE && fire.x >= 0 && fire.x < OUT_SIZE) {
+                debugMap[fire.y][fire.x] = 'F';
+            }
+        }
+        for (const auto& r : routes) {
+            if (r.start_id == start.id && r.is_reachable && !r.waypoints.empty()) {
+                for (size_t i = 0; i < r.waypoints.size() - 1; ++i) {
+                    Point curr = r.waypoints[i];
+                    Point next = r.waypoints[i + 1];
+                    
+                    int dy = (next.y > curr.y) ? 1 : ((next.y < curr.y) ? -1 : 0);
+                    int dx = (next.x > curr.x) ? 1 : ((next.x < curr.x) ? -1 : 0);
+                    
+                    Point p = curr;
+                    while (p != next) {
+                        if (debugMap[p.y][p.x] != '*' && debugMap[p.y][p.x] != 'F') {
+                            debugMap[p.y][p.x] = '1';
+                        }
+                        p.y += dy;
+                        p.x += dx;
+                    }
+                }
+            }
+        }
+        std::string filename = "evac_debug_start_" + std::to_string(start.id) + ".txt";
+        std::ofstream f(filename);
+        for (int y = 0; y < OUT_SIZE; y++) {
+            f << debugMap[y] << "\n";
+        }
+    }
+}
+
 std::vector<Point> compressToWaypoints(const std::vector<Point>& path) {
     if (path.size() < 3) return path;
     std::vector<Point> waypoints{ path.front() };
@@ -120,7 +227,7 @@ std::vector<Point> compressToWaypoints(const std::vector<Point>& path) {
     return waypoints;
 }
 
-// --- 경로 계산 알고리즘 (화재 구역 회피 및 우회 경로 탐색) ---
+// --- 경로 계산 알고리즘 (화재 회피 및 우회) ---
 std::vector<Route> calculateRoutes(const std::vector<std::vector<int>>& grid, const std::vector<Location>& starts, const std::vector<Location>& exits, const std::vector<FireCell>& fires) {
     
     std::vector<std::vector<int>> localGrid = grid;
@@ -305,17 +412,29 @@ bool analyzeFloorPlan(const std::string& imagePath, FloorPlan& out) {
     return true;
 }
 
-// --- 메인 파이프라인 함수 ---
+// --- 메인 파이프라인 함수 (버그 픽스 및 디버그 로직 복원) ---
 std::vector<std::vector<Point>> processFloorPlan(const std::string& imagePath, const std::vector<FireCell>& fires) {
     FloorPlan fp;
     if (!analyzeFloorPlan(imagePath, fp)) return {};
 
     std::vector<Route> finalRoutes = calculateRoutes(fp.grid, fp.starts, fp.exits, fires);
 
+    // 디버깅 파일 생성 복구
+    saveBitmapText(fp.grid, "evac_bitmap.txt");
+    saveDebugText(fp.grid, fp.starts, fp.exits, "evac_debug.txt");
+    saveColorPreview(fp.grid, fp.starts, fp.exits, "evac_preview.png");
+    saveRoutesText(finalRoutes, "evac_routes.txt");
+    savePerStartDebugs(fp.grid, fp.starts, finalRoutes, fires); 
+
     std::vector<std::vector<Point>> result;
     result.reserve(finalRoutes.size());
     for (const auto& r : finalRoutes) {
-        if (r.is_reachable) result.push_back(r.waypoints);
+        // [수정 포인트] 도달 불가 경로도 빈 배열로 유지하여 서버의 인덱싱 보호
+        if (r.is_reachable) {
+            result.push_back(r.waypoints);
+        } else {
+            result.push_back(std::vector<Point>{}); 
+        }
     }
 
     return result;
