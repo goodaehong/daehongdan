@@ -115,7 +115,8 @@ static void PrintMenu()
         "  5 : 화재 6곳(최대치) 전송(0xB2) - 경계값 테스트\n"
         "  6 : 화재 해제(0xB2, 0개) - 전부 진압된 상황\n"
         "  7 : 대피경로만 재전송(0xB1x4) - 화재 상태는 그대로\n"
-        "  8 : 화재 7곳 전송 시도 - 최대치(6) 초과, 거부(false)돼야 정상\n";
+        "  8 : 화재 7곳 전송 시도 - 최대치(6) 초과, 거부(false)돼야 정상\n"
+        "  9 : 가스 유출 위험 전환(0x90) - 전환화면 문구가 \"가스유출\"로 바뀌는지 확인용\n";
 }
 
 static void InputWorker()
@@ -178,9 +179,18 @@ static void InputWorker()
             };
             SendFires(kTestFires7, 7);
         }
+        else if (line == "9")
+        {
+            // 가스 유출 시나리오 - 테두리/대피도 색상은 화재와 동일(RED), 전환화면 문구만 다름
+            bool ok = StmDisplayProtocol_SendAlert(fd, STM_DISPLAY_DISASTER_GAS, 0x01);
+            std::cout << "[테스트] 위험 전환 패킷(CMD 0x90, 가스) 전송 " << (ok ? "성공" : "실패") << "\n";
+            if (!ok) { g_fd = StmDisplayProtocol_Reconnect(fd, kDevPath); }
+            SendAllEvacRoutes();
+            SendFires(nullptr, 0);   // 화재 없음
+        }
         else if (!line.empty())
         {
-            std::cout << "[테스트] 1~8 중 하나만 입력 가능\n";
+            std::cout << "[테스트] 1~9 중 하나만 입력 가능\n";
         }
     }
 }
