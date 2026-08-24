@@ -9,20 +9,27 @@
  * 사전 준비: server/sensors/sensor_reader_hw.cpp가 읽는 드라이버(dht22, gas_sensor)가
  *           로드되어 있어야 함 (drivers/README.md 체크리스트 참고).
  *
+ * 대피경로는 하드코딩된 값이 아니라 EvacPlanner를 직접 링크해서 버튼 누를 때마다 실시간으로
+ * 계산함(processFloorPlan 호출) - map.png나 화재 좌표가 바뀌어도 이 파일을 손으로 다시 안 고쳐도 됨.
+ * 그래서 빌드에 OpenCV + EvacPlanner.cpp가 추가로 필요함.
+ *
  * 빌드 (drivers/stm_uart_display/ 안에서):
  *   g++ -std=c++17 test_alert_uart.cpp \
  *       ../../server/sensors/sensor_reader_hw.cpp \
  *       ../../server/sensors/sensor_conversion.cpp \
+ *       ../../server/evac_map_tools/EvacPlanner.cpp \
  *       stm_display_protocol.c \
- *       -I../../server/sensors -o test_alert_uart
+ *       -I../../server/sensors -I../../server/evac_map_tools \
+ *       $(pkg-config --cflags --libs opencv4) \
+ *       -o test_alert_uart
  *
- * 실행: sudo ./test_alert_uart   (UART 권한 문제 있으면 sudo)
+ * 실행: sudo ./test_alert_uart [map.png 경로]   (경로 생략 시 ../../server/evac_map_tools/map.png)
  *   콘솔 메뉴(숫자+엔터):
- *     1 : 위험(화재) 전환 화면(0x90) + 대피경로 전송(0xB1×4) + 화재없음 전송(0xB2, 개수0)
+ *     1 : 위험(화재) 전환 화면(0x90) + 대피경로 전송(0xB1×4, EvacPlanner 실계산) + 화재없음 전송(0xB2, 개수0)
  *     2 : 평상시 화면 복귀(0xA0)
  *     3 : 화재 1곳 전송(0xB2) - (5,5) 반경4
  *     4 : 화재 2곳 전송(0xB2) - (5,5)반경4, (40,20)반경3
- *     5 : 화재 6곳(최대치) 전송(0xB2) - 버퍼 경계값 테스트
+ *     5 : 화재 6곳(최대치) 전송(0xB2) + 그 화재 기준 실계산 경로 전송(0xB1×4)
  *     6 : 화재 해제 전송(0xB2, 개수0) - "전부 진압됨" 상황
  *     7 : 대피경로만 재전송(0xB1×4) - 화재 상태는 그대로 두고 경로만 다시 그려지는지 확인
  *     8 : 화재 7곳 전송 시도 - 최대치(6) 초과라 SendEvacFires가 스스로 거부(false)하는지 확인용
@@ -30,6 +37,7 @@
  */
 #include "sensor_reader.h"
 #include "stm_display_protocol.h"
+#include "EvacPlanner.h"
 
 #include <atomic>
 #include <chrono>
@@ -40,6 +48,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 // 로그 줄 맨 앞에 붙일 "HH:MM:SS" - std::put_time은 tm 값을 그대로 참조하므로
 // 매 호출 시점의 로컬 시각으로 새로 계산해서 반환
@@ -58,54 +67,49 @@ static std::string CurrentTimeString()
 static std::atomic<int> g_fd{-1};
 static const char* kDevPath = "/dev/stm_display";
 
-// 테스트용: Start ID 3(전광판 (36,11), EvacPlanner 기준 y,x) -> 출구 4곳 전체 경로.
-// evac_routes.txt는 (y,x) 순서로 찍히지만, STM32 파서(main.c HandlePacket의 CMD_EVAC_PATH)는
-// data[i*2]=x, data[i*2+1]=y로 읽으므로 여기 배열은 반드시 {x,y}로 "뒤집어서" 넣어야 함.
-// (evac_routes.txt를 그대로 y,x 순서로 옮기면 x/y가 뒤바뀌어 엉뚱한 위치에 그려짐 - 실제로 겪은 버그)
-// map.png 재수정 후 evac_server를 다시 돌려서 새로 갱신한 값 (evac_routes.txt 기준, x,y로 뒤집음)
-// 배열 순서 = EvacExits 인덱스(routeIndex) 순서와 반드시 일치해야 함
-struct EvacRoute { const uint8_t* xy; uint8_t count; };
-static const uint8_t kRouteExit1[] = { 11,36, 11,34, 13,34, 13,48, 37,48, 37,58, 47,58, 47,59 };
-static const uint8_t kRouteExit2[] = { 11,36, 11,34, 13,34, 13,47, 0,47 };
-static const uint8_t kRouteExit3[] = { 11,36, 11,32, 13,32, 13,15, 59,15 };
-static const uint8_t kRouteExit4[] = { 11,36, 11,32, 13,32, 13,15, 14,15, 14,12, 16,12, 16,1, 21,1, 21,0 };
-static const EvacRoute kTestRoutes[] = {
-    { kRouteExit1, sizeof(kRouteExit1) / 2 },
-    { kRouteExit2, sizeof(kRouteExit2) / 2 },
-    { kRouteExit3, sizeof(kRouteExit3) / 2 },
-    { kRouteExit4, sizeof(kRouteExit4) / 2 },
-};
-static constexpr uint8_t kTestRouteCount = sizeof(kTestRoutes) / sizeof(kTestRoutes[0]);
+// 테스트에 쓸 평면도 이미지 경로. main()에서 argv[1]로 덮어씀 (기본값은 evac_map_tools/map.png).
+static std::string g_mapPath = "../../server/evac_map_tools/map.png";
 
-// 5번 메뉴(화재 6곳: (5,5)r4,(15,10)r2,(25,40)r3,(40,20)r3,(50,50)r2,(8,45)r4)와 정확히 같은
-// 조합으로 EvacPlanner(다익스트라 화재우회)를 다시 돌려서 나온 Start ID 3 결과.
-// 이 조합에서는 전광판3이 4개 출구 전부 완전히 고립됨(도달 불가) - 화재가 심하면 경로 자체가
-// 없어질 수 있다는 걸 그대로 재현하는 것도 테스트 의미가 있어서, 웨이포인트 0개로 그대로 둠
-// (실제로 이 상태를 보내면 STM32 화면에서 해당 경로 라인이 전부 사라져야 정상).
-static const EvacRoute kTestRoutesFire6[] = {
-    { nullptr, 0 },
-    { nullptr, 0 },
-    { nullptr, 0 },
-    { nullptr, 0 },
-};
+// 테스트용으로 쓸 전광판 인덱스(0-based) = Start ID 3. EvacDisplays 순서가 바뀌면 이 값만 조정하면 됨.
+static constexpr int kTestDisplayIndex = 2;
 
-// 출구 4곳 경로를 전부(routeIndex 0~3) 순서대로 전송. 1회성으로 호출됨 -
-// 주기적으로 계속 보내는 구조가 아니라, 위험 진입 시 한 번만 쏨
-static void SendRoutes(const EvacRoute* routes, uint8_t count)
+// EvacPlanner를 실제로 호출해서(processFloorPlan) 지금 map.png + fires 조합 기준 Start ID 3의
+// 출구별 경로를 계산하고, 그 자리에서 바로 STM32로 전송함 - 하드코딩 배열을 손으로 안 맞춰도
+// map.png나 화재 좌표가 바뀔 때마다 항상 최신 결과가 나감.
+// Point는 {y,x}인데 STM32 파서(main.c HandlePacket의 CMD_EVAC_PATH)는 {x,y}로 읽으므로
+// 여기서 뒤집어서 평탄화함 (evac_routes.txt를 그대로 옮기면 x/y가 뒤바뀌는 버그를 겪었던 지점).
+static void SendRoutesLive(const std::vector<FireCell>& fires)
 {
-    for (uint8_t i = 0; i < count; i++)
+    std::vector<std::vector<Point>> routes = processFloorPlan(g_mapPath, fires);
+    std::vector<Point> exits = getEvacExits(g_mapPath);
+    if (routes.empty() || exits.empty())
     {
+        std::cout << "[테스트] EvacPlanner 결과가 비어있음 - map.png 경로 확인: " << g_mapPath << "\n";
+        return;
+    }
+
+    size_t exitCount = exits.size();
+    size_t base = (size_t)kTestDisplayIndex * exitCount;
+    for (size_t i = 0; i < exitCount; i++)
+    {
+        std::vector<uint8_t> xy;
+        if (base + i < routes.size())
+        {
+            for (const Point& p : routes[base + i]) { xy.push_back((uint8_t)p.x); xy.push_back((uint8_t)p.y); }
+        }
+
         int fd = g_fd.load();
-        bool ok = StmDisplayProtocol_SendEvacPath(fd, i, routes[i].xy, routes[i].count);
-        std::cout << "[테스트] 대피경로 패킷(CMD 0xB1, 출구" << (int)(i + 1) << ", 웨이포인트 "
-                  << (int)routes[i].count << "개) 전송 " << (ok ? "성공" : "실패") << "\n";
+        bool ok = StmDisplayProtocol_SendEvacPath(fd, (uint8_t)i, xy.empty() ? nullptr : xy.data(),
+                                                    (uint8_t)(xy.size() / 2));
+        std::cout << "[테스트] 대피경로 패킷(CMD 0xB1, 출구" << (i + 1) << ", 웨이포인트 "
+                  << (xy.size() / 2) << "개) 전송 " << (ok ? "성공" : "실패") << "\n";
         if (!ok) { g_fd = StmDisplayProtocol_Reconnect(fd, kDevPath); }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(20));   // STM32 수신 링버퍼 여유 주기용
     }
 }
 
-static void SendAllEvacRoutes() { SendRoutes(kTestRoutes, kTestRouteCount); }
+static void SendAllEvacRoutes() { SendRoutesLive({}); }   // 화재 없는 기본 경로
 
 // 화재 목록 전송(CMD 0xB2). firesXYR = {x0,y0,r0,x1,y1,r1,...} 평탄화 배열, fireCount==0이면 화재 없음.
 // 화재 위치가 바뀔 때만(1회성으로) 호출됨 - 경로(SendAllEvacRoutes)와 별개로 이것만 다시 보내면 됨
@@ -169,14 +173,17 @@ static void InputWorker()
         else if (line == "5")
         {
             // STM_DISPLAY_EVAC_MAX_FIRES(6)와 정확히 같은 개수 - 버퍼가 딱 맞게 처리되는지 확인용.
-            // 화재 패킷만 보내는 게 아니라, EvacPlanner로 이 화재 조합 기준 실제 재계산한 경로도
-            // 같이 보냄(kTestRoutesFire6) - 전광판3은 이 조합에서 완전히 고립돼서 전부 웨이포인트 0개.
+            // 화재 패킷만 보내는 게 아니라, 같은 화재 좌표로 EvacPlanner(다익스트라 화재우회)를
+            // 실제로 다시 돌려서 나온 경로도 그 자리에서 같이 보냄 - map.png가 바뀌어도 항상 최신 결과.
             static const uint8_t kTestFires6[] = {
                 5,5,4,   15,10,2,  25,40,3,
                 40,20,3, 50,50,2,  8,45,4
             };
+            std::vector<FireCell> fires6 = {
+                {5,5,4}, {15,10,2}, {25,40,3}, {40,20,3}, {50,50,2}, {8,45,4}
+            };
             SendFires(kTestFires6, 6);
-            SendRoutes(kTestRoutesFire6, kTestRouteCount);
+            SendRoutesLive(fires6);
         }
         else if (line == "6")
         {
@@ -212,8 +219,11 @@ static void InputWorker()
     }
 }
 
-int main()
+int main(int argc, char** argv)
 {
+    if (argc >= 2) g_mapPath = argv[1];
+    std::cout << "[테스트] 평면도 이미지: " << g_mapPath << "\n";
+
     g_fd = StmDisplayProtocol_Open(kDevPath);
     if (g_fd.load() < 0)
     {
