@@ -74,7 +74,7 @@ const cv::Scalar kWhiteLower(200, 200, 200), kWhiteUpper(255, 255, 255);
 const int dy[] = { -1, 1, 0, 0 };
 const int dx[] = { 0, 0, -1, 1 };
 
-// --- 내부 유틸리티 함수들 ---
+// --- 내부 유틸리티 및 파일 출력 함수들 (복구됨) ---
 cv::Mat makeMask(const cv::Mat& img, const cv::Scalar& lower, const cv::Scalar& upper) {
     cv::Mat mask;
     cv::inRange(img, lower, upper, mask);
@@ -188,7 +188,7 @@ void saveRoutesText(const std::vector<Route>& routes, const std::string& path) {
     for (const auto& r : routes) {
         f << "Start ID: " << r.start_id << " -> Exit ID: " << r.exit_id << "\n";
         if (!r.is_reachable) {
-            f << "Status: Unreachable\n\n";
+            f << "Status: Unreachable (Blocked by Fire or Wall)\n\n";
             continue;
         }
         f << "Waypoints(" << r.waypoints.size() << "): ";
@@ -197,6 +197,57 @@ void saveRoutesText(const std::vector<Route>& routes, const std::string& path) {
             if (i < r.waypoints.size() - 1) f << " -> ";
         }
         f << "\n\n";
+    }
+}
+
+// 화재/경로가 격자에 실제로 반영된 상태를 전광판별로 확인하는 디버그 맵 (*=화재위험구역, F=화재중심, 1=이 전광판 경로)
+void savePerStartDebugs(const std::vector<std::vector<int>>& grid, const std::vector<Location>& starts, const std::vector<Route>& routes, const std::vector<FireCell>& fires, const std::string& outDir) {
+    for (const auto& start : starts) {
+        std::vector<std::string> debugMap(OUT_SIZE, std::string(OUT_SIZE, '.'));
+        for (int y = 0; y < OUT_SIZE; ++y) {
+            for (int x = 0; x < OUT_SIZE; ++x) {
+                if (grid[y][x] == 1) debugMap[y][x] = '#';
+            }
+        }
+        for (const auto& fire : fires) {
+            int min_x = fire.x - fire.radius - 2;
+            int max_x = fire.x + fire.radius + 2;
+            int min_y = fire.y - (2 * fire.radius) - 2; 
+            int max_y = fire.y + 2;
+            for (int y = std::max(0, min_y); y <= std::min(OUT_SIZE - 1, max_y); ++y) {
+                for (int x = std::max(0, min_x); x <= std::min(OUT_SIZE - 1, max_x); ++x) {
+                    debugMap[y][x] = '*';
+                }
+            }
+            if (fire.y >= 0 && fire.y < OUT_SIZE && fire.x >= 0 && fire.x < OUT_SIZE) {
+                debugMap[fire.y][fire.x] = 'F';
+            }
+        }
+        for (const auto& r : routes) {
+            if (r.start_id == start.id && r.is_reachable && !r.waypoints.empty()) {
+                for (size_t i = 0; i < r.waypoints.size() - 1; ++i) {
+                    Point curr = r.waypoints[i];
+                    Point next = r.waypoints[i + 1];
+                    
+                    int dy = (next.y > curr.y) ? 1 : ((next.y < curr.y) ? -1 : 0);
+                    int dx = (next.x > curr.x) ? 1 : ((next.x < curr.x) ? -1 : 0);
+                    
+                    Point p = curr;
+                    while (p != next) {
+                        if (debugMap[p.y][p.x] != '*' && debugMap[p.y][p.x] != 'F') {
+                            debugMap[p.y][p.x] = '1';
+                        }
+                        p.y += dy;
+                        p.x += dx;
+                    }
+                }
+            }
+        }
+        std::string filename = outDir + "evac_debug_start_" + std::to_string(start.id) + ".txt";
+        std::ofstream f(filename);
+        for (int y = 0; y < OUT_SIZE; y++) {
+            f << debugMap[y] << "\n";
+        }
     }
 }
 
@@ -213,7 +264,7 @@ std::vector<Point> compressToWaypoints(const std::vector<Point>& path) {
     return waypoints;
 }
 
-// --- 경로 계산 알고리즘 (화재 구역 회피 및 우회 경로 탐색) ---
+// --- 경로 계산 알고리즘 (화재 회피 및 우회) ---
 std::vector<Route> calculateRoutes(const std::vector<std::vector<int>>& grid, const std::vector<Location>& starts, const std::vector<Location>& exits, const std::vector<FireCell>& fires) {
     
     std::vector<std::vector<int>> localGrid = grid;
@@ -398,7 +449,7 @@ bool analyzeFloorPlan(const std::string& imagePath, FloorPlan& out) {
     return true;
 }
 
-// --- 메인 파이프라인 함수 ---
+// --- 메인 파이프라인 함수 (버그 픽스 및 디버그 로직 복원) ---
 std::vector<std::vector<Point>> processFloorPlan(const std::string& imagePath, const std::vector<FireCell>& fires) {
     FloorPlan fp;
     if (!analyzeFloorPlan(imagePath, fp)) return {};
@@ -411,11 +462,17 @@ std::vector<std::vector<Point>> processFloorPlan(const std::string& imagePath, c
 
     std::vector<Route> finalRoutes = calculateRoutes(fp.grid, fp.starts, fp.exits, fires);
     saveRoutesText(finalRoutes, outDir + "evac_routes.txt");
+    savePerStartDebugs(fp.grid, fp.starts, finalRoutes, fires, outDir);
 
     std::vector<std::vector<Point>> result;
     result.reserve(finalRoutes.size());
     for (const auto& r : finalRoutes) {
-        if (r.is_reachable) result.push_back(r.waypoints);
+        // [수정 포인트] 도달 불가 경로도 빈 배열로 유지하여 서버의 인덱싱 보호
+        if (r.is_reachable) {
+            result.push_back(r.waypoints);
+        } else {
+            result.push_back(std::vector<Point>{}); 
+        }
     }
 
     std::cout << "[시스템] 파이프라인 완료. 파일 저장(txt, png) 및 경로 탐색 성공.\n";
