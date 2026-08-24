@@ -6,8 +6,39 @@
 #include <queue>
 #include <algorithm>
 #include <sstream>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX   // windows.h가 min/max 매크로를 정의해서 std::min/std::max를 깨뜨리는 것 방지
+#endif
+#include <windows.h>
+#else
+#include <unistd.h>
+#include <limits.h>
+#endif
 
 constexpr int OUT_SIZE = GRID_SIZE;
+
+// 실행 파일 자신이 위치한 디렉터리의 절대경로(끝에 구분자 포함)를 반환.
+// 어느 작업 디렉터리(cwd)에서 실행하든 evac_bitmap.txt 등 산출물이 항상
+// 실행 파일과 같은 폴더(=evac_map_tools/)에 생성되게 하기 위함. 실패 시 빈 문자열(=cwd에 저장, 기존 동작).
+static std::string getExecutableDir() {
+#ifdef _WIN32
+    char buf[MAX_PATH];
+    DWORD len = GetModuleFileNameA(NULL, buf, MAX_PATH);
+    if (len == 0 || len == MAX_PATH) return "";
+    std::string path(buf, len);
+    size_t pos = path.find_last_of("\\/");
+    return (pos == std::string::npos) ? "" : path.substr(0, pos + 1);
+#else
+    char buf[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (len <= 0) return "";
+    buf[len] = '\0';
+    std::string path(buf);
+    size_t pos = path.find_last_of('/');
+    return (pos == std::string::npos) ? "" : path.substr(0, pos + 1);
+#endif
+}
 
 // 내부 전용 자료구조
 struct Location {
@@ -108,6 +139,68 @@ cv::Point snapAdjacentToWall(const std::vector<std::vector<int>>& grid, cv::Poin
     return p;
 }
 
+// 1. 비트맵 파일 출력 (1과 0)
+void saveBitmapText(const std::vector<std::vector<int>>& grid, const std::string& path) {
+    std::ofstream f(path);
+    for (int y = 0; y < OUT_SIZE; y++) {
+        for (int x = 0; x < OUT_SIZE; x++) {
+            f << grid[y][x] << (x == OUT_SIZE - 1 ? "" : " ");
+        }
+        f << "\n";
+    }
+}
+
+// 2. 디버깅용 파일 출력 (#과 .)
+void saveDebugText(const std::vector<std::vector<int>>& grid, const std::vector<Location>& displays,
+                   const std::vector<Location>& exits, const std::string& path) {
+    std::ofstream f(path);
+    for (int y = 0; y < OUT_SIZE; y++) {
+        for (int x = 0; x < OUT_SIZE; x++) {
+            char c = (grid[y][x] != 0) ? '#' : '.';
+            for (const auto& d : displays) if (d.p.x == x && d.p.y == y) c = 'S'; // Start
+            for (const auto& e : exits) if (e.p.x == x && e.p.y == y) c = 'E';    // Exit
+            f << c;
+        }
+        f << "\n";
+    }
+}
+
+// 3. PNG 미리보기 출력
+void saveColorPreview(const std::vector<std::vector<int>>& grid, const std::vector<Location>& displays,
+                      const std::vector<Location>& exits, const std::string& path, int scale = 8) {
+    cv::Mat color(OUT_SIZE, OUT_SIZE, CV_8UC3, cv::Scalar(0, 0, 0));
+    for (int y = 0; y < OUT_SIZE; y++) {
+        for (int x = 0; x < OUT_SIZE; x++) {
+            if (grid[y][x] != 0) color.at<cv::Vec3b>(y, x) = cv::Vec3b(255, 255, 255);
+        }
+    }
+    for (const auto& d : displays) color.at<cv::Vec3b>(d.p.y, d.p.x) = cv::Vec3b(0, 140, 255);
+    for (const auto& e : exits) color.at<cv::Vec3b>(e.p.y, e.p.x) = cv::Vec3b(0, 255, 0);
+
+    cv::Mat preview;
+    cv::resize(color, preview, cv::Size(OUT_SIZE * scale, OUT_SIZE * scale), 0, 0, cv::INTER_NEAREST);
+    cv::imwrite(path, preview);
+}
+
+// 4. 경로 데이터 파일 출력
+void saveRoutesText(const std::vector<Route>& routes, const std::string& path) {
+    std::ofstream f(path);
+    for (const auto& r : routes) {
+        f << "Start ID: " << r.start_id << " -> Exit ID: " << r.exit_id << "\n";
+        if (!r.is_reachable) {
+            f << "Status: Unreachable\n\n";
+            continue;
+        }
+        f << "Waypoints(" << r.waypoints.size() << "): ";
+        for (size_t i = 0; i < r.waypoints.size(); ++i) {
+            f << "(" << r.waypoints[i].y << "," << r.waypoints[i].x << ")";
+            if (i < r.waypoints.size() - 1) f << " -> ";
+        }
+        f << "\n\n";
+    }
+}
+
+// 연속된 직선 구간을 접어 꺾이는 지점만 남긴다
 std::vector<Point> compressToWaypoints(const std::vector<Point>& path) {
     if (path.size() < 3) return path;
     std::vector<Point> waypoints{ path.front() };
@@ -310,7 +403,14 @@ std::vector<std::vector<Point>> processFloorPlan(const std::string& imagePath, c
     FloorPlan fp;
     if (!analyzeFloorPlan(imagePath, fp)) return {};
 
+    // 실행 파일이 있는 폴더(=evac_map_tools/) 기준 고정 경로에 저장 -> 어느 cwd에서 실행해도 결과물 위치가 항상 동일함
+    const std::string outDir = getExecutableDir();
+    saveBitmapText(fp.grid, outDir + "evac_bitmap.txt");
+    saveDebugText(fp.grid, fp.starts, fp.exits, outDir + "evac_debug.txt");
+    saveColorPreview(fp.grid, fp.starts, fp.exits, outDir + "evac_preview.png");
+
     std::vector<Route> finalRoutes = calculateRoutes(fp.grid, fp.starts, fp.exits, fires);
+    saveRoutesText(finalRoutes, outDir + "evac_routes.txt");
 
     std::vector<std::vector<Point>> result;
     result.reserve(finalRoutes.size());
@@ -318,6 +418,7 @@ std::vector<std::vector<Point>> processFloorPlan(const std::string& imagePath, c
         if (r.is_reachable) result.push_back(r.waypoints);
     }
 
+    std::cout << "[시스템] 파이프라인 완료. 파일 저장(txt, png) 및 경로 탐색 성공.\n";
     return result;
 }
 
