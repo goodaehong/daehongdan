@@ -77,21 +77,35 @@ static const EvacRoute kTestRoutes[] = {
 };
 static constexpr uint8_t kTestRouteCount = sizeof(kTestRoutes) / sizeof(kTestRoutes[0]);
 
+// 5번 메뉴(화재 6곳: (5,5)r4,(15,10)r2,(25,40)r3,(40,20)r3,(50,50)r2,(8,45)r4)와 정확히 같은
+// 조합으로 EvacPlanner(다익스트라 화재우회)를 다시 돌려서 나온 Start ID 3 결과.
+// 이 조합에서는 전광판3이 4개 출구 전부 완전히 고립됨(도달 불가) - 화재가 심하면 경로 자체가
+// 없어질 수 있다는 걸 그대로 재현하는 것도 테스트 의미가 있어서, 웨이포인트 0개로 그대로 둠
+// (실제로 이 상태를 보내면 STM32 화면에서 해당 경로 라인이 전부 사라져야 정상).
+static const EvacRoute kTestRoutesFire6[] = {
+    { nullptr, 0 },
+    { nullptr, 0 },
+    { nullptr, 0 },
+    { nullptr, 0 },
+};
+
 // 출구 4곳 경로를 전부(routeIndex 0~3) 순서대로 전송. 1회성으로 호출됨 -
 // 주기적으로 계속 보내는 구조가 아니라, 위험 진입 시 한 번만 쏨
-static void SendAllEvacRoutes()
+static void SendRoutes(const EvacRoute* routes, uint8_t count)
 {
-    for (uint8_t i = 0; i < kTestRouteCount; i++)
+    for (uint8_t i = 0; i < count; i++)
     {
         int fd = g_fd.load();
-        bool ok = StmDisplayProtocol_SendEvacPath(fd, i, kTestRoutes[i].xy, kTestRoutes[i].count);
+        bool ok = StmDisplayProtocol_SendEvacPath(fd, i, routes[i].xy, routes[i].count);
         std::cout << "[테스트] 대피경로 패킷(CMD 0xB1, 출구" << (int)(i + 1) << ", 웨이포인트 "
-                  << (int)kTestRoutes[i].count << "개) 전송 " << (ok ? "성공" : "실패") << "\n";
+                  << (int)routes[i].count << "개) 전송 " << (ok ? "성공" : "실패") << "\n";
         if (!ok) { g_fd = StmDisplayProtocol_Reconnect(fd, kDevPath); }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(20));   // STM32 수신 링버퍼 여유 주기용
     }
 }
+
+static void SendAllEvacRoutes() { SendRoutes(kTestRoutes, kTestRouteCount); }
 
 // 화재 목록 전송(CMD 0xB2). firesXYR = {x0,y0,r0,x1,y1,r1,...} 평탄화 배열, fireCount==0이면 화재 없음.
 // 화재 위치가 바뀔 때만(1회성으로) 호출됨 - 경로(SendAllEvacRoutes)와 별개로 이것만 다시 보내면 됨
@@ -112,7 +126,7 @@ static void PrintMenu()
         "  2 : 평상시 복귀(0xA0)\n"
         "  3 : 화재 1곳 전송(0xB2) - (5,5) 반경4\n"
         "  4 : 화재 2곳 전송(0xB2) - (5,5)반경4, (40,20)반경3\n"
-        "  5 : 화재 6곳(최대치) 전송(0xB2) - 경계값 테스트\n"
+        "  5 : 화재 6곳(최대치) 전송(0xB2) + 그 화재 기준 실제 재계산 경로 전송(0xB1x4) - 전광판3은 이 조합에서 완전 고립돼서 경로 라인이 다 사라져야 정상\n"
         "  6 : 화재 해제(0xB2, 0개) - 전부 진압된 상황\n"
         "  7 : 대피경로만 재전송(0xB1x4) - 화재 상태는 그대로\n"
         "  8 : 화재 7곳 전송 시도 - 최대치(6) 초과, 거부(false)돼야 정상\n"
@@ -154,12 +168,15 @@ static void InputWorker()
         }
         else if (line == "5")
         {
-            // STM_DISPLAY_EVAC_MAX_FIRES(6)와 정확히 같은 개수 - 버퍼가 딱 맞게 처리되는지 확인용
+            // STM_DISPLAY_EVAC_MAX_FIRES(6)와 정확히 같은 개수 - 버퍼가 딱 맞게 처리되는지 확인용.
+            // 화재 패킷만 보내는 게 아니라, EvacPlanner로 이 화재 조합 기준 실제 재계산한 경로도
+            // 같이 보냄(kTestRoutesFire6) - 전광판3은 이 조합에서 완전히 고립돼서 전부 웨이포인트 0개.
             static const uint8_t kTestFires6[] = {
                 5,5,4,   15,10,2,  25,40,3,
                 40,20,3, 50,50,2,  8,45,4
             };
             SendFires(kTestFires6, 6);
+            SendRoutes(kTestRoutesFire6, kTestRouteCount);
         }
         else if (line == "6")
         {
