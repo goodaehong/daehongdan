@@ -541,6 +541,8 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
             }
 
             // ── 화재 + 연기 박스 전송 ──                                 
+            const bool channelDetectionAlarm =
+                snap.alarm.alarmActive || ssnap.smokeDetected;
             if (snap.boxIsFresh || ssnap.boxIsFresh) {
                 std::vector<DetBox> boxes;
                 if (snap.boxIsFresh) {
@@ -579,10 +581,10 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
 
                 QtLink_SendDetection(link, ch, (int)snap.resultFrameId,
                                      frame.cols, frame.rows,
-                                     snap.alarm.alarmActive, boxes);
+                                     channelDetectionAlarm, boxes);
                 wasShowingBoxes = true;
             }                                                             
-            else if (wasShowingBoxes && !snap.alarm.alarmActive) {
+            else if (wasShowingBoxes && !channelDetectionAlarm) {
                 QtLink_SendDetection(link, ch, 0, frame.cols, frame.rows, false, {});
                 wasShowingBoxes = false;
                 detState[ch].fire = false;

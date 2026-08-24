@@ -463,14 +463,23 @@ void DetectionOverlay::paintEvent(QPaintEvent *)
         else color = QColor("#fb923c"); // SMOKE 등
         const QRectF rect((box.x - t.cropLeft) * t.scaleX, (box.y - t.cropTop) * t.scaleY,
                           box.w * t.scaleX, box.h * t.scaleY);
+        // 전체 화면에 가까운 박스는 영상 크롭 경계와 정확히 겹쳐 네 변과 라벨이
+        // 모두 잘릴 수 있다. 실제로 보이는 영역 안쪽에 테두리를 고정한다.
+        const QRectF paintBounds = QRectF(this->rect()).adjusted(3, 3, -3, -3);
+        const QRectF visibleRect = rect.intersected(paintBounds);
+        if (visibleRect.isEmpty())
+            continue;
 
         painter.setPen(QPen(color, 2));
-        painter.drawRect(rect);
+        painter.drawRect(visibleRect);
 
         const QString label = QString("%1 %2%").arg(box.cls).arg(int(box.score * 100));
         painter.setPen(Qt::white);
-        painter.fillRect(QRectF(rect.left(), rect.top() - 16, painter.fontMetrics().horizontalAdvance(label) + 6, 16), color);
-        painter.drawText(QPointF(rect.left() + 3, rect.top() - 4), label);
+        const double labelWidth = painter.fontMetrics().horizontalAdvance(label) + 6;
+        const double labelTop = qMax(paintBounds.top(), visibleRect.top() - 16);
+        const QRectF labelRect(visibleRect.left(), labelTop, labelWidth, 16);
+        painter.fillRect(labelRect.intersected(paintBounds), color);
+        painter.drawText(QPointF(visibleRect.left() + 3, labelTop + 12), label);
     }
     }
 
