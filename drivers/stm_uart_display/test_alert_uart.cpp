@@ -160,15 +160,20 @@ static void InputWorker()
         }
         else if (line == "3")
         {
-            // 화재 1곳: (5,5) 반경4
+            // 화재 1곳: (5,5) 반경4 - 화재 패킷만 보내면 STM32가 마지막에 받은(화재 없는) 경로를
+            // 그대로 들고 있어서 새 화재를 가로질러 그려짐. 그래서 경로도 이 화재 기준으로 같이 재전송.
             static const uint8_t kTestFires1[] = { 5,5,4 };
+            std::vector<FireCell> fires1 = { {5,5,4} };
             SendFires(kTestFires1, 1);
+            SendRoutesLive(fires1);
         }
         else if (line == "4")
         {
             // 화재 2곳이 새로 감지된 상황을 흉내냄: (5,5) 반경4, (40,20) 반경3
             static const uint8_t kTestFires2[] = { 5,5,4, 40,20,3 };
+            std::vector<FireCell> fires2 = { {5,5,4}, {40,20,3} };
             SendFires(kTestFires2, 2);
+            SendRoutesLive(fires2);
         }
         else if (line == "5")
         {
@@ -188,6 +193,7 @@ static void InputWorker()
         else if (line == "6")
         {
             SendFires(nullptr, 0);   // 화재 전부 해제
+            SendAllEvacRoutes();     // 화재 없는 기준으로 경로도 다시 계산 - 갇혀있던 경로가 있었다면 복구됨
         }
         else if (line == "7")
         {
