@@ -512,8 +512,12 @@ static void DrawEvacuationScreen(void)
     }
   }
 
-  // 화재 위치: g_evacFireCount개 전부, 각자 반경만큼 빨간 사각형으로 채우고 그 안쪽에 더 작은
-  // 노란 사각형을 얹어서 불처럼 보이게 함 (바깥 빨강 = 불꽃, 안쪽 노랑 = 불의 중심).
+  // 화재 위치: g_evacFireX/Y는 화재 사각형의 "정중앙"이 아니라 "아랫변(바닥) 중앙" 좌표임
+  // (카메라 쪽 GridCoordinateMapper가 화염 박스의 바닥 접촉점을 대표 위치로 잡아서 넘겨줌).
+  // 그래서 가로(dx)는 -r~+r 대칭이지만, 세로(dy)는 -2r~0으로 fy를 바닥 삼아 위로만 뻗어나가게 그림
+  // (세로 칸 수는 기존과 동일하게 2r+1). 반경만큼 빨간 사각형을 채우고 그 안쪽에 더 작은 노란
+  // 사각형을 얹어서 불처럼 보이게 함(바깥 빨강 = 불꽃, 안쪽 노랑 = 불의 중심), 안쪽도 같은 이유로
+  // 바닥(dy=0) 쪽에 붙여서 그림 - 불 밑동이 가장 뜨거운 느낌이 자연스럽게 나옴.
   // 기본 크기(잔잔할 때): 안쪽 노란 정사각형 한 변 = r+1 (r=1/한변3이면 안쪽 한변2, r=2/한변5면 안쪽 한변3).
   // 매 프레임(50ms) 노란 코어 크기와 세로 위치를 ±1씩 흔들어서 깜빡이는 불처럼 보이게 함 - 완전 정적인
   // 도형은 "과녁"처럼 보여서, 저해상도에서는 흔들림 자체가 불로 읽히는 데 더 중요함.
@@ -521,7 +525,7 @@ static void DrawEvacuationScreen(void)
   for (uint8_t f = 0; f < g_evacFireCount; f++)
   {
     int16_t fx = g_evacFireX[f], fy = g_evacFireY[f], r = g_evacFireRadius[f];
-    for (int16_t dy = -r; dy <= r; dy++)
+    for (int16_t dy = -(2 * r); dy <= 0; dy++)
     {
       for (int16_t dx = -r; dx <= r; dx++)
       {
@@ -547,13 +551,12 @@ static void DrawEvacuationScreen(void)
       if (inner < 1) inner = 1;
       if (inner > 2 * r) inner = 2 * r;   /* 바깥 빨간 테두리가 완전히 안 없어지게 상한을 둠 */
 
-      int16_t yBias = (r >= 2) ? 1 : 0;   /* 불 밑동이 더 뜨거운 느낌 - 노란 코어를 살짝 아래로 */
       int16_t loX = -((inner - 1) / 2);
       int16_t hiX = loX + inner - 1;
-      int16_t loY = loX + yBias + yJitter;
-      int16_t hiY = hiX + yBias + yJitter;
-      if (loY < -r) loY = -r;   /* 노란 코어가 바깥 빨간 사각형 밖으로 삐져나가지 않게 고정 */
-      if (hiY > r) hiY = r;
+      int16_t hiY = yJitter;              /* 바닥(dy=0) 쪽에 붙여서 흔들림만 적용 */
+      int16_t loY = hiY - (inner - 1);
+      if (hiY > 0) hiY = 0;                     /* 바닥 밑으로는 안 내려가게 */
+      if (loY < -(2 * r)) loY = -(2 * r);       /* 꼭대기 위로는 안 넘어가게 */
 
       for (int16_t dy = loY; dy <= hiY; dy++)
       {
