@@ -25,7 +25,12 @@ public:
     // 그래프 양끝 라벨은 정상 표시되지만, 마우스오버 시각 표시는 값만 나온다.
     void setData(const QVector<double> &values, const QStringList &xLabels);
     // avg/max 두 선(구간 집계, 6시간/하루 기간 등). max가 비어있으면 단일 선으로 그려진다.
-    void setSeries(const QVector<double> &avgValues, const QVector<double> &maxValues, const QStringList &xLabels);
+    // sampleTimesSecs(값 개수와 같은 크기)와 rangeFrom/ToSecs를 같이 넘기면, 점을 인덱스 균등
+    // 간격이 아니라 실제 시각 비율로 배치한다 — 정각 정렬 구간(노션 확정안)에서 아직 안 지난
+    // 미래 부분(예: 14:23인데 구간이 14:20~14:30)을 그래프 오른쪽에 빈 채로 남겨두기 위함.
+    // 비워두면(기본값) 예전처럼 인덱스 균등 간격으로 그린다.
+    void setSeries(const QVector<double> &avgValues, const QVector<double> &maxValues, const QStringList &xLabels,
+                    const QVector<qint64> &sampleTimesSecs = {}, qint64 rangeFromSecs = 0, qint64 rangeToSecs = 0);
     void setLineColor(const QColor &color);
     // warningLevel/dangerLevel 이하 0이면 해당 기준선을 표시하지 않음.
     void setThresholds(double warningLevel, double dangerLevel);
@@ -44,6 +49,10 @@ private:
     QVector<double> m_values;
     QVector<double> m_maxValues; // 비어있으면 단일 선 모드
     QStringList m_xLabels;
+    QVector<qint64> m_sampleTimes; // m_values와 같은 크기일 때만 유효(시간 비율 배치용)
+    bool m_hasRange = false;
+    qint64 m_rangeFrom = 0;
+    qint64 m_rangeTo = 0;
     QColor m_color{"#8b7cf6"};
     double m_warningLevel = -1;
     double m_dangerLevel = -1;

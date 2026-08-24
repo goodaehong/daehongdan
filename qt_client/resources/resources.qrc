@@ -3,5 +3,8 @@
         <file>login_bg.jpg</file>
         <file>fonts/06HanwhaGothicL.ttf</file>
         <file>fonts/07HanwhaGothicEL.ttf</file>
+        <file>help/eventlog_example.png</file>
+        <file>help/graph_example.png</file>
+        <file>help/floormap_convert_example.png</file>
     </qresource>
 </RCC>

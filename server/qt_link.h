@@ -7,6 +7,7 @@
 #include "alarm_state.h"
 #include "actuator/actuator_control.h"
 #include "db/Database.h"
+#include "calib/aruco_config.h"
 
 // 명세서 boxes 원소 규격. 감지 코어 타입에 안 묶이게 중립 구조체로
 // (화재·연기가 각각 다른 런타임에서 나오는데 한 배열에 합쳐 보내야 함)
@@ -47,6 +48,11 @@ void QtLink_SendPerson(Link& link, int ch, int srcW, int srcH,
 
 // 명세서 "액추에이터 상태 응답"
 void QtLink_SendActuator(Link& link, const ActuatorSnapshot& st);
+
+// 보정 계산이 끝났을 때 서버가 먼저 보내는 결과. 계산이 수십 초라       
+// 요청에 대한 답으로는 못 보낸다
+void QtLink_SendCalibRunDone(Link& link, int ch, CalibRunResult r,         
+                             const std::string& detail);         
 
 void QtLink_PushIgnoreRegions(Link& link);   // 접속 직후 ROI 4채널 push
 

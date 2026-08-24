@@ -1,9 +1,11 @@
 #include "EventLogPage.h"
 #include "../widgets/GasGraphWidget.h"
+#include "../widgets/ClipPlayerWidget.h"
 
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QGridLayout>
+#include <QStackedLayout>
 #include <QTableWidget>
 #include <QHeaderView>
 #include <QComboBox>
@@ -18,8 +20,16 @@
 #include <QTimeEdit>
 #include <QAbstractSpinBox>
 #include <QTextCharFormat>
+#include <QStandardPaths>
+#include <QPixmap>
+#include <QDir>
+#include <QFile>
+#include <QMessageBox>
 #include <QTimer>
 #include <QMap>
+#include <QResizeEvent>
+#include <QSlider>
+#include <QSignalBlocker>
 
 namespace {
 const QString kCardBg = "#14141f";
@@ -31,7 +41,9 @@ const QString kTextPrimary = "#f5f5fa";
 const QString kTextSecondary = "#8d87a0";
 const QString kAccent = "#8b7cf6";
 const QStringList kZoneFilterNames = { "전체", "A공장", "B공장", "C공장", "D공장" };
-const QStringList kSeverityFilterNames = { "전체", "안전", "경고", "위험" };
+// "안전"은 필터에서 뺀다 — event_log는 사건 기록용이라 안전(평상시) 값 흐름을 담기엔 안 맞고
+// (그건 그래프 탭 sensor_log 담당), 위험 해제 시점은 이미 별도 "resolve" 이벤트로 기록되고 있다.
+const QStringList kSeverityFilterNames = { "전체", "경고", "위험" };
 const QStringList kPeriodFilterNames = { "전체 기간", "최근 1시간", "최근 6시간", "최근 24시간" };
 const QStringList kStatusFilterNames = { "전체", "해결됨", "오탐 처리됨" };
 
@@ -133,6 +145,36 @@ QString formatDuration(qint64 totalSeconds)
         .arg(m, 2, 10, QChar('0'))
         .arg(s, 2, 10, QChar('0'));
 }
+
+// 클립 재생바 시간 표시용. 클립 자체가 13초 안팎(사고 전 3초+후 10초)이라 mm:ss면 충분하다.
+QString formatClipTime(qint64 ms)
+{
+    const qint64 totalSeconds = qMax<qint64>(0, ms) / 1000;
+    return QString("%1:%2").arg(totalSeconds / 60, 2, 10, QChar('0')).arg(totalSeconds % 60, 2, 10, QChar('0'));
+}
+
+const QString kClipSliderStyle = QString(
+    "QSlider::groove:horizontal { background:#2a2a3a; height:4px; border-radius:2px; }"
+    "QSlider::sub-page:horizontal { background:%1; height:4px; border-radius:2px; }"
+    "QSlider::handle:horizontal { background:white; width:12px; height:12px; margin:-4px 0; border-radius:6px; }")
+    .arg(kAccent);
+
+// 클립/썸네일 박스를 카메라 원본 비율(16:9)로 고정해서, 패널 폭이 바뀌어도 항상 그 비율만큼
+// 커지게 한다 — 예전엔 높이가 140px로 고정이라 폭이 넓어져도 영상이 작게만 보였다.
+class AspectRatioFrame : public QFrame
+{
+public:
+    explicit AspectRatioFrame(QWidget *parent = nullptr) : QFrame(parent) {}
+
+protected:
+    void resizeEvent(QResizeEvent *event) override
+    {
+        QFrame::resizeEvent(event);
+        const int targetHeight = width() * 9 / 16;
+        if (targetHeight > 0 && height() != targetHeight)
+            setFixedHeight(targetHeight);
+    }
+};
 }
 
 EventLogPage::EventLogPage(QWidget *parent)
@@ -306,17 +348,110 @@ EventLogPage::EventLogPage(QWidget *parent)
     addDetailRow("지속 시간", &detailDurationValue);
 
     detailLayout->addSpacing(8);
-    auto *snapshotLabel = new QLabel("연관 영상 스냅샷", detailContent);
+    auto *snapshotLabel = new QLabel("연관 영상 스냅샷 (사고 전 3초 + 후 10초)", detailContent);
     snapshotLabel->setStyleSheet(QString("color:%1;").arg(kTextSecondary));
     detailLayout->addWidget(snapshotLabel);
     auto *snapshotBox = new QFrame(detailContent);
-    snapshotBox->setFixedHeight(110);
     snapshotBox->setStyleSheet("background-color:#0d0d16; border:1px dashed #333;");
     auto *snapshotBoxLayout = new QVBoxLayout(snapshotBox);
-    auto *snapshotText = new QLabel("스냅샷 없음", snapshotBox);
-    snapshotText->setAlignment(Qt::AlignCenter);
-    snapshotText->setStyleSheet(QString("color:%1; border:none;").arg(kTextSecondary));
-    snapshotBoxLayout->addWidget(snapshotText);
+    snapshotBoxLayout->setContentsMargins(8, 8, 8, 8);
+    snapshotBoxLayout->setSpacing(6);
+
+    // 영상 박스: 카메라 원본 비율(16:9)로 고정 — 패널 폭에 맞춰 커진다(예전엔 140px 고정 높이).
+    auto *videoContainer = new AspectRatioFrame(snapshotBox);
+    videoContainer->setStyleSheet("background-color:black; border:none;");
+    videoStack = new QStackedLayout(videoContainer);
+    videoStack->setContentsMargins(0, 0, 0, 0);
+    videoStack->setStackingMode(QStackedLayout::StackOne);
+
+    // 0번 페이지: 감지 시점 jpg 썸네일(PR #69) + 그 위에 유튜브처럼 얹힌 재생 버튼(클립 있을 때만).
+    // 썸네일은 클립과 별개 파일이라 상태/조회를 따로 관리한다 — 클립은 재생 버튼을 눌러야
+    // 가져오지만, 썸네일은 상세 패널을 열자마자 자동으로 불러온다.
+    auto *thumbnailPage = new QWidget(videoContainer);
+    auto *thumbnailPageLayout = new QGridLayout(thumbnailPage);
+    thumbnailPageLayout->setContentsMargins(0, 0, 0, 0);
+
+    snapshotThumbnail = new QLabel("스냅샷 없음", thumbnailPage);
+    snapshotThumbnail->setAlignment(Qt::AlignCenter);
+    snapshotThumbnail->setWordWrap(true);
+    snapshotThumbnail->setStyleSheet(QString("color:%1; border:none;").arg(kTextSecondary));
+    thumbnailPageLayout->addWidget(snapshotThumbnail, 0, 0);
+
+    clipPlayOverlayButton = new QPushButton("▶", thumbnailPage);
+    clipPlayOverlayButton->setFixedSize(56, 56);
+    clipPlayOverlayButton->setCursor(Qt::PointingHandCursor);
+    clipPlayOverlayButton->setStyleSheet(QString(
+        "QPushButton { background-color:rgba(0,0,0,150); color:white; border:2px solid white; "
+        "border-radius:28px; font-size:20px; padding-left:4px; }"
+        "QPushButton:hover { background-color:%1; border-color:%1; }").arg(kAccent));
+    clipPlayOverlayButton->setVisible(false);
+    connect(clipPlayOverlayButton, &QPushButton::clicked, this, &EventLogPage::onPlayClipClicked);
+    thumbnailPageLayout->addWidget(clipPlayOverlayButton, 0, 0, Qt::AlignCenter);
+
+    videoStack->addWidget(thumbnailPage);
+
+    // 1번 페이지: 실제 mp4 재생 화면(libvlc 네이티브 임베드, ClipPlayerWidget) — 재생 버튼을 누르면
+    // 여기로 전환되어 Qt 안에서 바로 보인다(예전엔 OS 기본 플레이어로 새 창이 열렸음).
+    // 우상단 ✕는 재생을 멈추고 다시 썸네일로 돌아간다.
+    auto *videoPage = new QWidget(videoContainer);
+    auto *videoPageLayout = new QGridLayout(videoPage);
+    videoPageLayout->setContentsMargins(0, 0, 0, 0);
+    clipPlayer = new ClipPlayerWidget(videoPage);
+    videoPageLayout->addWidget(clipPlayer, 0, 0);
+    auto *closeVideoButton = new QPushButton("✕", videoPage);
+    closeVideoButton->setFixedSize(28, 28);
+    closeVideoButton->setCursor(Qt::PointingHandCursor);
+    closeVideoButton->setStyleSheet(
+        "QPushButton { background-color:rgba(0,0,0,150); color:white; border:none; border-radius:14px; }"
+        "QPushButton:hover { background-color:rgba(0,0,0,220); }");
+    videoPageLayout->addWidget(closeVideoButton, 0, 0, Qt::AlignTop | Qt::AlignRight);
+    connect(closeVideoButton, &QPushButton::clicked, this, [this]() {
+        clipPlayer->stop();
+        videoStack->setCurrentIndex(0);
+        clipSeekSlider->setVisible(false);
+        clipTimeLabel->setVisible(false);
+    });
+
+    videoStack->addWidget(videoPage);
+
+    snapshotBoxLayout->addWidget(videoContainer);
+
+    // 재생바: 클립 재생 중에만 보인다. ClipPlayerWidget이 200ms마다 positionChanged를 쏴주면
+    // 슬라이더/시간 라벨을 갱신하고, 사용자가 슬라이더를 드래그하면 그 지점으로 seek()한다.
+    auto *clipControlsRow = new QHBoxLayout;
+    clipSeekSlider = new QSlider(Qt::Horizontal, snapshotBox);
+    clipSeekSlider->setRange(0, 0);
+    clipSeekSlider->setStyleSheet(kClipSliderStyle);
+    clipSeekSlider->setVisible(false);
+    clipTimeLabel = new QLabel("00:00 / 00:00", snapshotBox);
+    clipTimeLabel->setStyleSheet(QString("color:%1; font-size:11px;").arg(kTextSecondary));
+    clipTimeLabel->setVisible(false);
+    clipControlsRow->addWidget(clipSeekSlider, 1);
+    clipControlsRow->addWidget(clipTimeLabel);
+    snapshotBoxLayout->addLayout(clipControlsRow);
+
+    connect(clipSeekSlider, &QSlider::sliderMoved, this, [this](int value) {
+        clipPlayer->seek(value);
+    });
+    connect(clipPlayer, &ClipPlayerWidget::positionChanged, this,
+            [this](qint64 currentMs, qint64 lengthMs) {
+                if (lengthMs <= 0)
+                    return;
+                if (!clipSeekSlider->isSliderDown()) {
+                    // 드래그 중엔 폴링 값으로 되돌리지 않는다 — 안 그러면 손을 떼기 전에도
+                    // 200ms마다 슬라이더가 실제 재생 위치로 튕겨 돌아가 버린다.
+                    const QSignalBlocker blocker(clipSeekSlider);
+                    clipSeekSlider->setRange(0, int(lengthMs));
+                    clipSeekSlider->setValue(int(currentMs));
+                }
+                clipTimeLabel->setText(QString("%1 / %2").arg(formatClipTime(currentMs), formatClipTime(lengthMs)));
+            });
+
+    clipStatusLabel = new QLabel("클립 없음", snapshotBox);
+    clipStatusLabel->setAlignment(Qt::AlignCenter);
+    clipStatusLabel->setWordWrap(true);
+    clipStatusLabel->setStyleSheet(QString("color:%1; border:none; font-size:12px;").arg(kTextSecondary));
+    snapshotBoxLayout->addWidget(clipStatusLabel);
     detailLayout->addWidget(snapshotBox);
 
     detailLayout->addSpacing(8);
@@ -454,6 +589,10 @@ void EventLogPage::loadEntriesFromServer(const QJsonArray &rows)
         const double durationMs = row.value("durationMs").toDouble();
         entry.duration = durationMs > 0 ? formatDuration(qint64(durationMs / 1000.0 + 0.5)) : "-";
 
+        entry.clipPath = row.value("clipPath").toString();
+        entry.snapshotPath = row.value("snapshotPath").toString();
+        entry.incidentId = qint64(row.value("incidentId").toDouble());
+
         appendRow(entry);
     }
 
@@ -518,16 +657,182 @@ void EventLogPage::showDetail(int row, int)
     detailResponseValue->setText(entry.response);
     detailStatusValue->setText(entry.status);
     detailDurationValue->setText(entry.duration);
+
+    // 다른 행으로 옮겨왔으니 대기 중이던 오탐 신고 응답은 더 이상 유효하지 않다(응답 오면
+    // pendingFalseAlarmIncidentId 비교에서 자동으로 무시됨). 버튼은 이 행 기준으로 다시 세팅.
+    pendingFalseAlarmIncidentId = -1;
+    if (entry.status == "오탐 처리됨") {
+        falseAlarmButton->setEnabled(false);
+        falseAlarmButton->setText("오탐 처리됨");
+    } else if (entry.incidentId <= 0) {
+        // 수동 제어 등 사태(incident) 자체가 없는 행은 오탐 신고 대상이 아니다.
+        falseAlarmButton->setEnabled(false);
+        falseAlarmButton->setText("오탐 신고");
+    } else {
+        falseAlarmButton->setEnabled(true);
+        falseAlarmButton->setText("오탐 신고");
+    }
+
+    // 클립은 이벤트 후 약 15초는 지나야 저장이 끝난다 — 경고/위험/비상류가 아니면(수동제어 등)
+    // 애초에 clipPath 자체가 안 옴. 두 경우 다 문구만 다르게 안내.
+    // 다른 행으로 옮겨왔으니 재생 중이었으면 멈추고 항상 썸네일 화면으로 리셋한다.
+    pendingClipReqId.clear();
+    clipPlayer->stop();
+    videoStack->setCurrentIndex(0);
+    clipSeekSlider->setVisible(false);
+    clipSeekSlider->setRange(0, 0);
+    clipTimeLabel->setVisible(false);
+    clipTimeLabel->setText("00:00 / 00:00");
+    if (entry.clipPath.isEmpty()) {
+        clipPlayOverlayButton->setVisible(false);
+        clipStatusLabel->setVisible(true);
+        clipStatusLabel->setText("클립 없음");
+    } else {
+        clipStatusLabel->setVisible(false);
+        clipPlayOverlayButton->setVisible(true);
+        clipPlayOverlayButton->setEnabled(true);
+        clipPlayOverlayButton->setText("▶");
+    }
+
+    // 썸네일은 클립과 달리 클릭 없이 상세 패널을 열자마자 바로 불러온다 — 정지 이미지 하나라
+    // mp4보다 훨씬 가볍고, "재생"처럼 사용자 조작을 한 번 더 요구할 이유가 없다.
+    pendingSnapshotReqId.clear();
+    snapshotThumbnail->setPixmap(QPixmap());
+    if (entry.snapshotPath.isEmpty()) {
+        snapshotThumbnail->setText("스냅샷 없음");
+    } else {
+        snapshotThumbnail->setText("불러오는 중...");
+        emit snapshotRequested(entry.snapshotPath);
+    }
+}
+
+void EventLogPage::onPlayClipClicked()
+{
+    if (selectedEventRow < 0 || selectedEventRow >= eventEntries.size())
+        return;
+    const QString path = eventEntries[selectedEventRow].clipPath;
+    if (path.isEmpty())
+        return;
+    clipPlayOverlayButton->setEnabled(false);
+    clipPlayOverlayButton->setText("···");
+    emit clipPlayRequested(path);
+}
+
+void EventLogPage::trackClipRequest(const QString &reqId)
+{
+    pendingClipReqId = reqId;
+}
+
+void EventLogPage::onClipReceived(const QString &reqId, const QString &result, const QByteArray &data)
+{
+    if (reqId != pendingClipReqId)
+        return;   // 이미 다른 행을 클릭해서 이 응답은 더 이상 유효하지 않음
+    pendingClipReqId.clear();
+
+    clipPlayOverlayButton->setEnabled(true);
+    clipPlayOverlayButton->setText("▶");
+
+    if (result == "empty") {
+        clipStatusLabel->setVisible(true);
+        clipStatusLabel->setText("아직 저장 중입니다 (이벤트 발생 후 약 15초 소요) — 잠시 후 다시 시도해주세요.");
+        return;
+    }
+    if (result != "ok" || data.isEmpty()) {
+        QMessageBox::warning(this, "클립 재생 실패", "서버에서 클립을 가져오지 못했습니다.");
+        return;
+    }
+
+    // 서버가 매번 base64로 다시 보내주므로 로컬엔 캐시하지 않고 그때그때 임시파일로 저장 후
+    // ClipPlayerWidget(libvlc 임베드)으로 재생한다 — 예전엔 OS 기본 플레이어로 새 창을 열었다.
+    const QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + "/safevision_clips";
+    QDir().mkpath(tempDir);
+    const QString filePath = tempDir + "/" + QString::number(QDateTime::currentMSecsSinceEpoch()) + ".mp4";
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly) || file.write(data) < 0) {
+        QMessageBox::warning(this, "클립 재생 실패", "임시 파일 저장에 실패했습니다.");
+        return;
+    }
+    file.close();
+
+    clipPlayer->playFile(filePath);
+    videoStack->setCurrentIndex(1);
+    clipSeekSlider->setVisible(true);
+    clipTimeLabel->setVisible(true);
+}
+
+void EventLogPage::trackSnapshotRequest(const QString &reqId)
+{
+    pendingSnapshotReqId = reqId;
+}
+
+void EventLogPage::onSnapshotReceived(const QString &reqId, const QString &result, const QByteArray &data)
+{
+    if (reqId != pendingSnapshotReqId)
+        return;   // 이미 다른 행을 클릭해서 이 응답은 더 이상 유효하지 않음(클립과 동일한 패턴)
+    pendingSnapshotReqId.clear();
+
+    if (result == "empty") {
+        snapshotThumbnail->setText("스냅샷 파일을 찾을 수 없습니다.");
+        return;
+    }
+    if (result != "ok" || data.isEmpty()) {
+        snapshotThumbnail->setText("스냅샷 불러오기 실패");
+        return;
+    }
+
+    QPixmap pixmap;
+    if (!pixmap.loadFromData(data, "JPG")) {
+        snapshotThumbnail->setText("스냅샷 불러오기 실패");
+        return;
+    }
+    snapshotThumbnail->setPixmap(pixmap.scaled(snapshotThumbnail->size(),
+        Qt::KeepAspectRatio, Qt::SmoothTransformation));
 }
 
 void EventLogPage::markFalseAlarm()
 {
     if (selectedEventRow < 0 || selectedEventRow >= eventEntries.size())
         return;
-    eventEntries[selectedEventRow].status = "오탐 처리됨";
-    detailStatusValue->setText("오탐 처리됨");
-    if (auto *item = eventTable->item(selectedEventRow, 4))
-        item->setText("오탐 처리됨");
+    const EventEntry &entry = eventEntries[selectedEventRow];
+    if (entry.incidentId <= 0)
+        return; // 사태 번호가 없는 행(수동 제어 등)은 신고 대상이 아님 — 버튼도 비활성 상태
+
+    pendingFalseAlarmIncidentId = entry.incidentId;
+    falseAlarmButton->setEnabled(false);
+    falseAlarmButton->setText("신고 중...");
+    // 서버 zone은 "A" 한 글자 — entry.zone은 화면 표시용 "A공장" 형태라 앞글자만 뗀다.
+    emit falseAlarmReportRequested(entry.incidentId, "admin", entry.zone.left(1));
+}
+
+void EventLogPage::onFalseAlarmResult(qint64 incidentId, bool ok, int updated, const QString &reason)
+{
+    if (incidentId != pendingFalseAlarmIncidentId)
+        return; // 이미 다른 행을 클릭해서 이 응답은 더 이상 유효하지 않음(클립/스냅샷과 동일한 패턴)
+    pendingFalseAlarmIncidentId = -1;
+
+    if (!ok) {
+        falseAlarmButton->setEnabled(true);
+        falseAlarmButton->setText("오탐 신고");
+        QMessageBox::warning(this, "오탐 신고 실패", reason.isEmpty() ? "알 수 없는 오류" : reason);
+        return;
+    }
+
+    // 사태 단위 처리라(PR #75), 같은 incidentId를 가진 행이 전부(경고→위험→해제 등 여러 줄)
+    // 한 번에 "오탐 처리됨"으로 바뀐다 — 화면에서도 그 행들을 전부 같이 갱신한다.
+    for (int row = 0; row < eventEntries.size(); ++row) {
+        if (eventEntries[row].incidentId != incidentId)
+            continue;
+        eventEntries[row].status = "오탐 처리됨";
+        if (auto *item = eventTable->item(row, 5))
+            item->setText("오탐 처리됨");
+    }
+    if (selectedEventRow >= 0 && selectedEventRow < eventEntries.size()
+            && eventEntries[selectedEventRow].incidentId == incidentId) {
+        detailStatusValue->setText("오탐 처리됨");
+    }
+    falseAlarmButton->setEnabled(false);
+    falseAlarmButton->setText("오탐 처리됨");
+    Q_UNUSED(updated);
 }
 
 void EventLogPage::showDatePicker()
@@ -614,13 +919,7 @@ void EventLogPage::applyFilter()
 
         const bool zoneMatch = (zone == "전체") || (entry.zone == zone);
 
-        bool severityMatch = true;
-        if (severityFilter != "전체") {
-            // "정보"는 위험도 표기가 없는 성공/확인성 로그라 "안전"과 같은 취급으로 묶는다.
-            severityMatch = severityFilter == "안전"
-                ? (entry.severity == "안전" || entry.severity == "정보")
-                : (entry.severity == severityFilter);
-        }
+        const bool severityMatch = (severityFilter == "전체") || (entry.severity == severityFilter);
 
         bool periodMatch = true;
         if (periodFilter == "최근 1시간")

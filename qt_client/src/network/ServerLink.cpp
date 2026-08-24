@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QDateTime>
+#include <QDebug>
 
 namespace {
 constexpr int kControlTimeoutMs = 3000;
@@ -115,6 +116,94 @@ QVector<FloorMapRoute> floorMapRoutesFromJson(const QJsonArray &arr)
         routes.append(r);
     }
     return routes;
+}
+
+// query_result(target=calib_status)의 channels[] -> CalibChannelStatus 벡터
+// (server/calib/calib_store.cpp의 CalibStore_ToJson()과 1:1 대응, PR #65).
+QVector<CalibChannelStatus> calibStatusListFromJson(const QJsonArray &arr)
+{
+    QVector<CalibChannelStatus> out;
+    for (const QJsonValue &v : arr) {
+        const QJsonObject o = v.toObject();
+        CalibChannelStatus s;
+        s.channel = o.value("channel").toInt();
+        s.stage = o.value("stage").toString();
+        s.ready = o.value("ready").toBool();
+        s.hint = o.value("hint").toString();
+        s.detail = o.value("detail").toString();
+        // 좌표 계산기가 도는 채널에서만 서버가 이 필드들을 아예 보낸다 — contains()로 구분.
+        s.hasLive = o.contains("detectedMarkers");
+        if (s.hasLive) {
+            s.detectedMarkers = o.value("detectedMarkers").toInt();
+            s.acceptedMarkers = o.value("acceptedMarkers").toInt();
+            s.errorPx = o.value("errorPx").toDouble();
+            s.lensApplied = o.value("lensApplied").toBool();
+            s.staticHomography = o.value("staticHomography").toBool();
+        }
+        // running 필드가 없는 구버전 서버는 false(계산 중 아님)로 취급.
+        s.running = o.value("running").toBool();
+        out.append(s);
+    }
+    return out;
+}
+
+// ArucoChannelConfig -> set_aruco_config 본문(channel 제외 — 호출부가 따로 채움).
+QJsonObject arucoConfigToJson(const ArucoChannelConfig &c)
+{
+    QJsonObject factory;
+    factory["minX"] = c.factoryMinX; factory["minY"] = c.factoryMinY;
+    factory["maxX"] = c.factoryMaxX; factory["maxY"] = c.factoryMaxY;
+
+    QJsonObject board;
+    board["minX"] = c.boardMinX; board["minY"] = c.boardMinY;
+    board["maxX"] = c.boardMaxX; board["maxY"] = c.boardMaxY;
+
+    QJsonArray markers;
+    for (const ArucoMarkerConfig &m : c.markers) {
+        QJsonObject mo;
+        mo["id"] = m.id;
+        mo["x"] = m.x;
+        mo["y"] = m.y;
+        mo["sizeCm"] = m.sizeCm;
+        mo["rotation"] = m.rotation;
+        markers.append(mo);
+    }
+
+    QJsonObject obj;
+    obj["factory"] = factory;
+    obj["modelScale"] = c.modelScale;
+    obj["board"] = board;
+    obj["markers"] = markers;
+    return obj;
+}
+
+// query target=aruco_config 응답 -> ArucoChannelConfig. 필드가 통째로 없으면(설정 전) 빈 값 그대로.
+ArucoChannelConfig arucoConfigFromJson(const QJsonObject &obj)
+{
+    ArucoChannelConfig c;
+    c.channel = obj.value("channel").toInt();
+    const QJsonObject factory = obj.value("factory").toObject();
+    c.factoryMinX = factory.value("minX").toDouble();
+    c.factoryMinY = factory.value("minY").toDouble();
+    c.factoryMaxX = factory.value("maxX").toDouble();
+    c.factoryMaxY = factory.value("maxY").toDouble();
+    c.modelScale = obj.value("modelScale").toDouble();
+    const QJsonObject board = obj.value("board").toObject();
+    c.boardMinX = board.value("minX").toDouble();
+    c.boardMinY = board.value("minY").toDouble();
+    c.boardMaxX = board.value("maxX").toDouble();
+    c.boardMaxY = board.value("maxY").toDouble();
+    for (const QJsonValue &v : obj.value("markers").toArray()) {
+        const QJsonObject mo = v.toObject();
+        ArucoMarkerConfig m;
+        m.id = mo.value("id").toInt();
+        m.x = mo.value("x").toDouble();
+        m.y = mo.value("y").toDouble();
+        m.sizeCm = mo.value("sizeCm").toDouble();
+        m.rotation = mo.value("rotation").toDouble();
+        c.markers.append(m);
+    }
+    return c;
 }
 }
 
@@ -258,7 +347,7 @@ QString ServerLink::sendSetIgnoreRegions(int channel, const QVector<RoiRegion> &
     return cmdId;
 }
 
-QString ServerLink::sendSetFloorMap(const QByteArray &pngBytes)
+QString ServerLink::sendSetFloorMap(const QByteArray &pngBytes, const QString &fileName)
 {
     const QString cmdId = generateCmdId();
 
@@ -267,6 +356,7 @@ QString ServerLink::sendSetFloorMap(const QByteArray &pngBytes)
     obj["cmdId"] = cmdId;
     obj["imageFormat"] = "png";
     obj["imageBase64"] = QString::fromLatin1(pngBytes.toBase64());
+    obj["fileName"] = fileName;
     sendLine(obj);
 
     auto *timer = new QTimer(this);
@@ -281,20 +371,63 @@ QString ServerLink::sendSetFloorMap(const QByteArray &pngBytes)
     return cmdId;
 }
 
-void ServerLink::sendFalseAlarmReport(int channel, int frameId, const QString &admin)
+void ServerLink::sendReloadCalibration(int channel)
+{
+    // 서버 프로토콜에 cmdId가 없다(PR #65) — reload_calibration_result가 channel로만 옴.
+    QJsonObject obj;
+    obj["type"] = "reload_calibration";
+    obj["channel"] = channel;
+    sendLine(obj);
+}
+
+void ServerLink::sendSetArucoConfig(const ArucoChannelConfig &config)
+{
+    QJsonObject obj = arucoConfigToJson(config);
+    obj["type"] = "set_aruco_config";
+    obj["channel"] = config.channel;
+    sendLine(obj);
+}
+
+QString ServerLink::sendQueryArucoConfig(int channel)
+{
+    QJsonObject params;
+    params["channel"] = channel;
+    return sendQuery("aruco_config", params);
+}
+
+void ServerLink::sendRunCalibration(int channel)
+{
+    QJsonObject obj;
+    obj["type"] = "run_calibration";
+    obj["channel"] = channel;
+    sendLine(obj);
+}
+
+void ServerLink::sendCancelCalibration(int channel)
+{
+    QJsonObject obj;
+    obj["type"] = "cancel_calibration";
+    obj["channel"] = channel;
+    sendLine(obj);
+}
+
+void ServerLink::sendFalseAlarmReport(qint64 incidentId, const QString &admin, const QString &zone)
 {
     QJsonObject obj;
     obj["type"] = "false_alarm_report";
-    obj["channel"] = channel;
-    obj["frameId"] = frameId;
+    obj["incidentId"] = incidentId;
     obj["admin"] = admin;
+    obj["zone"] = zone;
     sendLine(obj);
 }
 
 void ServerLink::sendLine(const QJsonObject &obj)
 {
     const QByteArray line = QJsonDocument(obj).toJson(QJsonDocument::Compact) + "\n";
-    socket->write(line);
+    const qint64 written = socket->write(line);
+    if (written != line.size())
+        qWarning() << "[ServerLink] write() 불일치 — 보내려던 바이트:" << line.size()
+                    << "실제 기록:" << written << "소켓 에러:" << socket->errorString();
 }
 
 void ServerLink::onReadyRead()
@@ -334,6 +467,21 @@ void ServerLink::handleLine(const QByteArray &line)
         emit detectionReceived(obj.value("channel").toInt(), obj.value("frameId").toInt(),
                                 obj.value("srcW").toInt(), obj.value("srcH").toInt(),
                                 obj.value("alarm").toBool(), boxes);
+    } else if (type == "person") {
+        QVector<DetectionBox> boxes;
+        for (const QJsonValue &v : obj.value("boxes").toArray()) {
+            const QJsonObject b = v.toObject();
+            DetectionBox box;
+            box.x = b.value("x").toInt();
+            box.y = b.value("y").toInt();
+            box.w = b.value("w").toInt();
+            box.h = b.value("h").toInt();
+            box.cls = "PERSON";   // 명세서엔 person boxes[] 원소에 cls가 없음 — 여기서 고정으로 채움
+            box.score = b.value("score").toDouble();
+            boxes.append(box);
+        }
+        emit personReceived(obj.value("channel").toInt(), obj.value("srcW").toInt(),
+                             obj.value("srcH").toInt(), obj.value("count").toInt(), boxes);
     } else if (type == "sensor") {
         // warnRemain은 warning 상태일 때만 서버가 채워 보냄. 없으면 -1로 "해당없음" 표시.
         const int warnRemain = obj.contains("warnRemain") ? obj.value("warnRemain").toInt() : -1;
@@ -381,10 +529,13 @@ void ServerLink::handleLine(const QByteArray &line)
         const int targetFan = target.contains("fan") ? target.value("fan").toInt() : fan;
         const int targetValve = target.contains("valve") ? target.value("valve").toInt() : valve;
         const int targetSiren = target.contains("siren") ? target.value("siren").toInt() : siren;
+        // voice 없는 구버전 서버는 false(=꺼짐)로 취급 — 없다고 아이콘이 잘못 켜지면 안 됨.
+        const bool voice = obj.value("voice").toInt(0) != 0;
         emit actuatorStatusReceived(fan, valve, siren,
                                      obj.value("link").toString(), obj.value("fanSrc").toString(),
                                      obj.value("valveSrc").toString(), obj.value("sirenSrc").toString(),
-                                     targetFan, targetValve, targetSiren, obj.value("linkReason").toString());
+                                     targetFan, targetValve, targetSiren, obj.value("linkReason").toString(),
+                                     voice);
     } else if (type == "control_ack") {
         const QString cmdId = obj.value("cmdId").toString();
         QTimer *timer = pendingCommands.take(cmdId);
@@ -420,11 +571,45 @@ void ServerLink::handleLine(const QByteArray &line)
                                    floorMapBitmapFromJson(obj.value("bitmap").toArray()),
                                    floorMapMarkersFromJson(obj.value("displays").toArray()),
                                    floorMapMarkersFromJson(obj.value("exits").toArray()),
-                                   floorMapRoutesFromJson(obj.value("routes").toArray()));
+                                   floorMapRoutesFromJson(obj.value("routes").toArray()),
+                                   obj.value("fileName").toString(),
+                                   qint64(obj.value("uploadedAt").toDouble()));
+    } else if (type == "reload_calibration_result") {
+        // cmdId가 없는 프로토콜 — channel로만 구분(PR #65). accepted일 뿐 완료 여부는 아님.
+        emit calibReloadResult(obj.value("channel").toInt(),
+                                obj.value("result").toString() == "accepted",
+                                obj.value("reason").toString());
+    } else if (type == "set_aruco_config_result") {
+        emit arucoConfigResult(obj.value("channel").toInt(),
+                                obj.value("result").toString() == "ok",
+                                obj.value("reason").toString());
+    } else if (type == "run_calibration_result") {
+        emit runCalibrationResult(obj.value("channel").toInt(),
+                                   obj.value("result").toString() == "accepted",
+                                   obj.value("reason").toString());
+    } else if (type == "cancel_calibration_result") {
+        emit cancelCalibrationResult(obj.value("channel").toInt(),
+                                      obj.value("result").toString() == "accepted",
+                                      obj.value("reason").toString());
+    } else if (type == "false_alarm_ack") {
+        // result:"ok"면 updated에 실제로 바뀐 행 수, 아니면 reason에 실패 사유(사태 없음 등).
+        const bool ok = obj.value("result").toString() == "ok";
+        emit falseAlarmResult(qint64(obj.value("incidentId").toDouble()), ok,
+                               obj.value("updated").toInt(), obj.value("reason").toString());
+    } else if (type == "calibration_done") {
+        // 서버가 요청 없이 먼저 보내는 알림 — ok/error/cancelled/timeout.
+        emit calibrationDone(obj.value("channel").toInt(), obj.value("result").toString(),
+                              obj.value("reason").toString());
     } else if (type == "query_result") {
         const QString reqId = obj.value("reqId").toString();
         const QString target = obj.value("target").toString();
-        if (target == "ignore_regions") {
+        if (target == "calib_status") {
+            emit calibStatusReceived(calibStatusListFromJson(obj.value("channels").toArray()));
+        } else if (target == "aruco_config") {
+            // 미설정 채널은 result:"empty"로 옴 — 그때는 필드 자체가 비어있으니 빈 구조체 그대로.
+            const bool available = obj.value("result").toString() != "empty";
+            emit arucoConfigReceived(obj.value("channel").toInt(), available, arucoConfigFromJson(obj));
+        } else if (target == "ignore_regions") {
             // event_log/sensor_log와 달리 rows 배열로 안 오고 channel/regions가 바로 최상위에 있다
             // (접속 직후 push는 reqId 자체가 없음 — Qt는 push든 query 응답이든 구분 없이 반영한다).
             emit ignoreRegionsReceived(obj.value("channel").toInt(),
@@ -437,7 +622,23 @@ void ServerLink::handleLine(const QByteArray &line)
                                    floorMapBitmapFromJson(obj.value("bitmap").toArray()),
                                    floorMapMarkersFromJson(obj.value("displays").toArray()),
                                    floorMapMarkersFromJson(obj.value("exits").toArray()),
-                                   floorMapRoutesFromJson(obj.value("routes").toArray()));
+                                   floorMapRoutesFromJson(obj.value("routes").toArray()),
+                                   obj.value("fileName").toString(),
+                                   qint64(obj.value("uploadedAt").toDouble()));
+        } else if (target == "clip") {
+            // result: "ok"/"empty"/"error". data는 mp4 원본을 base64로 실은 것 — ok일 때만 채워짐.
+            const QString result = obj.value("result").toString();
+            const QByteArray data = (result == "ok")
+                ? QByteArray::fromBase64(obj.value("data").toString().toLatin1())
+                : QByteArray();
+            emit clipReceived(reqId, result, data);
+        } else if (target == "snapshot") {
+            // clip과 동일한 형태(ok/empty/error), jpg 원본 바이트(PR #69).
+            const QString result = obj.value("result").toString();
+            const QByteArray data = (result == "ok")
+                ? QByteArray::fromBase64(obj.value("data").toString().toLatin1())
+                : QByteArray();
+            emit snapshotReceived(reqId, result, data);
         } else if (obj.value("result").toString() == "failed") {
             emit queryFailed(reqId, obj.value("reason").toString());
         } else {

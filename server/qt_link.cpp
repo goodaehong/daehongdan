@@ -3,6 +3,9 @@
 #include "roi/roi_store.h"   
 #include "floormap/floormap_store.h"  
 #include "audio/speaker_alert.h" 
+#include "clip/clip_recorder.h" 
+#include "calib/calib_store.h" 
+#include "calib/aruco_config.h"  
 #include <sstream>
 #include <iomanip>
 #include <iostream>
@@ -126,6 +129,7 @@ void QtLink_SendActuator(Link& link, const ActuatorSnapshot& st) {
         << ",\"sirenSrc\":\"" << st.sirenSrc << "\""
         << ",\"link\":\"" << (st.linkOk ? "ok" : "down") << "\""   // STM 연결 상태
         << ",\"linkReason\":\"" << jsonEscape(st.linkReason) << "\""     
+        << ",\"voice\":" << (SpeakerAlert_IsActive() ? 1 : 0)   // 대피 음성 (사이렌과 별개)  
         << ",\"target\":{\"fan\":" << t.fan << ",\"valve\":" << t.valve
         << ",\"siren\":" << t.siren << "}"
         << "}";                                                  
@@ -199,6 +203,33 @@ static void handleEmergency(Link& link, Database& db, AlarmState& alarm,
     link.send(oss.str());
 }
 
+// 관리자 오탐 판정. 그 사태의 로그를 "오탐 처리됨"으로 바꾸고           
+// 누가 언제 판정했는지 별도 행으로 남긴다 (되돌릴 근거가 필요해서)
+static void handleFalseAlarmReport(Link& link, Database& db, const std::string& line) {
+    const long incidentId = jsonLong(line, "incidentId", 0);
+    const std::string admin = jsonStr(line, "admin");
+    const std::string zone  = jsonStr(line, "zone");
+
+    const int changed = db.markFalseAlarm(incidentId);
+    if (changed > 0) {
+        db.insertEvent(std::time(nullptr), zone.empty() ? "A" : zone,
+                       "false_alarm", "", "", "", "manual", "오탐 판정", admin,
+                       0, 0, "오탐 처리됨", 0, "", incidentId, "");
+        std::cout << "[오탐] 사태 " << incidentId << " 오탐 처리 (" << changed
+                  << "행, " << admin << ")\n";
+    } else {
+        std::cerr << "[오탐] 사태 " << incidentId << " 없음 — 처리 안 함\n";
+    }
+
+    std::ostringstream oss;
+    oss << "{\"type\":\"false_alarm_ack\",\"incidentId\":" << incidentId
+        << ",\"result\":\"" << (changed > 0 ? "ok" : "error") << "\"";
+    if (changed > 0) oss << ",\"updated\":" << changed;
+    else             oss << ",\"reason\":\"해당 사태를 찾을 수 없습니다\"";
+    oss << ",\"ts\":" << std::time(nullptr) << "}";
+    link.send(oss.str());
+}                                                                        
+
 // ROI 설정 반영 + set_ignore_regions_ack 응답                       
 // 검증 실패 시 기존 설정을 유지한다 (RoiStore_Apply 안에서 처리)
 static void handleSetIgnoreRegions(Link& link, const std::string& line) {
@@ -269,6 +300,157 @@ static std::string floorMapResult(const std::string& reqId) {
     return oss.str();
 }                                                                        
 
+// query target="clip" 응답. mp4를 base64로 실어 보낸다.                 
+// 로그 상세에서 재생 버튼을 눌렀을 때만 오는 요청 — 목록 조회엔 안 실린다
+static std::string clipResult(const std::string& reqId, const std::string& path) {
+    std::ostringstream oss;
+    oss << "{\"type\":\"query_result\",\"reqId\":\"" << jsonEscape(reqId)
+        << "\",\"target\":\"clip\"";
+
+    // 경로는 Qt가 보낸 값이다. 그대로 열면 서버의 아무 파일이나 새어나간다.
+    // 서버가 만든 클립 폴더 안인지만 확인한다
+    const std::string dir = CLIP_DIR;
+    if (path.size() <= dir.size() || path.compare(0, dir.size(), dir) != 0
+        || path.find("..") != std::string::npos) {
+        oss << ",\"result\":\"error\",\"reason\":\"허용되지 않은 경로\"}";
+        return oss.str();
+    }
+
+    std::string data = ClipRecorder_ReadBase64(path);
+    if (data.empty()) oss << ",\"result\":\"empty\"";
+    else oss << ",\"result\":\"ok\",\"format\":\"mp4\""
+             << ",\"path\":\"" << jsonEscape(path) << "\""
+             << ",\"data\":\"" << data << "\"";
+    oss << "}";
+    return oss.str();
+}                                  
+
+// query target="snapshot" 응답. jpg를 base64로 실어 보낸다.             
+// 경로만 보내면 Qt(윈도우)가 파이 안의 파일을 못 연다 — 클립과 같은 이유
+static std::string snapshotResult(const std::string& reqId, const std::string& path) {
+    std::ostringstream oss;
+    oss << "{\"type\":\"query_result\",\"reqId\":\"" << jsonEscape(reqId)
+        << "\",\"target\":\"snapshot\"";
+
+    // 경로는 Qt가 보낸 값이다. 그대로 열면 서버의 아무 파일이나 새어나간다
+    const std::string dir = SNAPSHOT_DIR;
+    if (path.size() <= dir.size() || path.compare(0, dir.size(), dir) != 0
+        || path.find("..") != std::string::npos) {
+        oss << ",\"result\":\"error\",\"reason\":\"허용되지 않은 경로\"}";
+        return oss.str();
+    }
+
+    std::string data = ClipRecorder_ReadBase64(path);   // 파일 → base64 (형식 무관)
+    if (data.empty()) oss << ",\"result\":\"empty\"";
+    else oss << ",\"result\":\"ok\",\"format\":\"jpg\""
+             << ",\"path\":\"" << jsonEscape(path) << "\""
+             << ",\"data\":\"" << data << "\"";
+    oss << "}";
+    return oss.str();
+}                                                                     
+
+// query target="calib_status" 응답. 4채널 보정 단계 + 실시간 마커 수·오차     
+static std::string calibStatusResult(const std::string& reqId) {
+    std::ostringstream oss;
+    oss << "{\"type\":\"query_result\",\"reqId\":\"" << jsonEscape(reqId)
+        << "\",\"target\":\"calib_status\",\"result\":\"ok\","
+        << CalibStore_ToJson()
+        << ",\"ts\":" << std::time(nullptr) << "}";
+    return oss.str();
+}
+
+// 보정 파일 재로드 요청. 실제 로드는 해당 채널 워커가 다음 프레임에 수행한다.
+// 여기서는 "접수했다"만 답하고, 결과는 Qt가 calib_status로 다시 조회한다
+static void handleReloadCalibration(Link& link, const std::string& line) {
+    int ch = jsonInt(line, "channel", 0) - 1;
+    std::ostringstream oss;
+    oss << "{\"type\":\"reload_calibration_result\",\"channel\":" << (ch + 1);
+    if (ch < 0 || ch >= 4) {
+        oss << ",\"result\":\"error\",\"reason\":\"채널 범위 초과\"";
+    } else {
+        CalibStore_RequestReload(ch);
+        std::cout << "[좌표] cam" << ch + 1 << " 재로드 요청 접수\n";
+        oss << ",\"result\":\"accepted\"";
+    }
+    oss << ",\"ts\":" << std::time(nullptr) << "}";
+    link.send(oss.str());
+}                
+
+// Qt가 보낸 마커 좌표로 설정 파일을 만든다. 지금까지 SSH로 하던 작업.      
+// 검증 실패 사유는 그대로 Qt 화면에 뜬다
+static void handleSetArucoConfig(Link& link, const std::string& line) {
+    int ch = 0;
+    std::string why;
+    const bool ok = ArucoConfig_Apply(line, &ch, &why);
+    if (!ok) std::cerr << "[보정] 좌표 설정 거부 — " << why << "\n";
+
+    std::ostringstream oss;
+    oss << "{\"type\":\"set_aruco_config_result\",\"channel\":" << ch
+        << ",\"result\":\"" << (ok ? "ok" : "error") << "\"";
+    if (!ok) oss << ",\"reason\":\"" << jsonEscape(why) << "\"";
+    oss << ",\"ts\":" << std::time(nullptr) << "}";
+    link.send(oss.str());
+}
+
+// 보정 계산 실행 요청. 수십 초 걸려서 접수만 답하고,
+// 끝나면 QtLink_SendCalibRunDone 으로 결과를 따로 보낸다
+static void handleRunCalibration(Link& link, const std::string& line) {
+    const int ch = jsonInt(line, "channel", 0);
+    std::string why;
+    const bool ok = ArucoConfig_RunCalibration(ch, &why);
+
+    std::ostringstream oss;
+    oss << "{\"type\":\"run_calibration_result\",\"channel\":" << ch
+        << ",\"result\":\"" << (ok ? "accepted" : "error") << "\"";
+    if (!ok) oss << ",\"reason\":\"" << jsonEscape(why) << "\"";
+    oss << ",\"ts\":" << std::time(nullptr) << "}";
+    link.send(oss.str());
+}                                             
+
+// 계산 스레드가 끝났을 때 Qt로 결과를 밀어 보낸다.
+// 요청-응답이 아니라 서버가 먼저 보내는 형태 (센서·감지 메시지와 같은 방향)
+void QtLink_SendCalibRunDone(Link& link, int ch, CalibRunResult r,
+                             const std::string& detail) {
+    // 취소는 사용자가 스스로 누른 것이라 실패와 구분해서 보낸다.
+    // 빨간 오류로 뜨면 자기가 뭘 잘못한 줄 안다
+    const char* word = (r == CalibRunResult::Ok)        ? "ok"
+                     : (r == CalibRunResult::Cancelled) ? "cancelled"
+                     : (r == CalibRunResult::Timeout)   ? "timeout" : "error";
+    std::ostringstream oss;
+    oss << "{\"type\":\"calibration_done\",\"channel\":" << ch
+        << ",\"result\":\"" << word << "\"";
+    if (!detail.empty()) oss << ",\"reason\":\"" << jsonEscape(detail) << "\"";
+    oss << ",\"ts\":" << std::time(nullptr) << "}";
+    link.send(oss.str());
+}
+
+// 계산 중단 요청. 마커를 잘못 놓은 걸 도중에 알아챘을 때 쓴다.       
+// 실제 결과(cancelled)는 계산 스레드가 정리를 마치고 따로 보낸다
+static void handleCancelCalibration(Link& link, const std::string& line) {
+    const int ch = jsonInt(line, "channel", 0);
+    std::string why;
+    const bool ok = ArucoConfig_CancelCalibration(ch, &why);
+
+    std::ostringstream oss;
+    oss << "{\"type\":\"cancel_calibration_result\",\"channel\":" << ch
+        << ",\"result\":\"" << (ok ? "accepted" : "error") << "\"";
+    if (!ok) oss << ",\"reason\":\"" << jsonEscape(why) << "\"";
+    oss << ",\"ts\":" << std::time(nullptr) << "}";
+    link.send(oss.str());
+}
+
+// query target="aruco_config" 응답. Qt 폼에 기존 값을 채워 넣는 용도
+static std::string arucoConfigResult(const std::string& reqId, int ch) {
+    const std::string body = ArucoConfig_ToJson(ch);
+    std::ostringstream oss;
+    oss << "{\"type\":\"query_result\",\"reqId\":\"" << jsonEscape(reqId)
+        << "\",\"target\":\"aruco_config\"";
+    if (body.empty()) oss << ",\"channel\":" << ch << ",\"result\":\"empty\"";
+    else              oss << ",\"result\":\"ok\"," << body;
+    oss << ",\"ts\":" << std::time(nullptr) << "}";
+    return oss.str();
+}                                                                          
+
 // ── 수신 스레드: Qt→서버 방향 ──
 // \n 프레이밍·대기는 Link가 처리하므로 여기선 한 줄씩 받아 라우팅만
 void QtLink_RecvWorker(Link& link, AlarmState& alarm, Database& db) {
@@ -281,17 +463,38 @@ void QtLink_RecvWorker(Link& link, AlarmState& alarm, Database& db) {
         else if (line.find("\"type\":\"emergency_trigger\"") != std::string::npos) 
             handleEmergency(link, db, alarm, line, true);
         else if (line.find("\"type\":\"emergency_clear\"") != std::string::npos)
-            handleEmergency(link, db, alarm, line, false);                                               
+            handleEmergency(link, db, alarm, line, false);     
+        else if (line.find("\"type\":\"false_alarm_report\"") != std::string::npos)  
+            handleFalseAlarmReport(link, db, line);                                                                       
         else if (line.find("\"type\":\"set_ignore_regions\"") != std::string::npos)   
             handleSetIgnoreRegions(link, line);
         else if (line.find("\"type\":\"set_floor_map\"") != std::string::npos)        
-            handleSetFloorMap(link, line);                                           
+            handleSetFloorMap(link, line);                    
+        else if (line.find("\"type\":\"reload_calibration\"") != std::string::npos)   
+            handleReloadCalibration(link, line);    
+        else if (line.find("\"type\":\"set_aruco_config\"") != std::string::npos)     
+            handleSetArucoConfig(link, line);
+        else if (line.find("\"type\":\"run_calibration\"") != std::string::npos)
+            handleRunCalibration(link, line);       
+        else if (line.find("\"type\":\"cancel_calibration\"") != std::string::npos)   
+            handleCancelCalibration(link, line);                                                                                                                        
         else if (line.find("\"type\":\"query\"") != std::string::npos) {
             if (jsonStr(line, "target") == "ignore_regions")
                 link.send(ignoreRegionsResult(jsonInt(line, "channel", 1) - 1,
                                               jsonStr(line, "reqId")));
             else if (jsonStr(line, "target") == "floor_map")                         
-                link.send(floorMapResult(jsonStr(line, "reqId")));                   
+                link.send(floorMapResult(jsonStr(line, "reqId"))); 
+            else if (jsonStr(line, "target") == "clip")                 
+                link.send(clipResult(jsonStr(line, "reqId"),
+                                     jsonStr(line, "path")));    
+            else if (jsonStr(line, "target") == "calib_status")               
+                link.send(calibStatusResult(jsonStr(line, "reqId")));       
+            else if (jsonStr(line, "target") == "snapshot")                   
+                link.send(snapshotResult(jsonStr(line, "reqId"),
+                                         jsonStr(line, "path")));  
+            else if (jsonStr(line, "target") == "aruco_config")              
+                link.send(arucoConfigResult(jsonStr(line, "reqId"),
+                                            jsonInt(line, "channel", 0)));                      
 
             else
                 link.send(handleQuery(db, line));

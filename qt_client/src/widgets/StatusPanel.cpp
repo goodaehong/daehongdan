@@ -476,25 +476,6 @@ StatusPanel::StatusPanel(QWidget *parent)
 
     setActuatorStatus(-1, -1, -1, "", "", "", ""); // 서버 응답 오기 전 초기 표시
 
-    auto *demoLabel = new QLabel("DEMO - 상태 시뮬레이션", contentWidget);
-    demoLabel->setStyleSheet(QString("color:%1; font-size:13px; border:none;").arg(kTextSecondary));
-    heroLayout->addWidget(demoLabel);
-
-    auto *demoRow = new QHBoxLayout;
-    demoRow->setSpacing(8);
-    const QStringList demoNames = { "안전", "경고", "위험" };
-    for (int i = 0; i < 3; ++i) {
-        auto *btn = new QPushButton(demoNames[i], contentWidget);
-        btn->setCheckable(true);
-        const QString c = colorForState(ZoneState(i));
-        btn->setStyleSheet(QString(
-            "QPushButton { color:%1; background:transparent; border:1px solid %1; border-radius:6px; padding:7px; font-size:14px; }"
-            "QPushButton:checked { background-color:%1; color:#0a0a12; font-weight:bold; font-family:\"hanwhaGothic EL\"; }").arg(c));
-        connect(btn, &QPushButton::clicked, this, [this, i]() { emit demoStateRequested(ZoneState(i)); });
-        demoRow->addWidget(btn);
-        demoStateButtons.append(btn);
-    }
-    heroLayout->addLayout(demoRow);
     heroLayout->addStretch();
 }
 
@@ -702,9 +683,6 @@ void StatusPanel::updateZone(const Zone &zone)
     smokeHistoryLabel->setText(smokeTrend.text.isEmpty() ? smokeHistoryText
         : QString("%1 · %2").arg(smokeTrend.text, smokeHistoryText));
     smokeHistoryLabel->setStyleSheet(QString("font-size:12px; border:none; color:%1;").arg(smokeTrend.color));
-
-    for (int i = 0; i < demoStateButtons.size(); ++i)
-        demoStateButtons[i]->setChecked(i == int(zone.state));
 }
 
 void StatusPanel::setActuatorStatus(int fan, int valve, int siren, const QString &link,

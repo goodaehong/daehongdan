@@ -24,6 +24,32 @@ static std::string g_linkReason = "UART 열려있지 않음";
 
 static std::mutex g_mtx;
 
+// UART 포트를 열고 통신 설정을 건다. 성공하면 fd, 실패하면 -1            
+// Actuator_Init 과 재연결이 같은 설정을 써야 해서 함수로 뺐다
+static int openPort(const char* devPath) {
+    int fd = open(devPath, O_RDWR | O_NOCTTY);
+    if (fd < 0) return -1;
+
+    fcntl(fd, F_SETFL, 0);
+
+    struct termios options;
+    tcgetattr(fd, &options);
+    cfsetispeed(&options, B115200);
+    cfsetospeed(&options, B115200);
+
+    options.c_cflag &= ~PARENB;
+    options.c_cflag &= ~CSTOPB;
+    options.c_cflag &= ~CSIZE;
+    options.c_cflag |= CS8;
+    options.c_cflag |= (CLOCAL | CREAD);
+    options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
+    options.c_iflag &= ~(IXON | IXOFF | IXANY);
+    options.c_oflag &= ~OPOST;
+
+    tcsetattr(fd, TCSANOW, &options);
+    return fd;
+}                                                                          
+
 // ── 내부 유틸리티 함수 (static 선언으로 외부 노출 방지) ──
 static uint8_t calcChecksum(uint8_t len, uint8_t cmd, const std::vector<uint8_t>& data) {
     uint8_t checksum = len ^ cmd;
@@ -99,39 +125,21 @@ static bool waitForAck(const std::string& label, std::string* reason = nullptr) 
 
 // ── 외부 공개 API 구현부 ──
 
-bool Actuator_Init(const char* devPath) {
+bool Actuator_Init(const char* devPath) {                                     
     g_devPath = devPath;
-    g_serial_fd = open(devPath, O_RDWR | O_NOCTTY);
+    g_serial_fd = openPort(devPath);
     if (g_serial_fd < 0) {
-        std::cerr << "[오류] UART 열기 실패: " << g_devPath << std::endl;
+        std::cerr << "[오류] UART 열기 실패: " << g_devPath
+                  << " — 보드를 꽂으면 자동으로 다시 붙습니다\n";
         g_linkOk = false;
         g_linkReason = "UART 열려있지 않음";
         return false;
     }
-
-    fcntl(g_serial_fd, F_SETFL, 0);
-
-    struct termios options;
-    tcgetattr(g_serial_fd, &options);
-    cfsetispeed(&options, B115200);
-    cfsetospeed(&options, B115200);
-
-    options.c_cflag &= ~PARENB;
-    options.c_cflag &= ~CSTOPB;
-    options.c_cflag &= ~CSIZE;
-    options.c_cflag |= CS8;
-    options.c_cflag |= (CLOCAL | CREAD);
-    options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
-    options.c_iflag &= ~(IXON | IXOFF | IXANY);
-    options.c_oflag &= ~OPOST;
-
-    tcsetattr(g_serial_fd, TCSANOW, &options);
-
     g_linkOk = true;
     g_linkReason = "";
     std::cout << "[Actuator] UART 연결 성공 (" << g_devPath << ")" << std::endl;
     return true;
-}
+}                                                                       
 
 bool Actuator_Execute(const std::string& target, const std::string& action, const std::string& src, std::string* reason) {
     std::lock_guard<std::mutex> lock(g_mtx);
@@ -182,18 +190,29 @@ bool Actuator_Apply(const Response& r, const std::string& src) {
     return ok;
 }
 
-bool Actuator_Poll() {
+bool Actuator_Poll() {                                                  
     std::lock_guard<std::mutex> lock(g_mtx);
-    if (g_serial_fd < 0) { 
-        g_linkOk = false; 
-        g_linkReason = "UART 열려있지 않음";
-        return false; 
+
+    // 끊겨 있으면 다시 열어본다. 보드를 뽑았다 꽂거나, 서버가 먼저 뜬 경우
+    // 재시작 없이 붙게 하려는 것 (5초 주기로 호출되므로 그 안에 복구)
+    if (g_serial_fd < 0) {
+        g_serial_fd = openPort(g_devPath.c_str());
+        if (g_serial_fd < 0) {
+            g_linkOk = false;
+            g_linkReason = "UART 열려있지 않음";
+            return false;
+        }
+        std::cout << "[Actuator] UART 재연결됨 (" << g_devPath << ")\n";
     }
-    
-    if (!sendPacket(CMD_REQ_STATUS, {})) { 
-        g_linkOk = false; 
-        g_linkReason = "STM 응답 없음"; 
-        return false; 
+
+    // 여기서 실패하면 fd 는 살아 있는데 통신만 죽은 상태일 수 있다
+    // (케이블만 뽑힌 경우). 닫아둬야 다음 호출에서 다시 연다
+    if (!sendPacket(CMD_REQ_STATUS, {})) {
+        ::close(g_serial_fd);
+        g_serial_fd = -1;
+        g_linkOk = false;
+        g_linkReason = "STM 응답 없음";
+        return false;
     }
 
     uint8_t cmd;
@@ -203,10 +222,13 @@ bool Actuator_Poll() {
         g_linkReason = "";
         return true;
     }
+
+    ::close(g_serial_fd);
+    g_serial_fd = -1;
     g_linkOk = false;
     g_linkReason = "STM 응답 없음";
     return false;
-}
+}                                                                     
 
 ActuatorSnapshot Actuator_GetState() {
     std::lock_guard<std::mutex> lock(g_mtx);

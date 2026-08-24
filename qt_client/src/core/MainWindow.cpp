@@ -4,6 +4,7 @@
 #include "../pages/GraphPage.h"
 #include "../pages/HelpPage.h"
 #include "../pages/FloorMapPage.h"
+#include "../widgets/ArucoCalibrationDialog.h"
 #include "../network/ServerLink.h"
 #include "../widgets/WarningAlertDialog.h"
 #include "../widgets/DangerGlowOverlay.h"
@@ -26,7 +27,7 @@
 #include <QColor>
 
 namespace {
-const QString kMediaMtxHost = "172.20.32.41"; // MediaMTX가 도는 라즈베리파이 주소 (카메라 IP 아님)
+const QString kMediaMtxHost = "172.20.35.185"; // MediaMTX가 도는 라즈베리파이 주소 (카메라 IP 아님)
 // 감지/센서/제어 JSON 소켓 주소는 ServerConfig.h(ServerConfig::kServerHost/kServerPort)로 옮김 —
 // LoginPage.cpp가 따로 들고 있던 사본과 어긋나면서 "서버 켜져 있는데 로그인 화면에서 연결 실패로
 // 뜨는" 버그가 났던 적이 있어, 두 파일이 같은 상수를 참조하도록 단일화한다.
@@ -34,6 +35,7 @@ const QString kMediaMtxHost = "172.20.32.41"; // MediaMTX가 도는 라즈베리
 const QStringList kTabNames = { "모니터링", "이벤트로그", "그래프", "평면도", "도움말" };
 
 const QString kBg = "#0a0a12";
+const QString kCardBg = "#14141f";   // 버튼 등 배경과 살짝 구분되는 카드 톤 (다른 화면들과 동일)
 const QString kCardBorder = "#232333";
 const QString kTextPrimary = "#f5f5fa";
 const QString kTextSecondary = "#8d87a0";
@@ -72,10 +74,6 @@ MainWindow::MainWindow(QWidget *parent)
     graphPage = new GraphPage(centralArea);
     floorMapPage = new FloorMapPage(centralArea);
     helpPage = new HelpPage(centralArea);
-
-    connect(monitorPage, &MonitorPage::demoStateRequested, this, [this](ZoneState state) {
-        setZoneState(currentZone, state);
-    });
 
     serverLink = new ServerLink(this);
 
@@ -159,14 +157,20 @@ MainWindow::MainWindow(QWidget *parent)
     // 평면도 "서버로 전송 및 적용" -> set_floor_map. 결과/타임아웃은 FloorMapPage 다이얼로그가
     // 직접 받아 처리하므로(자체 완결형 UI) MainWindow는 그냥 중계만 한다.
     connect(floorMapPage, &FloorMapPage::floorMapUploadRequested, this,
-            [this](const QByteArray &pngBytes) { serverLink->sendSetFloorMap(pngBytes); });
+            [this](const QByteArray &pngBytes, const QString &fileName) {
+                serverLink->sendSetFloorMap(pngBytes, fileName);
+            });
     // floorMapUploadResult는 cmdId가 맨 앞에 있는데(ROI ack와 같은 패턴) FloorMapPage는 업로드를
     // 한 번에 하나만 진행시켜 cmdId 매칭이 필요 없으므로 여기서 버리고 나머지만 넘긴다.
     connect(serverLink, &ServerLink::floorMapUploadResult, this,
             [this](const QString &, bool ok, const QString &reason, int gridSize,
                    const QVector<QVector<int>> &bitmap, const QVector<FloorMapMarker> &displays,
-                   const QVector<FloorMapMarker> &exits, const QVector<FloorMapRoute> &routes) {
-                floorMapPage->onUploadResult(ok, reason, gridSize, bitmap, displays, exits, routes);
+                   const QVector<FloorMapMarker> &exits, const QVector<FloorMapRoute> &routes,
+                   const QString &fileName, qint64 uploadedAt) {
+                floorMapPage->onUploadResult(ok, reason, gridSize, bitmap, displays, exits, routes,
+                                              fileName, uploadedAt);
+                if (ok)
+                    helpPage->updateFloorMapExample(gridSize, bitmap, displays, exits, routes);
             });
     connect(serverLink, &ServerLink::floorMapUploadTimedOut, floorMapPage, &FloorMapPage::onUploadTimedOut);
     // 접속 직후 query target=floor_map 응답 — 서버에 저장된 결과가 있으면(available) 그대로 반영.
@@ -174,9 +178,12 @@ MainWindow::MainWindow(QWidget *parent)
     connect(serverLink, &ServerLink::floorMapReceived, this,
             [this](bool available, int gridSize, const QVector<QVector<int>> &bitmap,
                    const QVector<FloorMapMarker> &displays, const QVector<FloorMapMarker> &exits,
-                   const QVector<FloorMapRoute> &routes) {
-                if (available)
-                    floorMapPage->applyServerData(gridSize, bitmap, displays, exits, routes);
+                   const QVector<FloorMapRoute> &routes, const QString &fileName, qint64 uploadedAt) {
+                if (available) {
+                    floorMapPage->applyServerData(gridSize, bitmap, displays, exits, routes,
+                                                   fileName, uploadedAt);
+                    helpPage->updateFloorMapExample(gridSize, bitmap, displays, exits, routes);
+                }
             });
 
     // 이벤트로그 자체는 서버가 control 처리 시 db.insertEvent()로 이미 남기므로 Qt가 중복으로
@@ -207,12 +214,14 @@ MainWindow::MainWindow(QWidget *parent)
     connect(serverLink, &ServerLink::actuatorStatusReceived, this,
             [this](int fan, int valve, int siren, const QString &link,
                    const QString &fanSrc, const QString &valveSrc, const QString &sirenSrc,
-                   int targetFan, int targetValve, int targetSiren, const QString &linkReason) {
+                   int targetFan, int targetValve, int targetSiren, const QString &linkReason,
+                   bool voice) {
                 currentFan = fan;
                 currentValve = valve;
                 currentSiren = siren;
                 monitorPage->setActuatorStatus(fan, valve, siren, link, fanSrc, valveSrc, sirenSrc,
                                                 targetFan, targetValve, targetSiren, linkReason);
+                monitorPage->setVoiceAnnouncementActive(voice);
             });
 
     connect(serverLink, &ServerLink::visionStatusReceived, this,
@@ -224,6 +233,12 @@ MainWindow::MainWindow(QWidget *parent)
             [this](int channel, int, int srcW, int srcH, bool alarm, const QVector<DetectionBox> &boxes) {
                 monitorPage->updateDetection(channel, srcW, srcH, boxes);
                 monitorPage->setChannelAlarm(channel, alarm);
+            });
+
+    // 사람 감지(명세서 3번 계약) — 판단(state)엔 영향 없이 카메라 카드 배지/오버레이만 갱신.
+    connect(serverLink, &ServerLink::personReceived, this,
+            [this](int channel, int srcW, int srcH, int count, const QVector<DetectionBox> &boxes) {
+                monitorPage->updatePersonBoxes(channel, srcW, srcH, count, boxes);
             });
 
     connect(serverLink, &ServerLink::sensorReceived, this,
@@ -241,6 +256,7 @@ MainWindow::MainWindow(QWidget *parent)
                     if (!zone.name.startsWith(zoneId))
                         continue;
                     const ZoneState oldState = zone.state;
+                    const QString oldCause = zone.cause;
                     zone.temp = temp;
                     zone.humidity = humidity;
                     zone.gasPpm = gasPpm;
@@ -259,8 +275,12 @@ MainWindow::MainWindow(QWidget *parent)
                     zone.hasLiveSensorData = true;
                     if (oldState != zone.state) {
                         zone.stateEnteredAt = QDateTime::currentDateTime();
-                        // 경고/위험 진입, 해제 등 상태가 바뀐 시점 = 서버가 이번 tick에 event_log를
-                        // 남겼을 시점이라 바로 재조회한다 (이벤트로그 "실시간" 반영, 30초 안 기다림).
+                    }
+                    // 상태(state)가 바뀐 시점뿐 아니라, 이미 같은 위험 단계에서 원인(cause)만
+                    // 바뀌는 경우(재감지/재대응 — emergency_reapply류)도 서버가 그때마다 새
+                    // event_log 행을 남긴다. state만 보면 이런 재발생은 15초 타이머까지
+                    // 놓쳐버리므로 cause 변화도 즉시 재조회 트리거에 포함한다.
+                    if (oldState != zone.state || oldCause != zone.cause) {
                         eventLogPage->requestRefresh();
                     }
 
@@ -404,6 +424,34 @@ MainWindow::MainWindow(QWidget *parent)
                 serverLink->sendQuery("event_log", params);
             });
 
+    // 이벤트로그 상세 패널 "재생" — clipPath를 그대로 실어 서버에 clip을 요청하고,
+    // 반환된 reqId를 EventLogPage에 등록해서 나중에 그 응답인지 판별하게 한다(PR #63).
+    connect(eventLogPage, &EventLogPage::clipPlayRequested, this,
+            [this](const QString &path) {
+                QJsonObject params;
+                params["path"] = path;
+                const QString reqId = serverLink->sendQuery("clip", params);
+                eventLogPage->trackClipRequest(reqId);
+            });
+    connect(serverLink, &ServerLink::clipReceived, eventLogPage, &EventLogPage::onClipReceived);
+
+    // 이벤트로그 상세 패널 진입 시 스냅샷 썸네일 자동 조회(PR #69). clip과 동일한 reqId 추적 패턴.
+    connect(eventLogPage, &EventLogPage::snapshotRequested, this,
+            [this](const QString &path) {
+                QJsonObject params;
+                params["path"] = path;
+                const QString reqId = serverLink->sendQuery("snapshot", params);
+                eventLogPage->trackSnapshotRequest(reqId);
+            });
+    connect(serverLink, &ServerLink::snapshotReceived, eventLogPage, &EventLogPage::onSnapshotReceived);
+
+    // "오탐 신고" 클릭 시 발생(PR #75) — 사태(incident) 단위로 서버에 전송.
+    connect(eventLogPage, &EventLogPage::falseAlarmReportRequested, this,
+            [this](qint64 incidentId, const QString &admin, const QString &zoneId) {
+                serverLink->sendFalseAlarmReport(incidentId, admin, zoneId);
+            });
+    connect(serverLink, &ServerLink::falseAlarmResult, eventLogPage, &EventLogPage::onFalseAlarmResult);
+
     // sensor 메시지 흐름 감시(emergency-mode #19). 소켓은 붙어있어도 서버 내부(센서 스레드)가 멎으면
     // sensor가 안 오는데, connectionStateChanged만 보면 이 상태를 "연결됨"으로 잘못 표시하게 된다.
     sensorWatchdogTimer = new QTimer(this);
@@ -413,19 +461,32 @@ MainWindow::MainWindow(QWidget *parent)
     serverLink->connectToServer(ServerConfig::kServerHost, ServerConfig::kServerPort);
 }
 
+// 상태색으로 배경을 살짝 물들인 알약 배지로 통일 — 텍스트 색만 바뀌던 예전보다 한눈에 들어온다.
+static void applyConnBadgeStyle(QLabel *badge, const QString &color, const QString &bgColor)
+{
+    badge->setStyleSheet(QString(
+        "color:%1; background-color:%2; border:1px solid %1; border-radius:12px; "
+        "padding:6px 14px; font-size:14px; font-weight:bold; font-family:\"hanwhaGothic EL\";")
+        .arg(color, bgColor));
+}
+
 void MainWindow::refreshConnBadge()
 {
     if (!socketConnected) {
-        connBadge->setText("<span style='color:#f87171;'>●</span> 서버 연결 끊김");
+        connBadge->setText("● 서버 연결 끊김");
+        applyConnBadgeStyle(connBadge, "#f87171", "#3a1f1f");
+        connBadge->setToolTip("");
         return;
     }
     // 5초 이상 sensor 메시지가 안 오면 서버 내부가 멎은 것으로 판단 (sensor는 매초 고정 주기로 옴).
     const bool stale = lastSensorMsgAt.isValid() && lastSensorMsgAt.msecsTo(QDateTime::currentDateTime()) > 5000;
     if (stale) {
-        connBadge->setText("<span style='color:#fbbf24;'>●</span> 서버 응답 없음 (5초+)");
+        connBadge->setText("● 서버 응답 없음 (5초+)");
+        applyConnBadgeStyle(connBadge, "#fbbf24", "#3a3312");
         connBadge->setToolTip("TCP 연결은 살아있지만 서버로부터 센서 데이터가 5초 이상 오지 않고 있습니다.\n서버(server_main) 프로세스 상태를 확인해야 합니다.");
     } else {
-        connBadge->setText("<span style='color:#34d399;'>●</span> 실시간 연결 중");
+        connBadge->setText("● 서버 실시간 연결 중");
+        applyConnBadgeStyle(connBadge, "#34d399", "#14332a");
         connBadge->setToolTip("");
     }
 }
@@ -527,13 +588,36 @@ QWidget *MainWindow::createTopBar()
     topStatusLabel->setStyleSheet(QString("border:1px solid %1; border-radius:12px; padding:6px 14px; font-size:14px; font-weight:bold; font-family:\"hanwhaGothic EL\";").arg(kCardBorder));
     layout->addWidget(topStatusLabel);
 
-    connBadge = new QLabel("<span style='color:#6b7280;'>●</span> 서버 연결 확인 중...", bar);
-    connBadge->setStyleSheet(QString("color:%1; font-size:14px;").arg(kTextSecondary));
+    connBadge = new QLabel(bar);
     layout->addWidget(connBadge);
+    applyConnBadgeStyle(connBadge, kTextSecondary, "#1c1c2b");
+    connBadge->setText("● 서버 연결 확인 중...");
 
-    auto *logoutBtn = new QPushButton("관리자모드 로그아웃", bar);
-    logoutBtn->setFlat(true);
-    logoutBtn->setStyleSheet(QString("color:%1; background:transparent; border:none; font-size:14px;").arg(kTextSecondary));
+    // 카메라 좌표 보정 — 자주 안 쓰는 설치 작업이라 자리는 오른쪽 끝에 두되, 버튼 자체는
+    // 관리자가 찾기 쉽게 눈에 띄는 아웃라인 버튼으로(예전엔 투명 텍스트라 눈에 안 띔).
+    auto *arucoBtn = new QPushButton("⚙ 카메라 좌표 보정", bar);
+    arucoBtn->setCursor(Qt::PointingHandCursor);
+    arucoBtn->setStyleSheet(QString(
+        "QPushButton { color:%1; background-color:%2; border:1px solid %3; border-radius:14px; "
+        "padding:8px 18px; font-size:14px; font-weight:bold; }"
+        "QPushButton:hover { border:1px solid %4; color:%4; }")
+        .arg(kTextPrimary, kCardBg, kCardBorder, kAccent));
+    connect(arucoBtn, &QPushButton::clicked, this, [this]() {
+        auto *dialog = new ArucoCalibrationDialog(serverLink, this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->exec();
+    });
+    layout->addWidget(arucoBtn);
+
+    // 로그인 계정은 지금 "admin" 하나로 고정돼 있다(LoginPage::kValidId) — 여러 계정을
+    // 지원하게 되면 그때 로그인 성공 시그널에 실제 ID를 실어 여기로 넘기면 된다.
+    auto *logoutBtn = new QPushButton("관리자 admin(ID) 로그아웃", bar);
+    logoutBtn->setCursor(Qt::PointingHandCursor);
+    logoutBtn->setStyleSheet(QString(
+        "QPushButton { color:%1; background-color:%2; border:1px solid %3; border-radius:14px; "
+        "padding:8px 18px; font-size:14px; font-weight:bold; }"
+        "QPushButton:hover { border:1px solid #f87171; color:#f87171; }")
+        .arg(kTextPrimary, kCardBg, kCardBorder));
     connect(logoutBtn, &QPushButton::clicked, this, [this]() {
         emit loggedOut();
         close();
@@ -595,33 +679,6 @@ void MainWindow::switchZone(int index)
     refreshZoneUi();
 }
 
-void MainWindow::setZoneState(int zoneIndex, ZoneState state)
-{
-    const ZoneState oldState = zones[zoneIndex].state;
-    zones[zoneIndex].state = state;
-    if (oldState != state)
-        zones[zoneIndex].stateEnteredAt = QDateTime::currentDateTime();
-    const QString zoneId = zones[zoneIndex].name.left(1);
-    // DEMO 버튼으로도 sensorReceived와 동일하게 "새로 Warning 진입" 시 팝업 (테스트용).
-    // 경고 단계 원인은 3가지(smoke_visual/fire_visual/flame_sensor) 중 데모에서는 smoke_visual로 고정.
-    // 실제 warnRemain은 서버만 아니까, 데모에서는 로컬 타이머로 10초를 직접 세어 실제 흐름을 재현한다.
-    if (oldState != ZoneState::Warning && state == ZoneState::Warning) {
-        const QString &zoneName = zones[zoneIndex].name;
-        showWarningAlert(zoneName, zoneId, "smoke_visual", 10);
-        startDemoWarningCountdown(zoneIndex, zoneId, 10);
-    }
-    if (oldState == ZoneState::Warning && state != ZoneState::Warning) {
-        stopDemoWarningCountdown();
-        if (WarningAlertDialog *dlg = activeWarningDialogs.value(zoneId))
-            dlg->dismiss();
-    }
-    // DEMO 버튼은 로컬 시뮬레이션이라 서버 DB에 안 남음 — 이벤트로그는 이제 서버 조회로만 채워지므로
-    // 여기서 로컬 addEntry()를 만들지 않는다. (DEMO로 위험을 눌러도 로그 목록엔 안 뜨는 게 정상)
-    if (zoneIndex == currentZone)
-        refreshZoneUi();
-    updateDangerIndicators();
-}
-
 void MainWindow::refreshZoneUi()
 {
     const Zone &zone = zones[currentZone];
@@ -655,43 +712,10 @@ void MainWindow::showWarningAlert(const QString &zoneName, const QString &zoneId
     connect(dialog, &WarningAlertDialog::finished, this, [this, zoneId, dialog]() {
         if (activeWarningDialogs.value(zoneId) == dialog)
             activeWarningDialogs.remove(zoneId);
-        // 확인 버튼으로 닫혔든, 상태 전환으로 자동으로 닫혔든 DEMO 카운트다운은 더 이상 필요 없다.
-        stopDemoWarningCountdown();
         dialog->deleteLater();
         warningAlertArea->setVisible(!activeWarningDialogs.isEmpty());
     });
     dialog->show();
-}
-
-void MainWindow::startDemoWarningCountdown(int zoneIndex, const QString &zoneId, int seconds)
-{
-    stopDemoWarningCountdown();
-    demoWarningZoneIndex = zoneIndex;
-    demoWarningZoneId = zoneId;
-    demoWarningRemain = seconds;
-    if (!demoWarningTimer) {
-        demoWarningTimer = new QTimer(this);
-        connect(demoWarningTimer, &QTimer::timeout, this, [this]() {
-            --demoWarningRemain;
-            if (WarningAlertDialog *dlg = activeWarningDialogs.value(demoWarningZoneId))
-                dlg->setRemainingSeconds(demoWarningRemain);
-            if (demoWarningRemain <= 0) {
-                demoWarningTimer->stop();
-                // 서버 없는 DEMO에서도 "10초 무응답 -> 자동 위험 전환" 흐름을 그대로 재현.
-                if (demoWarningZoneIndex >= 0 && demoWarningZoneIndex < zones.size()
-                        && zones[demoWarningZoneIndex].state == ZoneState::Warning) {
-                    setZoneState(demoWarningZoneIndex, ZoneState::Danger);
-                }
-            }
-        });
-    }
-    demoWarningTimer->start(1000);
-}
-
-void MainWindow::stopDemoWarningCountdown()
-{
-    if (demoWarningTimer)
-        demoWarningTimer->stop();
 }
 
 void MainWindow::updateDangerIndicators()

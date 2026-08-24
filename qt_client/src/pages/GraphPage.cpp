@@ -67,6 +67,17 @@ GraphPage::GraphPage(QWidget *parent)
     liveRefreshTimer = new QTimer(this);
     liveRefreshTimer->setSingleShot(true);
     connect(liveRefreshTimer, &QTimer::timeout, this, [this]() {
+        // 자동 전환(노션 확정안 3번): followLatestSegment가 true면(=계속 최신 구간을 보던 중)
+        // 분이 바뀔 때마다 최신 구간을 다시 계산해서 자동으로 넘어간다. 과거 구간을 일부러 보고
+        // 있는 중이면(◀로 벗어나 followLatestSegment=false) 건드리지 않는다.
+        if (currentDate == QDate::currentDate() && followLatestSegment) {
+            const int freshLatest = latestSegmentIndexForDate();
+            if (freshLatest != currentSegmentIndex) {
+                currentSegmentIndex = freshLatest;
+                updateSegmentRangeLabel();
+                updateNavButtons();
+            }
+        }
         requestCurrentPeriod();
         scheduleNextMinuteTick();
     });
@@ -94,7 +105,8 @@ QWidget *GraphPage::createControlBar()
     static const QStringList kPeriodNames = { "10분", "1시간", "6시간", "하루" };
     const QString periodBtnStyle = QString(
         "QPushButton { color:%1; background:transparent; border:1px solid %2; border-radius:6px; padding:6px 14px; font-size:14px; }"
-        "QPushButton:checked { background-color:%3; color:white; border:1px solid %3; }")
+        "QPushButton:checked { background-color:%3; color:white; border:1px solid %3; }"
+        "QPushButton:disabled { color:#4a4658; border:1px solid #2a2a38; background:transparent; }")
         .arg(kTextSecondary, kCardBorder, kAccent);
 
     periodButtons.clear();
@@ -121,34 +133,46 @@ QWidget *GraphPage::createControlBar()
     connect(dateButton, &QPushButton::clicked, this, &GraphPage::showDatePicker);
     row->addWidget(dateButton);
 
-    prevButton = new QPushButton("◀️ 이전", bar);
-    todayButton = new QPushButton("지금", bar);
-    nextButton = new QPushButton("다음 ▶️", bar);
+    // "이전"/"다음"은 이제 날짜가 아니라 "같은 날짜 안에서 구간 하나씩" 이동한다(노션 확정안).
+    // 다른 날짜를 보려면 날짜 선택기를 쓴다 — 그래서 라벨에서 "날"을 뺐다.
+    prevButton = new QPushButton("◀️ 이전 구간", bar);
+    todayButton = new QPushButton("현재", bar);
+    nextButton = new QPushButton("다음 구간 ▶️", bar);
     for (QPushButton *btn : { prevButton, todayButton, nextButton }) {
         btn->setStyleSheet(navBtnStyle);
         row->addWidget(btn);
     }
     connect(prevButton, &QPushButton::clicked, this, [this]() {
-        currentDate = currentDate.addDays(-1);
-        dateButton->setText("📅 " + currentDate.toString("yyyy-MM-dd"));
+        if (currentSegmentIndex <= 0)
+            return;
+        --currentSegmentIndex;
+        followLatestSegment = false; // 최신 구간에서 벗어났으니 자동 전환 중단
+        updateSegmentRangeLabel();
         updateNavButtons();
         requestCurrentPeriod();
     });
     connect(nextButton, &QPushButton::clicked, this, [this]() {
-        currentDate = currentDate.addDays(1);
-        dateButton->setText("📅 " + currentDate.toString("yyyy-MM-dd"));
+        const int latest = latestSegmentIndexForDate();
+        if (currentSegmentIndex >= latest)
+            return;
+        ++currentSegmentIndex;
+        followLatestSegment = (currentSegmentIndex >= latest); // 최신 구간까지 돌아왔으면 다시 자동 전환 대상
+        updateSegmentRangeLabel();
         updateNavButtons();
         requestCurrentPeriod();
     });
     connect(todayButton, &QPushButton::clicked, this, [this]() {
         currentDate = QDate::currentDate();
         dateButton->setText("📅 " + currentDate.toString("yyyy-MM-dd"));
-        updateNavButtons();
-        requestCurrentPeriod();
+        resetToLatestSegment();
     });
 
     row->addStretch();
     outer->addLayout(row);
+
+    segmentRangeLabel = new QLabel(bar);
+    segmentRangeLabel->setStyleSheet(QString("color:%1; font-size:12px;").arg(kAccent));
+    outer->addWidget(segmentRangeLabel);
 
     legendLabel = new QLabel(bar);
     legendLabel->setStyleSheet("color:#d8d4e8; font-size:13px;");
@@ -166,10 +190,57 @@ QWidget *GraphPage::createControlBar()
 
     currentDate = QDate::currentDate();
     dateButton->setText("📅 " + currentDate.toString("yyyy-MM-dd"));
-    selectPeriod(0);
-    updateNavButtons();
+    currentPeriodIndex = 0;
+    periodButtons[0]->setChecked(true);
+    legendLabel->setVisible(false);
+    resetToLatestSegment();
 
     return bar;
+}
+
+int GraphPage::periodMinutes(int index) const
+{
+    // 기간 버튼 4개 = 10분/1시간/6시간/하루 (노션 확정안 — 기간 버튼은 "그 날짜 안 구간 크기").
+    static const int kMinutes[] = { 10, 60, 360, 1440 };
+    return kMinutes[qBound(0, index, 3)];
+}
+
+int GraphPage::segmentsPerDay(int index) const
+{
+    return 1440 / periodMinutes(index);
+}
+
+int GraphPage::latestSegmentIndexForDate() const
+{
+    const bool isToday = currentDate == QDate::currentDate();
+    if (!isToday)
+        return segmentsPerDay(currentPeriodIndex) - 1; // 과거 날짜는 항상 그 날의 마지막 구간까지
+    const QTime now = QTime::currentTime();
+    const int minutesSinceMidnight = now.hour() * 60 + now.minute();
+    return qBound(0, minutesSinceMidnight / periodMinutes(currentPeriodIndex), segmentsPerDay(currentPeriodIndex) - 1);
+}
+
+void GraphPage::resetToLatestSegment()
+{
+    currentSegmentIndex = latestSegmentIndexForDate();
+    followLatestSegment = true;
+    updateSegmentRangeLabel();
+    updateNavButtons();
+    requestCurrentPeriod();
+}
+
+void GraphPage::updateSegmentRangeLabel()
+{
+    if (!segmentRangeLabel)
+        return;
+    const int minutes = periodMinutes(currentPeriodIndex);
+    if (minutes >= 1440) {
+        segmentRangeLabel->setText("구간: 하루 전체");
+        return;
+    }
+    const QDateTime from = QDateTime(currentDate, QTime(0, 0)).addSecs(qint64(currentSegmentIndex) * minutes * 60);
+    const QDateTime to = from.addSecs(qint64(minutes) * 60);
+    segmentRangeLabel->setText(QString("구간: %1 ~ %2").arg(from.toString("HH:mm"), to.toString("HH:mm")));
 }
 
 void GraphPage::selectPeriod(int index)
@@ -179,14 +250,15 @@ void GraphPage::selectPeriod(int index)
         periodButtons[i]->setChecked(i == index);
     // 10분/1시간은 원본 그대로(선 1개), 6시간/하루는 구간 집계(AVG+MAX 두 선)라 범례를 켠다.
     legendLabel->setVisible(index >= 2);
-    requestCurrentPeriod();
+    resetToLatestSegment(); // 구간 크기가 바뀌었으니 그 날짜의 최신 구간으로 다시 잡는다
 }
 
 void GraphPage::updateNavButtons()
 {
     const bool isToday = currentDate == QDate::currentDate();
-    nextButton->setEnabled(!isToday);
-    todayButton->setEnabled(!isToday);
+    todayButton->setEnabled(!isToday || currentSegmentIndex != latestSegmentIndexForDate());
+    prevButton->setEnabled(currentSegmentIndex > 0);
+    nextButton->setEnabled(currentSegmentIndex < latestSegmentIndexForDate());
 }
 
 void GraphPage::showDatePicker()
@@ -202,6 +274,8 @@ void GraphPage::showDatePicker()
 
     auto *calendar = new QCalendarWidget(popup);
     calendar->setGridVisible(true);
+    // 기본값은 왼쪽에 ISO 주차 번호(31~36 등)를 같이 보여주는데, 날짜(1~31)와 헷갈려서 숨긴다.
+    calendar->setVerticalHeaderFormat(QCalendarWidget::NoVerticalHeader);
     calendar->setMaximumDate(QDate::currentDate()); // 미래 날짜는 데이터가 없으니 선택 불가
     calendar->setSelectedDate(currentDate);
     calendar->setStyleSheet(
@@ -228,8 +302,7 @@ void GraphPage::showDatePicker()
     auto pickDate = [this, popup](const QDate &date) {
         currentDate = date;
         dateButton->setText("📅 " + currentDate.toString("yyyy-MM-dd"));
-        updateNavButtons();
-        requestCurrentPeriod();
+        resetToLatestSegment(); // 고른 날짜의 최신(과거면 마지막) 구간부터 보여준다
         // 클릭한 칸이 보라색으로 바뀌는 게 눈에 보일 시간을 살짝 준 뒤 닫는다.
         // (바로 닫아버리면 선택 표시가 뜨는 걸 볼 틈이 없었다.)
         QTimer::singleShot(150, popup, [popup]() { popup->close(); });
@@ -246,36 +319,39 @@ void GraphPage::requestCurrentPeriod()
     if (currentZoneId.isEmpty())
         return; // 아직 구역 정보를 한 번도 못 받음(초기 생성 시점 등)
 
-    // 기간 버튼 4개 = 10분/1시간/6시간/하루 (명세서 3-2 기간 버튼 표와 동일)
-    static const qint64 kPeriodSeconds[] = { 600, 3600, 21600, 86400 };
-    const bool isToday = currentDate == QDate::currentDate();
-
-    qint64 from, to;
-    if (currentPeriodIndex == 3) {
-        // "하루"는 롤링 24시간이 아니라 달력 날짜 기준 — 항상 그 날 00:00부터 시작해서
-        // 오늘이면 지금까지, 과거 날짜면 그 날 23:59까지.
-        // (예전엔 과거 날짜일 때 아래 else 분기의 "to - 86400"을 그대로 타서 자정이 아니라
-        //  전날 23:59:59부터 시작하는 버그가 있었다 — 하루만 따로 항상 처리하도록 분리)
-        from = QDateTime(currentDate, QTime(0, 0)).toSecsSinceEpoch();
-        to = isToday
-            ? QDateTime::currentSecsSinceEpoch()
-            : QDateTime(currentDate, QTime(23, 59, 59)).toSecsSinceEpoch();
-    } else {
-        // 10분/1시간/6시간은 "지금 기준 최근 N": 과거 날짜를 조회 중이면 그 날 23:59:59를
-        // 끝점으로 삼아 거기서 기간만큼 거슬러 올라간다.
-        to = isToday
-            ? QDateTime::currentSecsSinceEpoch()
-            : QDateTime(currentDate, QTime(23, 59, 59)).toSecsSinceEpoch();
-        from = to - kPeriodSeconds[currentPeriodIndex];
-    }
+    // 노션 확정안: 기간 버튼은 "지금 기준 최근 N"이 아니라 currentDate 안에서 :00/:10/:20...
+    // 정각 경계로 정렬된 구간 크기이고, currentSegmentIndex가 그 날 몇 번째 구간인지를 가리킨다.
+    // 예) 10분 구간, currentSegmentIndex=86이면 그 날 14:20~14:30 — 오늘이고 지금이 14:23이면
+    // 서버엔 그대로 14:20~14:30을 요청하고(정렬 유지), 14:23 이후 데이터가 없을 뿐이다.
+    const int minutes = periodMinutes(currentPeriodIndex);
+    const qint64 from = QDateTime(currentDate, QTime(0, 0))
+        .addSecs(qint64(currentSegmentIndex) * minutes * 60).toSecsSinceEpoch();
+    const qint64 to = from + qint64(minutes) * 60;
+    // 진행 중인 구간(예: 14:20~14:30인데 지금 14:23)이어도 경계를 그대로 요청한다 — 서버는
+    // 어차피 지금까지 쌓인 데이터만 돌려주고, 그래프는 남은 구간을 오른쪽에 빈 채로 그린다
+    // (currentSegmentRangeFrom/To로 그대로 넘겨서 축 정렬에 쓴다).
+    currentSegmentRangeFrom = from;
+    currentSegmentRangeTo = to;
 
     emit sensorLogRequested(currentZoneId, from, to);
 }
 
 void GraphPage::loadSensorLogFromServer(const QJsonArray &rows)
 {
-    if (rows.isEmpty())
-        return; // 빈 결과 -> 기존 화면 유지 (아무것도 없다고 빈 그래프로 덮어쓰지 않음)
+    if (rows.isEmpty()) {
+        // 예전엔 그냥 return해서 이전 화면을 그대로 유지했는데, 구간 개념이 생긴 지금은 "다른
+        // 구간을 보는 중인데 이전 구간 그래프가 그대로 남아있다"는 혼동을 준다(구간 라벨은
+        // 새 구간을 가리키는데 그래프는 옛 구간 데이터 — 서버가 안 죽고 그냥 그 구간에 데이터가
+        // 없는 것뿐인데 마치 버그처럼 보임). 빈 결과도 명시적으로 반영해서 그래프를 비운다.
+        sampleTimes.clear();
+        gasGraph->setSeries({}, {}, {}, {}, currentSegmentRangeFrom, currentSegmentRangeTo);
+        smokeGraph->setSeries({}, {}, {}, {}, currentSegmentRangeFrom, currentSegmentRangeTo);
+        rebuildEventMarkers();
+        noteLabel->setText("이 구간에는 데이터가 없습니다.");
+        noteLabel->setStyleSheet(QString("color:%1; font-size:13px;").arg(kTextSecondary));
+        noteLabel->setVisible(true);
+        return;
+    }
 
     QVector<double> gasAvg, gasMax, smokeAvg, smokeMax;
     QStringList timeLabels;
@@ -300,9 +376,13 @@ void GraphPage::loadSensorLogFromServer(const QJsonArray &rows)
 
     // 포인트별로 다 넘겨야(끝점 2개만이 아니라) 그래프에 마우스오버 시 정확한 시각이 뜬다.
     // bucketSec==1(원본)이면 서버가 avg==max로 그대로 보내므로(명세서 3-2), 그때만 단일 선으로 그린다.
+    // sampleTimes/currentSegmentRangeFrom·To를 같이 넘겨서, 진행 중인 구간의 아직 안 지난
+    // 오른쪽 부분이 빈 채로 보이도록 한다(노션 확정안 — 정각 정렬 구간).
     const bool dual = gasAvg != gasMax;
-    gasGraph->setSeries(gasAvg, dual ? gasMax : QVector<double>{}, timeLabels);
-    smokeGraph->setSeries(smokeAvg, dual ? smokeMax : QVector<double>{}, timeLabels);
+    gasGraph->setSeries(gasAvg, dual ? gasMax : QVector<double>{}, timeLabels,
+                         sampleTimes, currentSegmentRangeFrom, currentSegmentRangeTo);
+    smokeGraph->setSeries(smokeAvg, dual ? smokeMax : QVector<double>{}, timeLabels,
+                           sampleTimes, currentSegmentRangeFrom, currentSegmentRangeTo);
     rebuildEventMarkers(); // x축 시각 범위가 바뀌었으니 마커 위치도 다시 계산
     noteLabel->setVisible(false);
 }
@@ -335,21 +415,19 @@ void GraphPage::rebuildEventMarkers()
 {
     QVector<GraphEventMarker> markers;
 
-    // 표본이 2개 미만이면 x축 범위 자체가 없어서 위치를 잡을 수 없다.
-    if (sampleTimes.size() >= 2) {
-        const qint64 first = sampleTimes.first();
-        const qint64 last = sampleTimes.last();
-        if (last > first) {
-            for (const EventStamp &stamp : eventStamps) {
-                // 지금 보고 있는 시간 범위 밖의 사건은 그냥 버린다(다른 날짜를 보는 중 등).
-                if (stamp.ts < first || stamp.ts > last)
-                    continue;
-                GraphEventMarker m;
-                m.xRatio = double(stamp.ts - first) / double(last - first);
-                m.danger = stamp.danger;
-                m.label = stamp.label;
-                markers.append(m);
-            }
+    // 그래프 데이터 선이 이제 구간 경계(currentSegmentRangeFrom~To) 기준 시간 비율로 그려지므로,
+    // 마커도 같은 기준을 써야 데이터 선과 위치가 어긋나지 않는다(예전엔 표본 첫/끝 시각 기준이라
+    // 진행 중인 구간에서 서로 다른 축척을 쓰게 되는 문제가 있었다).
+    if (currentSegmentRangeTo > currentSegmentRangeFrom) {
+        for (const EventStamp &stamp : eventStamps) {
+            // 지금 보고 있는 구간 밖의 사건은 그냥 버린다(다른 날짜/구간을 보는 중 등).
+            if (stamp.ts < currentSegmentRangeFrom || stamp.ts > currentSegmentRangeTo)
+                continue;
+            GraphEventMarker m;
+            m.xRatio = double(stamp.ts - currentSegmentRangeFrom) / double(currentSegmentRangeTo - currentSegmentRangeFrom);
+            m.danger = stamp.danger;
+            m.label = stamp.label;
+            markers.append(m);
         }
     }
 

@@ -1,6 +1,7 @@
 #include "speaker_alert.h"
 #include <atomic>
 #include <thread>
+#include <chrono>
 #include <mutex>
 #include <iostream>
 #include <csignal>
@@ -39,6 +40,14 @@ namespace {
                 std::lock_guard<std::mutex> lock(g_childMutex);
                 g_childPid = -1;
             }
+
+            // 오디오 장치가 없는 등 aplay가 즉시 실패하면 간격 없이 반복 재시도돼서 로그가
+            // 도배됨(정상 재생은 음성 길이만큼 이미 간격이 있어 영향 없음) — 리뷰 지적 반영.
+            // 통짜로 2초 자면 Stop()의 join()도 그만큼 묶이므로, 100ms씩 쪼개서 중단 신호를 본다.
+            if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
+                for (int i = 0; i < 20 && g_alarmActive.load(); ++i)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
         }
     }
 }
@@ -59,3 +68,7 @@ void SpeakerAlert_Stop() {
     if (g_thread.joinable()) g_thread.join();
     std::cout << "[스피커] 경고음 재생 중단\n";
 }
+
+bool SpeakerAlert_IsActive() {                              
+    return g_alarmActive.load();
+}                   

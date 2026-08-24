@@ -8,6 +8,7 @@
 #include <QSslError>
 #include "../core/DetectionTypes.h"
 #include "../core/FloorMapTypes.h"
+#include "../core/ArucoTypes.h"
 
 class QSslSocket;
 class QTimer;
@@ -35,7 +36,9 @@ public:
     QString sendEmergencyTrigger(const QString &zone, const QString &cause, const QString &admin);
     // checklist: "현장 확인" 항목 키 목록(예: "gas_smell","valve_closed","personnel_returned"). 원인별로 다름.
     QString sendEmergencyClear(const QString &zone, const QString &admin, const QStringList &checklist);
-    void sendFalseAlarmReport(int channel, int frameId, const QString &admin);
+    // 오탐 신고(PR #75) — 사태(incident) 단위로 처리된다. 서버가 그 incidentId를 가진 모든
+    // event_log 행을 "오탐 처리됨"으로 한 번에 바꾸고 false_alarm_ack로 응답한다.
+    void sendFalseAlarmReport(qint64 incidentId, const QString &admin, const QString &zone);
     // 관리자가 경고 팝업의 "확인"을 눌렀을 때만 호출. 무응답 자동 전환은 서버가 자체 타이머로 판단한다.
     void sendWarningAck(const QString &zone, const QString &admin);
 
@@ -51,12 +54,37 @@ public:
     // 평면도 원본 이미지(PNG 바이트, 최대 6MB) 업로드 + 변환 요청. 반환값 cmdId로
     // floorMapUploadResult/floorMapUploadTimedOut 매칭. 이미지 저장 + EvacPlanner 변환까지
     // 걸리는 작업이라 control(3초)보다 타임아웃을 길게 둔다.
-    QString sendSetFloorMap(const QByteArray &pngBytes);
+    // fileName: 원본 파일명(확장자 포함) — 서버가 등록 정보에 같이 저장해서 "언제·무슨 파일이
+    // 등록됐는지" 조회 때 돌려준다(PR #69). 없어도 되지만 안 주면 시각만으로 구분해야 한다.
+    QString sendSetFloorMap(const QByteArray &pngBytes, const QString &fileName);
+
+    // ArUco 보정 파일(배치도/렌즈보정/Homography) 재로드 요청 — 서버 재시작 없이 해당 채널
+    // 워커가 다음 프레임에 다시 읽는다. cmdId가 없는 프로토콜이라 channel로만 매칭 —
+    // reload_calibration_result는 "접수했다"는 응답일 뿐, 실제 완료 여부는 calib_status를
+    // 다시 조회해서 확인해야 한다.
+    void sendReloadCalibration(int channel);
+
+    // ArUco 좌표 설정(공장/모형/보드 범위 + 마커 배치) 저장. 실패해도 서버는 기존 설정을 유지한다
+    // (2026-08-21 대홍 회신). cmdId 없는 프로토콜 — channel로만 매칭, 응답은 arucoConfigResult.
+    void sendSetArucoConfig(const ArucoChannelConfig &config);
+    // 채널의 현재 좌표 설정 조회 — 설정 폼을 열 때 기존 값을 채우는 용도. sendQuery와 동일하게
+    // reqId로 매칭되지만 응답 구조가 달라(rows 배열이 아님) query_result 안에서 따로 분기한다.
+    QString sendQueryArucoConfig(int channel);
+    // 보정 계산 실행. 응답(runCalibrationResult)은 "접수했다"는 뜻일 뿐 완료가 아니다 — 실제
+    // 완료·실패·취소·타임아웃은 서버가 나중에 먼저 보내는 calibrationDone 시그널로 온다.
+    void sendRunCalibration(int channel);
+    // 실행 중인 보정 계산 중단.
+    void sendCancelCalibration(int channel);
 
 signals:
     void connectionStateChanged(bool connected);
 
     void detectionReceived(int channel, int frameId, int srcW, int srcH, bool alarm, const QVector<DetectionBox> &boxes);
+    // 사람 감지(명세서 3번 계약). 카메라(WiseAI)가 검출, 서버는 ONVIF 메타데이터 중계만 함 —
+    // 판단(state)엔 반영 안 되고 대피 인원 확인용. box.cls는 항상 "PERSON"으로 채워서
+    // DetectionOverlay가 화재/연기 박스와 같은 그리기 경로를 그대로 쓰게 한다(색만 하늘색으로 구분).
+    // count는 서버가 받은 원본 개수 — boxes.size()와 다를 수 있음(Qt가 score로 거르지 않는 한 보통 같음).
+    void personReceived(int channel, int srcW, int srcH, int count, const QVector<DetectionBox> &boxes);
     // cause: server/judgement.h Cause 네임스페이스 값(gas/smoke_visual/fire_confirmed 등). safe면 빈 문자열.
     // warnRemain: warning 상태일 때만 서버가 채워 보냄(무응답 자동 전환까지 남은 초). 그 외엔 -1.
     // flameVal: 불꽃센서(DFR0076) 전압(V). 클수록 강함.
@@ -80,9 +108,11 @@ signals:
     // targetFan/targetValve/targetSiren: 서버가 내리려 한 목표값. fan/valve/siren(STM이 실제 수용한 값)과
     // 비교해서 어느 장치가 명령 미반영인지 판별한다 (emergency-mode #15).
     // linkReason: STM 링크 끊김 사유 문구. 정상이거나 구버전 서버면 빈 문자열 (emergency-mode #16).
+    // voice: 대피 음성 안내 송출 중 여부(0/1을 bool로). 사이렌(STM 부저)과 별개 장치라 따로 옴(PR #69).
     void actuatorStatusReceived(int fan, int valve, int siren, const QString &link,
                                  const QString &fanSrc, const QString &valveSrc, const QString &sirenSrc,
-                                 int targetFan, int targetValve, int targetSiren, const QString &linkReason);
+                                 int targetFan, int targetValve, int targetSiren, const QString &linkReason,
+                                 bool voice);
 
     void controlResult(const QString &cmdId, const QString &zone, const QString &target,
                         const QString &result, const QString &reason);
@@ -104,15 +134,47 @@ signals:
     void ignoreRegionsReceived(int channel, double overlapThreshold, const QVector<RoiRegion> &regions);
 
     // set_floor_map 응답(floor_map_result). ok=false면 gridSize 이하 필드는 비어있다(reason 참고).
+    // fileName/uploadedAt은 PR #69 — 언제·어떤 파일로 등록됐는지 화면에 보여주기 위함.
     void floorMapUploadResult(const QString &cmdId, bool ok, const QString &reason,
                                int gridSize, const QVector<QVector<int>> &bitmap,
                                const QVector<FloorMapMarker> &displays, const QVector<FloorMapMarker> &exits,
-                               const QVector<FloorMapRoute> &routes);
+                               const QVector<FloorMapRoute> &routes,
+                               const QString &fileName, qint64 uploadedAt);
     void floorMapUploadTimedOut(const QString &cmdId);
     // query target=floor_map 응답. available=false면 서버에 저장된 변환 결과가 아직 없음(result:"empty").
     void floorMapReceived(bool available, int gridSize, const QVector<QVector<int>> &bitmap,
                            const QVector<FloorMapMarker> &displays, const QVector<FloorMapMarker> &exits,
-                           const QVector<FloorMapRoute> &routes);
+                           const QVector<FloorMapRoute> &routes,
+                           const QString &fileName, qint64 uploadedAt);
+
+    // query target=calib_status 응답 — 4채널 보정 단계 전부 한 번에(PR #65).
+    void calibStatusReceived(const QVector<CalibChannelStatus> &channels);
+    // reload_calibration 응답. accepted=true는 "접수됐다"는 뜻일 뿐 완료가 아니다 —
+    // 실제로 다 됐는지는 이후 calibStatusReceived로 다시 확인해야 한다.
+    void calibReloadResult(int channel, bool accepted, const QString &reason);
+
+    // set_aruco_config 응답. ok=false면 reason에 실패 사유(한글, 그대로 표시 가능)가 채워진다.
+    void arucoConfigResult(int channel, bool ok, const QString &reason);
+    // query target=aruco_config 응답. available=false면 그 채널에 아직 설정된 좌표가 없음
+    // (result:"empty") — config는 비어있는 채로 온다.
+    void arucoConfigReceived(int channel, bool available, const ArucoChannelConfig &config);
+    // run_calibration 응답. accepted=true는 "접수했다"는 뜻일 뿐 완료가 아니다 —
+    // 실제 결과는 이후 calibrationDone으로 (서버가 먼저) 온다.
+    void runCalibrationResult(int channel, bool accepted, const QString &reason);
+    void cancelCalibrationResult(int channel, bool accepted, const QString &reason);
+    // 서버가 요청 없이 먼저 보내는 보정 완료 알림. result: "ok"/"error"/"cancelled"/"timeout".
+    // cancelled는 사용자가 직접 중단한 것이라 오류로 표시하면 안 된다. reason은 실패/타임아웃일 때
+    // 서버가 같이 보내는 실패 사유(한글, 그대로 표시 가능) — ok/cancelled면 보통 비어있다.
+    void calibrationDone(int channel, const QString &result, const QString &reason);
+
+    // query target=clip 응답. result: "ok"(data에 mp4 바이트) / "empty"(아직 저장 중,
+    // 이벤트 후 약 15초 이내) / "error". ok가 아니면 data는 비어있다.
+    void clipReceived(const QString &reqId, const QString &result, const QByteArray &data);
+    // query target=snapshot 응답(PR #69). 형태는 clipReceived와 동일(ok/empty/error), jpg 원본 바이트.
+    void snapshotReceived(const QString &reqId, const QString &result, const QByteArray &data);
+    // false_alarm_ack 응답(PR #75). ok=false면 updated는 의미 없고 reason에 실패 사유가 채워진다
+    // (해당 사태를 못 찾음 등).
+    void falseAlarmResult(qint64 incidentId, bool ok, int updated, const QString &reason);
 
 private slots:
     void onReadyRead();

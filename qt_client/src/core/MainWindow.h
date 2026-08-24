@@ -36,9 +36,6 @@ signals:
 protected:
     void resizeEvent(QResizeEvent *event) override;
 
-private slots:
-    void setZoneState(int zoneIndex, ZoneState state);
-
 private:
     QWidget *createTopBar();
     QWidget *createSubTabBar();
@@ -108,14 +105,5 @@ private:
     // zoneId -> 현재 표시 중인 상단 경고 배너. sensor 메시지의 warnRemain을 실시간으로 반영하거나,
     // 경고 상태를 벗어나면(안전 복귀/위험 전환) 자동으로 닫기 위해 추적한다.
     QMap<QString, WarningAlertDialog *> activeWarningDialogs;
-
-    // DEMO 버튼으로 띄운 경고는 서버가 없어 warnRemain을 받을 수 없으므로,
-    // 여기서만 로컬로 1초마다 카운트다운하고 0이 되면 위험으로 자동 전환해 실제 흐름을 재현한다.
-    void startDemoWarningCountdown(int zoneIndex, const QString &zoneId, int seconds);
-    void stopDemoWarningCountdown();
-    QTimer *demoWarningTimer = nullptr;
-    QString demoWarningZoneId;
-    int demoWarningZoneIndex = -1;
-    int demoWarningRemain = 0;
 };
 #endif // MAINWINDOW_H

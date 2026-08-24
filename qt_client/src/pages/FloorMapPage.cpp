@@ -13,6 +13,7 @@
 #include <QStringList>
 #include <QBuffer>
 #include <QStackedWidget>
+#include <QDateTime>
 
 namespace {
 const QString kTextPrimary = "#f5f5fa";
@@ -48,6 +49,12 @@ FloorMapPage::FloorMapPage(QWidget *parent)
     connect(resetButton, &QPushButton::clicked, this, &FloorMapPage::openSetupPanel);
     headerRow->addWidget(resetButton);
     layout->addLayout(headerRow);
+
+    // 자동복원됐을 때 "이게 언제 올라간 평면도인지" 확인용 (PR #69 fileName/uploadedAt).
+    registeredInfoLabel = new QLabel(this);
+    registeredInfoLabel->setStyleSheet(QString("color:%1; font-size:12px;").arg(kTextSecondary));
+    registeredInfoLabel->setVisible(false);
+    layout->addWidget(registeredInfoLabel);
 
     // 지도 미등록 상태를 탭 배지("❗ 평면도")뿐 아니라 탭에 들어오는 즉시도 알 수 있도록
     // 페이지 최상단에 배너로 한 번 더 표시한다.
@@ -214,6 +221,7 @@ void FloorMapPage::openSetupPanel()
             return;
         }
 
+        pendingFileName = QFileInfo(path).fileName();
         pendingOriginalImage.load(path);
         if (pendingOriginalImage.isNull()) {
             originalPreviewLabel->setText("이미지를 열 수 없습니다");
@@ -236,7 +244,7 @@ void FloorMapPage::openSetupPanel()
         buffer.close();
 
         setDialogBusy(true, "서버로 전송 중...\n(이미지 저장 + 대피경로 변환)");
-        emit floorMapUploadRequested(pngBytes);
+        emit floorMapUploadRequested(pngBytes, pendingFileName);
     });
 
     setupDialog->exec();
@@ -250,13 +258,16 @@ void FloorMapPage::openSetupPanel()
     applyButton = nullptr;
     closeButton = nullptr;
     pendingOriginalImage = QImage();
+    pendingFileName.clear();
 }
 
 void FloorMapPage::applyServerData(int gridSize, const QVector<QVector<int>> &bitmap,
                                     const QVector<FloorMapMarker> &displays, const QVector<FloorMapMarker> &exits,
-                                    const QVector<FloorMapRoute> &routes)
+                                    const QVector<FloorMapRoute> &routes,
+                                    const QString &fileName, qint64 uploadedAt)
 {
     gridWidget->setMapData(gridSize, bitmap, displays, exits, routes);
+    updateRegisteredInfo(fileName, uploadedAt);
 
     const bool wasConfigured = hasData;
     hasData = true;
@@ -265,12 +276,26 @@ void FloorMapPage::applyServerData(int gridSize, const QVector<QVector<int>> &bi
         emit configuredChanged(true);
 }
 
+void FloorMapPage::updateRegisteredInfo(const QString &fileName, qint64 uploadedAt)
+{
+    if (uploadedAt <= 0) {
+        registeredInfoLabel->setVisible(false);
+        return;
+    }
+    const QString when = QDateTime::fromSecsSinceEpoch(uploadedAt).toString("yyyy-MM-dd HH:mm");
+    registeredInfoLabel->setText(fileName.isEmpty()
+        ? QString("등록: %1").arg(when)
+        : QString("등록: %1 · %2").arg(fileName, when));
+    registeredInfoLabel->setVisible(true);
+}
+
 void FloorMapPage::onUploadResult(bool ok, const QString &reason, int gridSize, const QVector<QVector<int>> &bitmap,
                                    const QVector<FloorMapMarker> &displays, const QVector<FloorMapMarker> &exits,
-                                   const QVector<FloorMapRoute> &routes)
+                                   const QVector<FloorMapRoute> &routes,
+                                   const QString &fileName, qint64 uploadedAt)
 {
     if (ok) {
-        applyServerData(gridSize, bitmap, displays, exits, routes); // 뒤에 깔린 평면도 탭도 바로 반영
+        applyServerData(gridSize, bitmap, displays, exits, routes, fileName, uploadedAt); // 뒤에 깔린 평면도 탭도 바로 반영
 
         // 자동으로 닫지 않고, 변환 결과를 다이얼로그 안에서 원본과 나란히 보여준다.
         // 사용자가 "닫기"를 눌러야 accept() -> exec() 리턴으로 이어진다.

@@ -34,11 +34,18 @@ bool Database::open(const std::string& path) {
         " gas_ppm REAL, smoke_ppm REAL,"
         " status TEXT, duration_ms INTEGER,"
         " snapshot_path TEXT, incident_id INTEGER,"
+        " clip_path TEXT,"
         " detail TEXT);"
         "CREATE INDEX IF NOT EXISTS idx_event_ts ON event_log(ts);"
         "CREATE INDEX IF NOT EXISTS idx_event_zone ON event_log(zone, ts);";
 
     if (!exec(sensorSql) || !exec(eventSql)) return false;
+
+    // 이미 만들어진 DB에는 CREATE TABLE IF NOT EXISTS가 새 컬럼을 안 붙인다. 
+    // 두 번째 실행부터는 "이미 있음"으로 실패하는 게 정상이라
+    // 에러를 찍는 exec() 대신 raw 호출로 조용히 무시한다
+    sqlite3_exec(db_, "ALTER TABLE event_log ADD COLUMN clip_path TEXT;",
+                 nullptr, nullptr, nullptr);                                
 
     std::cout << "[DB] 열기 성공: " << path << "\n";
     return true;
@@ -156,6 +163,59 @@ void Database::resolveIncident(long incidentId, long durationMs) {   //  duratio
     sqlite3_finalize(st);
 }          
 
+// ── 오탐 판정 ── 그 사태의 모든 행을 "오탐 처리됨"으로 바꾼다            
+// 해제(resolve)까지 포함해 통째로 바꾼다 — 사건 자체가 오탐이었다는 뜻이라
+// 일부만 오탐으로 남기면 목록에서 상태가 뒤섞인다
+int Database::markFalseAlarm(long incidentId) {
+    std::lock_guard<std::mutex> lock(mtx_);
+    if (!db_ || incidentId <= 0) return 0;
+    const char* sql = "UPDATE event_log SET status='오탐 처리됨' WHERE incident_id=?;";
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &st, nullptr) != SQLITE_OK) return 0;
+    sqlite3_bind_int64(st, 1, incidentId);
+    sqlite3_step(st);
+    sqlite3_finalize(st);
+    return sqlite3_changes(db_);   // 실제로 바뀐 행 수
+}                                                             
+
+// ── DB에 남은 마지막 사태 번호 ──                                       
+// 사태 번호는 메모리 카운터라 서버를 껐다 켜면 1부터 다시 나온다.
+// 그러면 옛 로그와 번호가 겹쳐 해결 처리·클립 경로가 엉뚱한 행을 건드린다
+long Database::maxIncidentId() {
+    std::lock_guard<std::mutex> lock(mtx_);
+    if (!db_) return 0;
+    long v = 0;
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(db_, "SELECT IFNULL(MAX(incident_id),0) FROM event_log;",
+                           -1, &st, nullptr) != SQLITE_OK) return 0;
+    if (sqlite3_step(st) == SQLITE_ROW) v = sqlite3_column_int64(st, 0);
+    sqlite3_finalize(st);
+    return v;
+}                                                                       
+
+// ── 클립 저장 완료 → 그 클립이 담은 시간대의 이벤트 행에 mp4 경로 기록 ──
+// 한 사태에서도 클립이 두 번 만들어질 수 있다(경고 → 저장 완료 → 다시 경고).
+// incident_id 만으로 UPDATE 하면 뒤 클립이 앞 클립 경로를 덮어쓴다.
+// 클립이 실제로 담은 [ts-3초, ts+10초] 창 + 아직 비어 있는 행으로 좁힌다
+void Database::updateClipPath(long incidentId, long clipTs,
+                              const std::string& clipPath) {
+    std::lock_guard<std::mutex> lock(mtx_);
+    if (!db_ || incidentId <= 0 || clipPath.empty()) return;
+    const char* sql =
+        "UPDATE event_log SET clip_path=? "
+        "WHERE incident_id=? AND ts BETWEEN ? AND ? "
+        "  AND (clip_path IS NULL OR clip_path='');";
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(db_, sql, -1, &st, nullptr) != SQLITE_OK) return;
+    sqlite3_bind_text (st, 1, clipPath.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(st, 2, incidentId);
+    sqlite3_bind_int64(st, 3, clipTs - 3);    // 클립 앞부분(직전 3초)
+    sqlite3_bind_int64(st, 4, clipTs + 10);   // 클립 뒷부분(이후 10초)
+    sqlite3_step(st);
+    sqlite3_finalize(st);
+}                                                              
+
+
 // ── event_log 조회 ──
 std::vector<EventRow> Database::queryEvents(long from, long to, int limit) {
     std::lock_guard<std::mutex> lock(mtx_);
@@ -164,7 +224,7 @@ std::vector<EventRow> Database::queryEvents(long from, long to, int limit) {
 
     const char* sql =
         "SELECT id,ts,zone,category,severity,cause,sensor_combo,source,response,admin,"
-        " gas_ppm,smoke_ppm,status,duration_ms,snapshot_path,incident_id"
+        " gas_ppm,smoke_ppm,status,duration_ms,snapshot_path,incident_id,clip_path"  
         " FROM event_log WHERE ts BETWEEN ? AND ? ORDER BY ts DESC LIMIT ?;";
 
     sqlite3_stmt* st = nullptr;
@@ -200,6 +260,7 @@ std::vector<EventRow> Database::queryEvents(long from, long to, int limit) {
         r.durationMs   = sqlite3_column_int64(st, 13);
         r.snapshotPath = col(14);
         r.incidentId   = sqlite3_column_int64(st, 15);
+        r.clipPath     = col(16);     
         rows.push_back(std::move(r));
     }
     sqlite3_finalize(st);

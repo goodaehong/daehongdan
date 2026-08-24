@@ -34,8 +34,13 @@ public:
     // srcW/srcH: 계약①의 원본 영상 픽셀 크기. 위젯 크기에 맞게 내부에서 스케일해서 그림.
     void setDetectionBoxes(const QVector<DetectionBox> &boxes, int srcW, int srcH);
 
+    // 사람 감지(명세서 3번 계약). 박스는 화재/연기 박스와 같은 오버레이에 겹쳐 그리고(cls="PERSON",
+    // DetectionOverlay가 하늘색으로 구분해서 그림), count/위험여부는 상단 배지(setPersonStatus)에
+    // 반영한다. "위험 중 사람 있음"의 위험 여부는 이 위젯이 이미 들고 있는 alarmActive를 그대로
+    // 쓴다 — 호출자(MonitorPage)가 따로 채널별 상태를 안 들고 있어도 됨.
+    void setPersonBoxes(const QVector<DetectionBox> &boxes, int srcW, int srcH, int count);
+
     // 사람 감지 배지. count=0 회색(없음) / count>0 초록(있음) / inDangerZone이면 빨강으로 깜빡임.
-    // 실제 인식 데이터 프로토콜은 아직 미정 — UI만 먼저 만들어두고 필드 정해지면 이 API로 연결.
     void setPersonStatus(int count, bool inDangerZone);
     // 대피 음성 안내 방송 중이면 🔊 아이콘이 같이 깜빡인다. 데이터 소스 미정, UI만 우선.
     void setVoiceAnnouncementActive(bool active);
@@ -62,6 +67,10 @@ private:
     // 편집 중 좌표 기준(zoom=1.0/pan=0)이 바뀌면 이미 그린 영역이 화면과 안 맞게 되기 때문.
     // 오늘 범위: 서버 전송 없이 세션 동안만(재실행하면 초기화) 채널별로 로컬에 들고 있는다.
     void toggleRoiEdit();
+    // detectionBoxesCache/personBoxesCache를 합쳐 overlay->setBoxes() 한 번으로 넘긴다 —
+    // 두 종류가 독립된 메시지로 각자 다른 주기에 오므로, 최신값을 각자 들고 있다가 합쳐야
+    // 한쪽이 갱신될 때 다른 쪽이 화면에서 사라지지 않는다.
+    void refreshOverlayBoxes(int srcW, int srcH);
     // zoomFactor/panX/panY 상태를 실제 video 위젯의 크기/위치로 반영한다. 확대 배율이 바뀌거나
     // videoViewport가 리사이즈될 때(창 크기 조절, 확대 다이얼로그 전환 등) 호출된다.
     // libvlc 크롭 API는 전혀 쓰지 않는다 — 원본 프레임은 그대로 디코딩시키고, video 네이티브
@@ -77,6 +86,8 @@ private:
     QWidget *video;
     QLabel *placeholderLabel;
     DetectionOverlay *overlay;
+    QVector<DetectionBox> detectionBoxesCache;
+    QVector<DetectionBox> personBoxesCache;
 
     QLabel *alarmBadge;
     bool alarmActive = false;

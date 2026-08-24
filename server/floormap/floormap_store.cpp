@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <ctime> 
 #include <fstream>
 #include <iostream>
 #include <mutex>
@@ -13,6 +14,10 @@ namespace {
 
 std::mutex g_mtx;
 std::string g_resultJson;   // 변환 결과 원문. 아직 없으면 빈 문자열
+std::vector<EvacRoute> g_routes;   // 전광판 전송용 숫자 형태          
+int g_displayCount = 0;   
+std::string g_fileName;     // Qt가 올린 원래 파일명. 어느 평면도인지 확인용    
+long g_uploadedAt = 0;      // 등록 시각 (서버가 찍음) 
 
 // base64 글자 → 6비트 값. 표에 없는 글자는 -1
 const std::array<int8_t, 256> kB64 = [] {
@@ -22,6 +27,24 @@ const std::array<int8_t, 256> kB64 = [] {
     for (int i = 0; i < 64; i++) t[(unsigned char)set[i]] = (int8_t)i;
     return t;
 }();
+
+// 어떤 평면도가 올라와 있는지 Qt에서 확인할 수 있게 이름·시각을 따로 남긴다.
+// 변환 결과 파일에 못 넣는다 — 재시작 때 이미지로 변환을 다시 돌려 덮어쓴다
+void saveMeta(const std::string& name, long ts) {
+    std::ofstream f(FLOORMAP_META_PATH, std::ios::trunc);
+    if (!f) { std::cerr << "[평면도] 등록 정보 저장 실패\n"; return; }
+    f << "{\"fileName\":\"" << jsonEscape(name) << "\",\"uploadedAt\":" << ts << "}";
+}
+
+void loadMeta() {
+    std::ifstream f(FLOORMAP_META_PATH);
+    if (!f) return;
+    std::stringstream ss;
+    ss << f.rdbuf();
+    const std::string all = ss.str();
+    g_fileName   = jsonStr(all, "fileName");
+    g_uploadedAt = jsonLong(all, "uploadedAt", 0);
+}                                                                             
 
 // 글자 4개가 바이트 3개로 돌아간다. 6비트씩 모아 8비트가 차면 뱉는 방식
 bool base64Decode(const std::string& in, std::string& out) {
@@ -51,7 +74,9 @@ bool looksLikePng(const std::string& d) {
 
 // EvacPlanner 결과 → Qt 응답 본문. 실패하면 빈 문자열 + reason          
 // EvacPlanner가 실패를 따로 알려주지 않아 결과 자체를 검사한다
-std::string buildResultJson(const std::string& imagePath, std::string& reason) {
+std::string runConversion(const std::string& imagePath,           
+                          std::vector<EvacRoute>& outRoutes, int& outDisplayCount,
+                          std::string& reason) {                      
     std::vector<std::vector<int>> bitmap;
     std::vector<Point> displays, exits;
     std::vector<std::vector<Point>> routes;
@@ -112,6 +137,17 @@ std::string buildResultJson(const std::string& imagePath, std::string& reason) {
         o << "]}";
     }
     o << "]";
+    // 같은 결과를 숫자 형태로도 남긴다 (전광판 전송용)                
+    outDisplayCount = (int)displays.size();
+    outRoutes.clear();
+    outRoutes.reserve(routes.size());
+    for (size_t i = 0; i < routes.size(); i++) {
+        EvacRoute r;
+        r.displayId = (int)(i / exits.size()) + 1;
+        r.exitId    = (int)(i % exits.size()) + 1;
+        r.waypoints = routes[i];
+        outRoutes.push_back(std::move(r));
+    }       
     return o.str();
 }                                                                         
 
@@ -149,8 +185,14 @@ bool FloorMapStore_Apply(const std::string& line, std::string* reason) {
     f.close();
     std::cout << "[평면도] 이미지 저장 완료 (" << bytes.size() << " 바이트)\n";
 
-    std::string why;                                                    
-    std::string body = buildResultJson(FLOORMAP_IMAGE_PATH, why);
+    // Qt가 파일명을 안 보내면 빈 값. 그때는 시각만으로 구분한다         
+    const std::string name = jsonStr(line, "fileName");
+    const long now = (long)std::time(nullptr);      
+
+    std::string why;                                              
+    std::vector<EvacRoute> routes;
+    int displayCount = 0;
+    std::string body = runConversion(FLOORMAP_IMAGE_PATH, routes, displayCount, why);
     if (body.empty()) {
         if (reason) *reason = why;
         return false;                          // 실패 시 기존 결과 유지
@@ -158,11 +200,16 @@ bool FloorMapStore_Apply(const std::string& line, std::string* reason) {
 
     {
         std::lock_guard<std::mutex> lk(g_mtx);
-        g_resultJson = body;
-    }
+        g_resultJson   = body;
+        g_routes       = std::move(routes);
+        g_displayCount = displayCount;
+        g_fileName     = name;                                
+        g_uploadedAt   = now;
+    }                                                            
     std::ofstream jf(FLOORMAP_JSON_PATH, std::ios::trunc);
     if (jf) jf << "{" << body << "}";           // 파일은 온전한 JSON으로 저장
     else    std::cerr << "[평면도] 결과 파일 저장 실패 — 재시작 시 사라짐\n";
+    saveMeta(name, now);     
 
     std::cout << "[평면도] 변환 완료\n";
     return true;                                                        
@@ -171,20 +218,66 @@ bool FloorMapStore_Apply(const std::string& line, std::string* reason) {
 
 std::string FloorMapStore_ToJson() {
     std::lock_guard<std::mutex> lk(g_mtx);
-    return g_resultJson;
+    if (g_resultJson.empty()) return "";   // 등록 전이면 빈 값 — 호출부가 empty로 회신
+    std::ostringstream o;
+    o << g_resultJson
+      << ",\"fileName\":\"" << jsonEscape(g_fileName) << "\""
+      << ",\"uploadedAt\":" << g_uploadedAt;
+    return o.str();
 }
 
-void FloorMapStore_Load() {
+void FloorMapStore_Load() {     
+    loadMeta();   // 이름·시각은 변환 성공 여부와 무관하게 먼저 복원                                           
+    // 저장된 이미지로 변환을 다시 돌린다. 글자와 숫자를 한 경로에서 만들어야
+    // 둘이 어긋나지 않는다 (재시작 후에도 전광판 전송이 되게)
+    std::ifstream img(FLOORMAP_IMAGE_PATH, std::ios::binary);
+    if (img) {
+        img.close();
+        std::vector<EvacRoute> routes;
+        int displayCount = 0;
+        std::string why;
+        std::string body = runConversion(FLOORMAP_IMAGE_PATH, routes, displayCount, why);
+        if (!body.empty()) {
+            std::lock_guard<std::mutex> lk(g_mtx);
+            g_resultJson   = body;
+            g_routes       = std::move(routes);
+            g_displayCount = displayCount;
+            std::cout << "[평면도] 저장된 이미지로 변환 복원 (전광판 "
+                      << displayCount << "대, 경로 " << g_routes.size() << "개)\n";
+            return;
+        }
+        std::cerr << "[평면도] 저장된 이미지 변환 실패 — " << why << "\n";
+    }
+
+    // 이미지가 없거나 변환이 안 되면 저장된 결과 글자만 복원한다.
+    // Qt 화면은 나오지만 전광판 전송은 불가
     std::ifstream f(FLOORMAP_JSON_PATH);
-    if (!f) return;                                 // 파일 없으면 빈 상태로 시작
+    if (!f) return;
     std::stringstream ss;
     ss << f.rdbuf();
-    std::string all = ss.str();                                             
-    // 파일은 {본문} 형태로 저장되지만, 메모리에는 본문만 둔다
-    // (응답 만들 때 type·result 같은 다른 필드와 합쳐야 해서)
+    std::string all = ss.str();
     if (all.size() >= 2 && all.front() == '{' && all.back() == '}')
         all = all.substr(1, all.size() - 2);
     std::lock_guard<std::mutex> lk(g_mtx);
-    g_resultJson = all;    
-    if (!g_resultJson.empty()) std::cout << "[평면도] 저장된 변환 결과 복원\n";
+    g_resultJson = all;
+    if (!g_resultJson.empty())
+        std::cout << "[평면도] 결과만 복원 (전광판 전송 불가 — 이미지 없음)\n";
+}                                                
+
+bool FloorMapStore_HasRoutes() {                                     
+    std::lock_guard<std::mutex> lk(g_mtx);
+    return !g_routes.empty();
 }
+
+int FloorMapStore_DisplayCount() {
+    std::lock_guard<std::mutex> lk(g_mtx);
+    return g_displayCount;
+}
+
+std::vector<EvacRoute> FloorMapStore_RoutesFor(int displayId) {
+    std::vector<EvacRoute> out;
+    std::lock_guard<std::mutex> lk(g_mtx);
+    for (const auto& r : g_routes)
+        if (r.displayId == displayId) out.push_back(r);
+    return out;   // 출구 순서대로 담긴다 (g_routes 자체가 그 순서)
+}                                                                  
