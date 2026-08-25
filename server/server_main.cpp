@@ -512,19 +512,6 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
 
             // ── 연기 (NCNN) ──
             SmokeRuntimeSnapshot ssnap = smoke.poll(ch);
-            // 임시 진단 로그 — resultIsFresh 게이트를 안 거친 원시값을 그대로 보여준다.
-            // hasResult=1인데 계속 아무 것도 안 뜨면 이 로그로 pipelineLatency/score를
-            // 직접 봐서, 결과 자체가 안 나오는 건지 fresh 판정에서 버려지는 건지 구분한다.
-            static double lastLoggedCompletedAge[4] = {-1, -1, -1, -1};
-            if (ssnap.hasResult && ssnap.completedAgeMs != lastLoggedCompletedAge[ch]) {
-                lastLoggedCompletedAge[ch] = ssnap.completedAgeMs;
-                std::cout << "[진단][cam" << ch+1 << "] score=" << ssnap.smokeScore
-                          << " detectMs=" << ssnap.detectMs
-                          << " pipelineLatencyMs=" << ssnap.pipelineLatencyMs
-                          << " completedAgeMs=" << ssnap.completedAgeMs
-                          << " resultIsFresh=" << ssnap.resultIsFresh
-                          << " smokeDetected=" << ssnap.smokeDetected << "\n";
-            }
             if (ssnap.hasResult)                                // 결과 있을 때만 갱신
                 detState[ch].smoke = ssnap.smokeDetected;       // 없으면 이전 값 유지 → 깜빡임 방지
 
