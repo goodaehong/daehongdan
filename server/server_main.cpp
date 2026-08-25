@@ -432,6 +432,9 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
     std::uint64_t frameId = 0;
     bool wasShowingBoxes = false;
     bool prevSmoke = false, prevPerson = false, prevFire = false;   // 로그: 변화 시에만 출력용
+    // 연기는 약 1fps, 화재는 약 6fps. 화재 결과가 올 때마다 박스 목록을 통째로
+    // 교체하면 그 사이 연기 박스가 빠진다. 마지막 연기 박스를 들고 있다가 같이 보낸다
+    std::vector<DetBox> lastSmokeBoxes;                           
     std::string prevPersonStatus;   // 사람 메타데이터 상태. 바뀔 때만 로그
 
     while (true) {
@@ -503,7 +506,9 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
             if (ssnap.hasResult)                                // 결과 있을 때만 갱신
                 detState[ch].smoke = ssnap.smokeDetected;       // 없으면 이전 값 유지 → 깜빡임 방지
 
-            bool nowSmoke = ssnap.hasResult && ssnap.smokeDetected;
+            // 결과가 없는 프레임에도 false가 되어 감지/해제 로그가 1초마다 반복됐다.
+            // 위에서 이미 보호해 둔 상태값을 그대로 쓴다
+            bool nowSmoke = detState[ch].smoke;             
             if (nowSmoke && !prevSmoke)
                 std::cout << "[cam" << ch+1 << "] 연기 감지 (score " << ssnap.smokeScore << ")\n";
             else if (!nowSmoke && prevSmoke)
@@ -542,7 +547,7 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
 
             // ── 화재 + 연기 박스 전송 ──                                 
             const bool channelDetectionAlarm =
-                snap.alarm.alarmActive || ssnap.smokeDetected;
+                snap.alarm.alarmActive || detState[ch].smoke;
             if (snap.boxIsFresh || ssnap.boxIsFresh) {
                 std::vector<DetBox> boxes;
                 if (snap.boxIsFresh) {
@@ -558,10 +563,10 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
                                           b.type == DetectionType::FIRE ? "FIRE" : "SMOKE",
                                           (float)b.score });
                     }
-                    {   // 감지 스레드가 쓰고 센서 스레드가 읽는다                 // <- 처음
+                    {   // 감지 스레드가 쓰고 센서 스레드가 읽는다                 
                         std::lock_guard<std::mutex> lk(detState[ch].fireMtx);
                         detState[ch].fires = std::move(fires);
-                    }                                                             // <- 끝
+                    }                                                             
                     // 화재 상태는 화재 결과가 왔을 때만 갱신. 연기 결과에 같이 지우면
                     // 감지 중인 화재가 연기 추론 주기(1초)마다 꺼진다
                     detState[ch].fire = hasFire && snap.alarm.alarmActive;
@@ -573,11 +578,17 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
                         std::cout << "[cam" << ch+1 << "] 화재 해제\n";
                     prevFire = nowFire;
                 }
-                if (ssnap.boxIsFresh) {
+                // 연기 결과가 온 프레임에만 담으면 화재 결과(6fps)가 올 때마다 밀려난다.
+                // 새 결과가 오면 갱신하고, 안 온 프레임에서는 직전 박스를 그대로 쓴다
+                if (ssnap.boxIsFresh) {                                              
+                    lastSmokeBoxes.clear();
                     for (const auto& b : ssnap.detection.boxes)
-                        boxes.push_back({ b.box.x, b.box.y, b.box.width, b.box.height,
-                                          "SMOKE", (float)b.score });
+                        lastSmokeBoxes.push_back({ b.box.x, b.box.y, b.box.width, b.box.height,
+                                                   "SMOKE", (float)b.score });
                 }
+                if (!detState[ch].smoke)   
+                    lastSmokeBoxes.clear();   // 연기가 풀리면 남은 박스를 비운다
+                boxes.insert(boxes.end(), lastSmokeBoxes.begin(), lastSmokeBoxes.end());  
 
                 QtLink_SendDetection(link, ch, (int)snap.resultFrameId,
                                      frame.cols, frame.rows,
