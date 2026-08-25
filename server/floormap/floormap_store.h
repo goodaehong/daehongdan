@@ -32,3 +32,7 @@ int FloorMapStore_DisplayCount();
 
 // 지정 전광판의 경로들. 출구 순서대로 담긴다
 std::vector<EvacRoute> FloorMapStore_RoutesFor(int displayId);
+
+// 화재를 반영해 다시 계산한 경로. fires 가 비면 저장된 기본 경로와 같다   
+std::vector<EvacRoute> FloorMapStore_RoutesForFires(int displayId,
+                                                    const std::vector<FireCell>& fires);   
