@@ -33,4 +33,4 @@ clean:
 
 # 프로그램 실행 시 생성된 결과물 파일들(txt, png) 삭제
 clean_data:
-	rm -f evac_bitmap.txt evac_debug.txt evac_preview.png evac_routes.txt
+	rm -f evac_bitmap.txt evac_debug*.txt evac_preview.png evac_routes.txt
