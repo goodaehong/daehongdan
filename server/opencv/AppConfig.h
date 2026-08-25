@@ -175,10 +175,11 @@ namespace smoke_config
     constexpr int INPUT_HEIGHT = 384;
     constexpr int MAX_CHANNELS = 4;
 
-    // Raspberry Pi 실측에서 NCNN 추론 한 번이 약 1초 걸린다. 모델 하나와
-    // 워커 하나를 네 채널이 공유하므로 채널별 제출 주기를 4초로 맞춰
-    // 처리 능력(전체 약 1장/초)보다 많은 작업이 계속 덮어써지는 것을 막는다.
-    constexpr int INFERENCE_INTERVAL_MS = 4000;
+    // 공유 NCNN 워커의 목표 처리 간격이다. 런타임은 이 값에 실제 채널 수를
+    // 곱해 채널별 제출 주기를 계산한다(1채널=1초, 4채널=4초).
+    constexpr int SHARED_WORKER_INTERVAL_MS = 1000;
+    constexpr int MAX_CHANNEL_INFERENCE_INTERVAL_MS =
+        SHARED_WORKER_INTERVAL_MS * MAX_CHANNELS;
 #if defined(__arm__) || defined(__aarch64__)
     // 영상 수신과 OpenCV 화염 검출에 CPU를 남기기 위해 NCNN 스레드를 제한한다.
     constexpr int NCNN_NUM_THREADS = 2;
@@ -225,7 +226,8 @@ namespace smoke_config
     constexpr int RELEASE_MISSES = 2;
     constexpr int RELEASE_HOLD_MS = 5000;
     constexpr int RELEASE_HOLD_RESULTS =
-        (RELEASE_HOLD_MS + INFERENCE_INTERVAL_MS - 1) / INFERENCE_INTERVAL_MS;
+        (RELEASE_HOLD_MS + MAX_CHANNEL_INFERENCE_INTERVAL_MS - 1) /
+        MAX_CHANNEL_INFERENCE_INTERVAL_MS;
     // 결과가 완성될 때 이미 지나치게 오래된 프레임이면 사용하지 않는다.
     constexpr int MAX_PIPELINE_LATENCY_MS = 2500;
     // 정상 완료 결과는 같은 채널의 다음 결과(약 4초)가 올 때까지 유지한다.

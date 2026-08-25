@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <OpenCvRoot>C:\path\to\opencv\build</OpenCvRoot>
+    <NcnnRoot>C:\path\to\ncnn\x64</NcnnRoot>
+  </PropertyGroup>
+</Project>
+

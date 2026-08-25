@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion><Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{4FA1E92D-A9DC-48AA-93DD-5694246D9F01}</ProjectGuid>
+    <RootNamespace>DetectionDebugRunner</RootNamespace><WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType><UseDebugLibraries>true</UseDebugLibraries><PlatformToolset>v143</PlatformToolset><CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType><UseDebugLibraries>false</UseDebugLibraries><PlatformToolset>v143</PlatformToolset><WholeProgramOptimization>true</WholeProgramOptimization><CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <Import Project="DetectionDebugRunner.local.props" Condition="Exists('DetectionDebugRunner.local.props')" />
+  <PropertyGroup>
+    <OutDir>$(ProjectDir)bin\$(Configuration)\</OutDir><IntDir>$(ProjectDir)obj\$(Configuration)\</IntDir>
+    <TargetName>DetectionDebugRunner</TargetName><LocalDebuggerWorkingDirectory>$(OutDir)</LocalDebuggerWorkingDirectory>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel><SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>NOMINMAX;SMOKE_HAS_NCNN=1;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode><LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalIncludeDirectories>$(ProjectDir)..;$(OpenCvRoot)\include;$(NcnnRoot)\include\ncnn;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <Link><SubSystem>Console</SubSystem><GenerateDebugInformation>true</GenerateDebugInformation><AdditionalLibraryDirectories>$(OpenCvRoot)\x64\vc16\lib;$(NcnnRoot)\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories></Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
+    <ClCompile><PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
+    <Link><AdditionalDependencies>ncnn.lib;opencv_world4120d.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
+    <PostBuildEvent><Command>copy /Y "$(NcnnRoot)\bin\ncnn.dll" "$(OutDir)ncnn.dll"
+copy /Y "$(OpenCvRoot)\x64\vc16\bin\opencv_world4120d.dll" "$(OutDir)opencv_world4120d.dll"
+copy /Y "$(OpenCvRoot)\x64\vc16\bin\opencv_videoio_ffmpeg4120_64.dll" "$(OutDir)opencv_videoio_ffmpeg4120_64.dll"
+xcopy /E /I /Y "$(ProjectDir)..\models" "$(OutDir)models"</Command></PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
+    <ClCompile><PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions><Optimization>MaxSpeed</Optimization></ClCompile>
+    <Link><AdditionalDependencies>ncnn.lib;opencv_world4120.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
+    <PostBuildEvent><Command>copy /Y "$(NcnnRoot)\bin\ncnn.dll" "$(OutDir)ncnn.dll"
+copy /Y "$(OpenCvRoot)\x64\vc16\bin\opencv_world4120.dll" "$(OutDir)opencv_world4120.dll"
+copy /Y "$(OpenCvRoot)\x64\vc16\bin\opencv_videoio_ffmpeg4120_64.dll" "$(OutDir)opencv_videoio_ffmpeg4120_64.dll"
+xcopy /E /I /Y "$(ProjectDir)..\models" "$(OutDir)models"</Command></PostBuildEvent>
+  </ItemDefinitionGroup>
+  <Target Name="CheckLocalDependencies" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(OpenCvRoot)'==''" Text="OpenCvRoot is not set. Copy DetectionDebugRunner.local.props.example to DetectionDebugRunner.local.props and edit the path." />
+    <Error Condition="'$(NcnnRoot)'==''" Text="NcnnRoot is not set. Copy DetectionDebugRunner.local.props.example to DetectionDebugRunner.local.props and edit the path." />
+  </Target>
+  <ItemGroup>
+    <ClCompile Include="DetectionDebugRunner.cpp" /><ClCompile Include="..\FireAlarmController.cpp" /><ClCompile Include="..\FireDetectionRuntime.cpp" /><ClCompile Include="..\FlameDetector.cpp" /><ClCompile Include="..\GridCoordinateMapper.cpp" /><ClCompile Include="..\IgnoreRegionFilter.cpp" /><ClCompile Include="..\SmokeDetectionRuntime.cpp" /><ClCompile Include="..\SmokeDetector.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\AppConfig.h" /><ClInclude Include="..\DetectionTypes.h" /><ClInclude Include="..\FireAlarmController.h" /><ClInclude Include="..\FireDetectionRuntime.h" /><ClInclude Include="..\FlameDetector.h" /><ClInclude Include="..\GridCoordinateMapper.h" /><ClInclude Include="..\IgnoreRegionFilter.h" /><ClInclude Include="..\SmokeDetectionRuntime.h" /><ClInclude Include="..\SmokeDetector.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>
