@@ -169,11 +169,11 @@ letterbox 여백을 추가하여 640×384 텐서로 만든다. 원본 영상 비
 ### 3.4 공유 연기 추론
 
 ```cpp
-constexpr int SHARED_WORKER_INTERVAL_MS = 1000;
+constexpr int INFERENCE_INTERVAL_MS = 1000;
 ```
 
-공유 워커는 약 1초마다 한 장을 처리한다. 채널별 제출 주기는 실제 채널 수를
-곱해 계산하므로 4채널에서는 각 채널이 약 4초마다 한 번 처리된다.
+각 채널은 1초마다 가장 최신 프레임을 공유 워커에 제출한다. 워커는 채널을
+순서대로 처리하며 실제 처리 속도는 Raspberry Pi의 NCNN 추론 시간에 좌우된다.
 
 ### 3.5 WiseAI 설정
 
