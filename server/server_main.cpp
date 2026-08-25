@@ -557,7 +557,21 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
             // ── 화재 + 연기 박스 전송 ──                                 
             const bool channelDetectionAlarm =
                 snap.alarm.alarmActive || detState[ch].smoke;
-            if (snap.boxIsFresh || ssnap.boxIsFresh) {
+
+            // 새 연기 결과가 도착했을 때 캐시를 갱신한다. 단일 NCNN 워커가
+            // 네 채널을 순차 처리하는 동안에는 직전 박스를 계속 Qt로 보낸다.
+            if (ssnap.boxIsFresh) {
+                lastSmokeBoxes.clear();
+                for (const auto& b : ssnap.detection.boxes)
+                    lastSmokeBoxes.push_back({ b.box.x, b.box.y, b.box.width, b.box.height,
+                                               "SMOKE", (float)b.score });
+            }
+            if (!detState[ch].smoke)
+                lastSmokeBoxes.clear();
+
+            const bool hasCachedSmokeBoxes =
+                detState[ch].smoke && !lastSmokeBoxes.empty();
+            if (snap.boxIsFresh || hasCachedSmokeBoxes) {
                 std::vector<DetBox> boxes;
                 if (snap.boxIsFresh) {
                     bool hasFire = false;
@@ -587,16 +601,6 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
                         std::cout << "[cam" << ch+1 << "] 화재 해제\n";
                     prevFire = nowFire;
                 }
-                // 연기 결과가 온 프레임에만 담으면 화재 결과(6fps)가 올 때마다 밀려난다.
-                // 새 결과가 오면 갱신하고, 안 온 프레임에서는 직전 박스를 그대로 쓴다
-                if (ssnap.boxIsFresh) {                                              
-                    lastSmokeBoxes.clear();
-                    for (const auto& b : ssnap.detection.boxes)
-                        lastSmokeBoxes.push_back({ b.box.x, b.box.y, b.box.width, b.box.height,
-                                                   "SMOKE", (float)b.score });
-                }
-                if (!detState[ch].smoke)   
-                    lastSmokeBoxes.clear();   // 연기가 풀리면 남은 박스를 비운다
                 boxes.insert(boxes.end(), lastSmokeBoxes.begin(), lastSmokeBoxes.end());  
 
                 QtLink_SendDetection(link, ch, (int)snap.resultFrameId,

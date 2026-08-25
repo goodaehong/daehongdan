@@ -14,11 +14,15 @@ Visual Studio의 **폴더 열기**로 이 `debug` 폴더를 열고 CMake 대상
 다음처럼 빌드한다.
 
 ```powershell
-cmake -S . -B out/build -A x64 -DOpenCV_DIR=C:/opencv/build/x64/vc16/lib
+cmake -S . -B out/build -A x64 `
+  -DOpenCV_DIR=C:/opencv/build `
+  -Dncnn_DIR=C:/ncnn/x64/lib/cmake/ncnn
 cmake --build out/build --config Release
 ```
 
-빌드가 끝나면 모델, DLL, `aruco_board_config.txt`가 실행 파일 옆으로 복사된다.
+빌드가 끝나면 새 연기 모델과 `ncnn.dll`이 실행 파일 옆으로 복사된다.
+`aruco_board_config.txt`와 채널별 렌즈/Homography 파일은 필요한 경우 실행
+인자로 지정한다.
 
 ## 실행 명령
 

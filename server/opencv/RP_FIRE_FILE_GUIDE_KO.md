@@ -704,7 +704,7 @@ modelError
 
 ```text
 models/
-└─ smoke_yolov8n_public_640x384_ncnn_model/
+└─ smoke_yolov8n_round2_full10_20260825_640x384_ncnn_model/
    ├─ model.ncnn.param
    ├─ model.ncnn.bin
    └─ metadata.yaml
@@ -787,9 +787,9 @@ NCNN 연기 모델 설정과 빌드에 관한 기존 설명서다.
 CMakeLists.txt
 RP_Fire.vcxproj
 RP_Fire.vcxproj.filters
-models/smoke_yolov8n_public_640x384_ncnn_model/model.ncnn.param
-models/smoke_yolov8n_public_640x384_ncnn_model/model.ncnn.bin
-models/smoke_yolov8n_public_640x384_ncnn_model/metadata.yaml
+models/smoke_yolov8n_round2_full10_20260825_640x384_ncnn_model/model.ncnn.param
+models/smoke_yolov8n_round2_full10_20260825_640x384_ncnn_model/model.ncnn.bin
+models/smoke_yolov8n_round2_full10_20260825_640x384_ncnn_model/metadata.yaml
 ```
 
 ### 함께 올리는 것을 권장
@@ -868,7 +868,7 @@ sudo apt install -y ffmpeg
 배포 폴더/
 ├─ fire_detection
 └─ models/
-   └─ smoke_yolov8n_public_640x384_ncnn_model/
+   └─ smoke_yolov8n_round2_full10_20260825_640x384_ncnn_model/
       ├─ model.ncnn.param
       ├─ model.ncnn.bin
       └─ metadata.yaml

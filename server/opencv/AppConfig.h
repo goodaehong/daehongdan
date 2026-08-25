@@ -175,8 +175,11 @@ namespace smoke_config
     constexpr int INPUT_HEIGHT = 384;
     constexpr int MAX_CHANNELS = 4;
 
-    // 모델 하나를 모든 채널이 공유하며 채널별로 1초에 최신 프레임 하나만 제출한다.
-    constexpr int INFERENCE_INTERVAL_MS = 1000;
+    // 공유 NCNN 워커의 목표 처리 간격이다. 런타임은 이 값에 실제 채널 수를
+    // 곱해 채널별 제출 주기를 계산한다(1채널=1초, 4채널=4초).
+    constexpr int SHARED_WORKER_INTERVAL_MS = 1000;
+    constexpr int MAX_CHANNEL_INFERENCE_INTERVAL_MS =
+        SHARED_WORKER_INTERVAL_MS * MAX_CHANNELS;
 #if defined(__arm__) || defined(__aarch64__)
     // 영상 수신과 OpenCV 화염 검출에 CPU를 남기기 위해 NCNN 스레드를 제한한다.
     constexpr int NCNN_NUM_THREADS = 2;
@@ -215,19 +218,26 @@ namespace smoke_config
     constexpr float TRACK_MAX_CENTER_DISTANCE_RATIO = 0.45F;
     constexpr float MERGE_EXPANSION_RATIO = 0.12F;
     constexpr std::size_t MAX_TRACKS_PER_CHANNEL = 16;
-    constexpr int CONFIRM_HITS = 3;
+    // 4채널에서는 채널별 결과가 약 4초마다 나오므로 3회 확인은 최초 표시를
+    // 12초 이상 늦춘다. 모델 임계값을 통과한 첫 결과부터 표시하고 센서 융합은
+    // 서버의 최종 경보 단계에서 담당한다.
+    constexpr int CONFIRM_HITS = 1;
     // 확정 전 후보는 빠르게 정리하고, 확정된 연기는 마지막 실제 검출부터 5초간 유지한다.
     constexpr int RELEASE_MISSES = 2;
     constexpr int RELEASE_HOLD_MS = 5000;
     constexpr int RELEASE_HOLD_RESULTS =
-        (RELEASE_HOLD_MS + INFERENCE_INTERVAL_MS - 1) / INFERENCE_INTERVAL_MS;
-    constexpr int RESULT_FRESH_MS = 2500;
-    constexpr int BOX_FRESH_MS = 1500;
+        (RELEASE_HOLD_MS + MAX_CHANNEL_INFERENCE_INTERVAL_MS - 1) /
+        MAX_CHANNEL_INFERENCE_INTERVAL_MS;
+    // 결과가 완성될 때 이미 지나치게 오래된 프레임이면 사용하지 않는다.
+    constexpr int MAX_PIPELINE_LATENCY_MS = 2500;
+    // 정상 완료 결과는 같은 채널의 다음 결과(약 4초)가 올 때까지 유지한다.
+    constexpr int RESULT_FRESH_MS = 5000;
+    constexpr int BOX_FRESH_MS = 5000;
 
     constexpr const char* MODEL_PARAM_PATH =
-        "models/smoke_yolov8n_public_640x384_ncnn_model/model.ncnn.param";
+        "models/smoke_yolov8n_round2_full10_20260825_640x384_ncnn_model/model.ncnn.param";
     constexpr const char* MODEL_BIN_PATH =
-        "models/smoke_yolov8n_public_640x384_ncnn_model/model.ncnn.bin";
+        "models/smoke_yolov8n_round2_full10_20260825_640x384_ncnn_model/model.ncnn.bin";
     constexpr const char* INPUT_BLOB_NAME = "in0";
     constexpr const char* OUTPUT_BLOB_NAME = "out0";
 }

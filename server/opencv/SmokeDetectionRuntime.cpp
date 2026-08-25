@@ -445,6 +445,7 @@ namespace
             track.box = detection.boxes[index].box;
             track.score = detection.boxes[index].score;
             track.hits = 1;
+            track.confirmed = track.hits >= smoke_config::CONFIRM_HITS;
             track.lastMatchedTime = sourceTime;
             channel.smokeTracks.push_back(track);
         }
@@ -509,7 +510,7 @@ public:
         for (std::size_t index = 0; index < channels_.size(); ++index)
         {
             const int phaseMs = static_cast<int>(index) *
-                smoke_config::INFERENCE_INTERVAL_MS / static_cast<int>(channels_.size());
+                smoke_config::SHARED_WORKER_INTERVAL_MS;
             channels_[index].nextAcceptedTime = now + std::chrono::milliseconds(phaseMs);
         }
 
@@ -535,7 +536,9 @@ public:
             if (sourceTime < channel.nextAcceptedTime) return false;
 
             channel.nextAcceptedTime =
-                sourceTime + std::chrono::milliseconds(smoke_config::INFERENCE_INTERVAL_MS);
+                sourceTime + std::chrono::milliseconds(
+                    smoke_config::SHARED_WORKER_INTERVAL_MS *
+                    static_cast<int>(channels_.size()));
             // 대기 중이어도 큐를 늘리지 않고 이 채널의 가장 최신 프레임으로 교체한다.
             frame.copyTo(channel.pendingFrame);
             channel.pendingFrameId = frameId;
@@ -589,7 +592,7 @@ public:
         channel.smokeTracks.clear();
         channel.nextSmokeTrackId = 1;
         const int phaseMs = static_cast<int>(channelIndex) *
-            smoke_config::INFERENCE_INTERVAL_MS / static_cast<int>(channels_.size());
+            smoke_config::SHARED_WORKER_INTERVAL_MS;
         channel.nextAcceptedTime = Clock::now() + std::chrono::milliseconds(phaseMs);
     }
 
@@ -621,13 +624,22 @@ public:
                 std::chrono::duration<double, std::milli>(now - channel.latestSourceTime).count();
             snapshot.completedAgeMs =
                 std::chrono::duration<double, std::milli>(now - channel.latestCompletedTime).count();
+            snapshot.pipelineLatencyMs =
+                std::chrono::duration<double, std::milli>(
+                    channel.latestCompletedTime - channel.latestSourceTime).count();
         }
 
+        // completedAgeMs만 사용하면 큐에서 오래 기다린 프레임도 방금 생성된
+        // 결과처럼 보일 수 있다. 완료 당시 파이프라인 지연을 먼저 제한하고,
+        // 정상 결과의 화면 유지 시간만 완료 시각을 기준으로 계산한다.
+        const bool pipelineLatencyAcceptable = snapshot.hasResult &&
+            snapshot.pipelineLatencyMs <= smoke_config::MAX_PIPELINE_LATENCY_MS;
         snapshot.resultIsFresh = snapshot.hasResult &&
-            snapshot.resultAgeMs <= smoke_config::RESULT_FRESH_MS;
+            pipelineLatencyAcceptable &&
+            snapshot.completedAgeMs <= smoke_config::RESULT_FRESH_MS;
         snapshot.smokeDetected = snapshot.resultIsFresh && channel.smokeDetected;
         snapshot.boxIsFresh = snapshot.resultIsFresh &&
-            snapshot.resultAgeMs <= smoke_config::BOX_FRESH_MS &&
+            snapshot.completedAgeMs <= smoke_config::BOX_FRESH_MS &&
             channel.latestDetection.candidate && !channel.latestDetection.boxes.empty();
         return snapshot;
     }

@@ -31,6 +31,7 @@ struct SmokeRuntimeSnapshot
     double averageDetectMs = 0.0;
     double resultAgeMs = 0.0;
     double completedAgeMs = 0.0;
+    double pipelineLatencyMs = 0.0;
     std::string modelError;
 };
 
