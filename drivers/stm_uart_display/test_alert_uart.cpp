@@ -78,7 +78,7 @@ static constexpr int kTestDisplayIndex = 2;
 // map.png나 화재 좌표가 바뀔 때마다 항상 최신 결과가 나감.
 // Point는 {y,x}인데 STM32 파서(main.c HandlePacket의 CMD_EVAC_PATH)는 {x,y}로 읽으므로
 // 여기서 뒤집어서 평탄화함 (evac_routes.txt를 그대로 옮기면 x/y가 뒤바뀌는 버그를 겪었던 지점).
-static void SendRoutesLive(const std::vector<FireCell>& fires)
+static void SendRoutesLive(const std::vector<EvacFireCell>& fires)
 {
     std::vector<std::vector<Point>> routes = processFloorPlan(g_mapPath, fires);
     std::vector<Point> exits = getEvacExits(g_mapPath);
@@ -163,7 +163,7 @@ static void InputWorker()
             // 화재 1곳: (5,5) 반경4 - 화재 패킷만 보내면 STM32가 마지막에 받은(화재 없는) 경로를
             // 그대로 들고 있어서 새 화재를 가로질러 그려짐. 그래서 경로도 이 화재 기준으로 같이 재전송.
             static const uint8_t kTestFires1[] = { 5,5,4 };
-            std::vector<FireCell> fires1 = { {5,5,4} };
+            std::vector<EvacFireCell> fires1 = { {5,5,4} };
             SendFires(kTestFires1, 1);
             SendRoutesLive(fires1);
         }
@@ -171,7 +171,7 @@ static void InputWorker()
         {
             // 화재 2곳이 새로 감지된 상황을 흉내냄: (5,5) 반경4, (40,20) 반경3
             static const uint8_t kTestFires2[] = { 5,5,4, 40,20,3 };
-            std::vector<FireCell> fires2 = { {5,5,4}, {40,20,3} };
+            std::vector<EvacFireCell> fires2 = { {5,5,4}, {40,20,3} };
             SendFires(kTestFires2, 2);
             SendRoutesLive(fires2);
         }
@@ -186,7 +186,7 @@ static void InputWorker()
                 5,5,4,   15,10,2,  25,40,3,
                 40,20,3, 50,50,2,  8,52,4
             };
-            std::vector<FireCell> fires6 = {
+            std::vector<EvacFireCell> fires6 = {
                 {5,5,4}, {15,10,2}, {25,40,3}, {40,20,3}, {50,50,2}, {8,52,4}
             };
             SendFires(kTestFires6, 6);
