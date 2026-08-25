@@ -112,7 +112,7 @@ private:
     bool configured_ = false;
     std::size_t channelIndex_ = 0;
     int minimumVisibleMarkers_ = 2;
-    int minimumInlierCorners_ = 8;
+    int minimumInlierCorners_ = 2;
     double maximumReprojectionRmsPx_ = 5.0;
     int maximumHoldMs_ = 1500;
     std::uint64_t updateEveryFrames_ = 1;
