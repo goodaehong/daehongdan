@@ -161,8 +161,11 @@ bool ArucoConfig_Apply(const std::string& line, int* chOut, std::string* reason)
       << "GRID 60 0 59\n"
       << "FACTORY " << fmt(fx0) << " " << fmt(fy0) << " " << fmt(fx1) << " " << fmt(fy1) << "\n"
       << "MODEL_SCALE " << fmt(scale) << "\n"
-      << "# minimum markers, minimum inlier corners, maximum RMS px, hold ms, update frames, smoothing\n"
-      << "QUALITY 4 12 2.0 1500 1 0.45\n\n";
+      // 마커 중심점 기준 Homography로 바뀌면서(2026-08-25) 두 번째 값은
+      // "코너 개수"가 아니라 "인라이어 마커 중심 개수"다. 채널당 마커가
+      // 보통 4~5개뿐이라 12로 두면 절대 못 채워서 항상 실패한다.
+      << "# minimum markers, minimum inlier marker centres, maximum RMS px, hold ms, update frames, smoothing\n"
+      << "QUALITY 4 4 2.0 1500 1 0.45\n\n";
     for (const auto& l : others) o << l << "\n";
     o << "\n# Channel " << ch << "\n"
       << "BOARD " << ch << " " << fmt(bx0) << " " << fmt(by0) << " "
