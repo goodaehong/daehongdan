@@ -10,9 +10,12 @@ FACTORY 0.00 0.00 60.00 60.00
 # 60 cm model board represents a 30 m factory quadrant: 1 model metre = 50 m.
 MODEL_SCALE 50
 
-# minimum_visible_markers minimum_inlier_corners max_rms_px hold_ms
+# minimum_visible_markers minimum_inlier_marker_centres max_rms_px hold_ms
 # update_every_accepted_frames smoothing_alpha
-QUALITY 4 12 2.0 1500 1 0.45
+# Homography는 마커 중심점 기준으로 계산한다(2026-08-25, 손으로 붙인 마커의
+# 각도·크기 실측 오차가 꼭짓점 단위 RANSAC을 계속 실패시켜서 변경).
+# 그래서 두 번째 값은 "필요한 코너 개수(4배)"가 아니라 "필요한 마커 중심 개수"다.
+QUALITY 4 4 2.0 1500 1 0.45
 
 # 현장 좌표는 저장소에 임시값으로 넣지 않는다. 설치 시 채널별로 아래
 # 명령을 실행하고 실제 공장 범위와 마커 중심 XY를 입력한다.

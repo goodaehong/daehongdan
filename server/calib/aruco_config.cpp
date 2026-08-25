@@ -267,6 +267,16 @@ bool ArucoConfig_RunCalibration(int ch, std::string* reason) {
     {
         std::lock_guard<std::mutex> lk(g_mtx);
         if (g_running[ch - 1]) { if (reason) *reason = "이미 계산 중입니다"; return false; }
+        // 채널별로 각자 RTSP 스트림에 독립 접속하는 별도 프로세스라, 여러 채널을
+        // 동시에 돌리면 파이 리소스 경합으로 다 같이 실패한다(2026-08-25, 재환님
+        // 지적) — 한 번에 한 채널만 계산하도록 막는다.
+        for (int other = 0; other < 4; ++other) {
+            if (other != ch - 1 && g_running[other]) {
+                if (reason) *reason = "다른 채널(cam" + std::to_string(other + 1) +
+                    ") 보정이 진행 중입니다 — 끝난 뒤 다시 시도하세요";
+                return false;
+            }
+        }
         g_running[ch - 1] = true;
         g_cancel[ch - 1]  = false;
     }

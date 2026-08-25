@@ -78,6 +78,21 @@ namespace
             homography.cols == 3 && cv::checkRange(homography);
     }
 
+    // 로그·에러 메시지에 마커 ID 목록을 "[5,6,7]" 형태로 붙이기 위한 헬퍼
+    // (재환님 요청 — 실패 시 어떤 마커가 빠졌는지 바로 보이게).
+    std::string idsToString(const std::vector<int>& ids)
+    {
+        std::ostringstream out;
+        out << '[';
+        for (std::size_t i = 0; i < ids.size(); ++i)
+        {
+            if (i > 0) out << ',';
+            out << ids[i];
+        }
+        out << ']';
+        return out.str();
+    }
+
     bool hasNonDegenerateHomographyBasis(
         const std::vector<cv::Point2f>& points)
     {
@@ -909,16 +924,15 @@ bool GridCoordinateMapper::updateFromFrame(
         }
     }
 
-    std::vector<cv::Point2f> imagePoints;
-    std::vector<cv::Point2f> worldPoints;
-    std::vector<int> pointMarkerIds;
-    std::set<int> acceptedMarkerIds;
-
-    // Establish the board orientation from marker centres first. ArUco corner
-    // order follows each printed code, so papers installed at different
-    // quarter-turns otherwise make an otherwise correct board look invalid.
+    // 마커 중심점 기준으로 Homography를 계산한다(재환님 요청, 2026-08-25).
+    // 예전엔 마커 크기·회전각으로 4개 꼭짓점을 세계좌표에 재현해서 꼭짓점 단위로
+    // RANSAC을 돌렸는데, 실측 모형은 마커가 손으로 붙어서 각도·크기가 이론값과
+    // 조금씩 어긋난다 — 중심은 멀쩡히 잡히는데 꼭짓점 오차가 threshold를 넘어서
+    // "RANSAC rejected too many ArUco marker corners"로 전 채널이 실패했다.
+    // 중심점만 쓰면 마커 개별 회전·크기 오차에 영향을 안 받는다.
     std::vector<cv::Point2f> centreWorldPoints;
     std::vector<cv::Point2f> centreImagePoints;
+    std::vector<int> centreMarkerIds;
     for (std::size_t index = 0; index < detectedIds.size(); ++index)
     {
         const auto definition = markers.find(detectedIds[index]);
@@ -929,70 +943,27 @@ bool GridCoordinateMapper::updateFromFrame(
         centre *= 0.25F;
         centreWorldPoints.push_back(definition->second.centerWorldM);
         centreImagePoints.push_back(normalizedPoint(centre, frame.size()));
-    }
-    cv::Mat centreWorldToImageHomography;
-    if (centreWorldPoints.size() >= 4 &&
-        hasNonDegenerateHomographyBasis(centreWorldPoints))
-    {
-        const double centreRansacThreshold = 3.0 /
-            static_cast<double>(std::max(frame.cols, frame.rows));
-        centreWorldToImageHomography = cv::findHomography(
-            centreWorldPoints, centreImagePoints, cv::RANSAC,
-            centreRansacThreshold, cv::noArray(), 1000, 0.995);
+        centreMarkerIds.push_back(detectedIds[index]);
     }
 
-    for (std::size_t index = 0; index < detectedIds.size(); ++index)
-    {
-        const auto definition = markers.find(detectedIds[index]);
-        if (definition == markers.end() || correctedCorners[index].size() != 4)
-            continue;
-        MarkerDefinition orientedMarker = definition->second;
-        std::vector<cv::Point2f> worldCorners =
-            markerWorldCorners(orientedMarker, modelScale);
-        if (finiteHomography(centreWorldToImageHomography))
-        {
-            double bestSquaredError = std::numeric_limits<double>::infinity();
-            for (int quarterTurn = 0; quarterTurn < 4; ++quarterTurn)
-            {
-                orientedMarker.clockwiseRotationDegrees =
-                    definition->second.clockwiseRotationDegrees +
-                    static_cast<float>(quarterTurn * 90);
-                const std::vector<cv::Point2f> candidateWorldCorners =
-                    markerWorldCorners(orientedMarker, modelScale);
-                std::vector<cv::Point2f> projectedCorners;
-                cv::perspectiveTransform(candidateWorldCorners, projectedCorners,
-                    centreWorldToImageHomography);
-                double squaredError = 0.0;
-                for (std::size_t corner = 0; corner < 4; ++corner)
-                {
-                    const cv::Point2f detected = normalizedPoint(
-                        correctedCorners[index][corner], frame.size());
-                    const cv::Point2f delta = projectedCorners[corner] - detected;
-                    squaredError += delta.dot(delta);
-                }
-                if (squaredError < bestSquaredError)
-                {
-                    bestSquaredError = squaredError;
-                    worldCorners = candidateWorldCorners;
-                }
-            }
-        }
-        for (std::size_t corner = 0; corner < 4; ++corner)
-        {
-            imagePoints.push_back(normalizedPoint(correctedCorners[index][corner], frame.size()));
-            worldPoints.push_back(worldCorners[corner]);
-            pointMarkerIds.push_back(detectedIds[index]);
-        }
-        acceptedMarkerIds.insert(detectedIds[index]);
-    }
-
-    if (acceptedMarkerIds.size() < static_cast<std::size_t>(minimumVisibleMarkers) ||
-        imagePoints.size() < static_cast<std::size_t>(minimumInlierCorners))
+    if (centreWorldPoints.size() < static_cast<std::size_t>(minimumVisibleMarkers))
     {
         std::unique_lock<std::shared_mutex> lock(mutex_);
         lastError_ = "not enough configured ArUco markers are visible";
         status_.detectedMarkers = static_cast<int>(detectedIds.size());
-        status_.acceptedMarkers = static_cast<int>(acceptedMarkerIds.size());
+        status_.acceptedMarkers = static_cast<int>(centreWorldPoints.size());
+        status_.inlierCorners = 0;
+        status_.message = lastError_ + " (detected=" +
+            idsToString(detectedIds) + ", configuredVisible=" +
+            idsToString(centreMarkerIds) + ")";
+        return false;
+    }
+    if (!hasNonDegenerateHomographyBasis(centreWorldPoints))
+    {
+        std::unique_lock<std::shared_mutex> lock(mutex_);
+        lastError_ = "configured ArUco marker centres are too close to a line";
+        status_.detectedMarkers = static_cast<int>(detectedIds.size());
+        status_.acceptedMarkers = static_cast<int>(centreWorldPoints.size());
         status_.inlierCorners = 0;
         status_.message = lastError_;
         return false;
@@ -1005,40 +976,44 @@ bool GridCoordinateMapper::updateFromFrame(
     // Estimate world -> normalized image so the RANSAC threshold remains in
     // image units regardless of FACTORY metres or MODEL_SCALE.
     cv::Mat worldToImageHomography = cv::findHomography(
-        worldPoints, imagePoints, cv::RANSAC, normalizedRansacThreshold,
+        centreWorldPoints, centreImagePoints, cv::RANSAC, normalizedRansacThreshold,
         inlierMask, 2000, 0.995);
     if (!finiteHomography(worldToImageHomography))
     {
         std::unique_lock<std::shared_mutex> lock(mutex_);
-        lastError_ = "visible ArUco corners do not form a valid Homography";
+        lastError_ = "visible ArUco marker centres do not form a valid Homography";
         status_.detectedMarkers = static_cast<int>(detectedIds.size());
-        status_.acceptedMarkers = static_cast<int>(acceptedMarkerIds.size());
+        status_.acceptedMarkers = static_cast<int>(centreWorldPoints.size());
         status_.inlierCorners = 0;
         status_.message = lastError_;
         return false;
     }
 
     int inlierCorners = 0;
-    std::map<int, int> inlierCornersPerMarker;
+    std::vector<int> inlierIds, rejectedIds;
     for (int index = 0; index < inlierMask.rows; ++index)
     {
-        if (inlierMask.at<unsigned char>(index, 0) == 0) continue;
-        ++inlierCorners;
-        ++inlierCornersPerMarker[pointMarkerIds[static_cast<std::size_t>(index)]];
+        const int id = centreMarkerIds[static_cast<std::size_t>(index)];
+        if (inlierMask.at<unsigned char>(index, 0) == 0) { rejectedIds.push_back(id); continue; }
+        ++inlierCorners;   // 이제 "인라이어 마커 중심 개수" (필드명은 status 호환성 유지)
+        inlierIds.push_back(id);
     }
-    int inlierMarkers = 0;
-    for (const auto& entry : inlierCornersPerMarker)
-        if (entry.second >= 3) ++inlierMarkers;
-    if (inlierCorners < minimumInlierCorners || inlierMarkers < minimumVisibleMarkers)
+    const int inlierMarkers = inlierCorners;
+    if (inlierMarkers < minimumInlierCorners || inlierMarkers < minimumVisibleMarkers)
     {
         std::unique_lock<std::shared_mutex> lock(mutex_);
-        lastError_ = "RANSAC rejected too many ArUco marker corners";
+        lastError_ = "RANSAC rejected too many ArUco marker centres";
         status_.detectedMarkers = static_cast<int>(detectedIds.size());
-        status_.acceptedMarkers = static_cast<int>(acceptedMarkerIds.size());
+        status_.acceptedMarkers = static_cast<int>(centreWorldPoints.size());
         status_.inlierCorners = inlierCorners;
-        status_.message = lastError_;
+        status_.message = lastError_ + " (centerInliers=" + idsToString(inlierIds) +
+            ", rejectedIds=" + idsToString(rejectedIds) + ")";
         return false;
     }
+    // 아래 RMS·저장 단계는 예전 이름(worldPoints/imagePoints)을 그대로 쓰던 코드라
+    // 참조로 이어붙인다 — 실제로는 마커 중심점이다.
+    std::vector<cv::Point2f>& worldPoints = centreWorldPoints;
+    std::vector<cv::Point2f>& imagePoints = centreImagePoints;
 
     cv::Mat homography = worldToImageHomography.inv();
     if (!finiteHomography(homography))
@@ -1071,10 +1046,10 @@ bool GridCoordinateMapper::updateFromFrame(
         std::unique_lock<std::shared_mutex> lock(mutex_);
         lastError_ = "ArUco Homography reprojection error is too high";
         status_.detectedMarkers = static_cast<int>(detectedIds.size());
-        status_.acceptedMarkers = static_cast<int>(acceptedMarkerIds.size());
+        status_.acceptedMarkers = static_cast<int>(centreWorldPoints.size());
         status_.inlierCorners = inlierCorners;
         status_.reprojectionRmsPx = rms;
-        status_.message = lastError_;
+        status_.message = lastError_ + " (centerRms=" + std::to_string(rms) + "px)";
         return false;
     }
 
@@ -1121,14 +1096,15 @@ bool GridCoordinateMapper::updateFromFrame(
         status_.homographyFresh = true;
         status_.staticHomography = false;
         status_.detectedMarkers = static_cast<int>(detectedIds.size());
-        status_.acceptedMarkers = static_cast<int>(acceptedMarkerIds.size());
+        status_.acceptedMarkers = static_cast<int>(centreWorldPoints.size());
         status_.inlierCorners = inlierCorners;
         status_.reprojectionRmsPx = rms;
         status_.homographyAgeMs = 0.0;
         status_.lensCalibrationConfigured = lensCalibrationConfigured_;
         status_.lensCalibrationApplied = lensCalibrationConfigured_;
         status_.lensCalibrationRmsPx = lensCalibrationRmsPx_;
-        status_.message = "ArUco Homography updated";
+        status_.message = "ArUco Homography updated (centerInliers=" +
+            idsToString(inlierIds) + ", centerRms=" + std::to_string(rms) + "px)";
     }
     return true;
 }
