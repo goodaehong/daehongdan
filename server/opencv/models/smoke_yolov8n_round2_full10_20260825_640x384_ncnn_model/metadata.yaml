@@ -1,7 +1,7 @@
-description: Ultralytics best model trained on /content/smoke_round2_colab_bundle/dataset/data.yaml
+description: Ultralytics best model trained on /content/round2_bundle/target_smoke_round2_bundle/target_smoke_dataset_round2/dataset.yaml
 author: Ultralytics
-date: '2026-08-25T09:48:59.651219'
-version: 8.4.90
+date: '2026-08-25T18:31:24.626423+00:00'
+version: 8.4.128
 license: AGPL-3.0 License (https://ultralytics.com/license)
 docs: https://docs.ultralytics.com
 stride: 32
@@ -13,7 +13,6 @@ imgsz:
 - 640
 names:
   0: smoke
-  1: fire
 args:
   batch: 1
   quantize: null
