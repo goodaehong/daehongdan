@@ -455,6 +455,14 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
 
         cv::Mat frame;
         while (true) {
+            // 이 채널이 지금 ArUco 보정 중이면 서버 캡처를 내려놓는다. 보정 도구가
+            // 같은 RTSP 스트림(rtsp://localhost:8554/camN)에 독립적으로 접속하는데,
+            // 서버까지 같이 그 스트림을 물고 있으면 파이에서 리소스 경합이 나서
+            // 프레임이 깨지고(h264 디코드 에러) 보정이 계속 실패한다.
+            if (ArucoConfig_IsRunning(ch)) {
+                std::cout << "[cam" << ch + 1 << "] 보정 진행 중 — 서버 캡처 일시 중단\n";
+                break;
+            }
             if (!cap.read(frame) || frame.empty()) {
                 std::cerr << "[cam" << ch + 1 << "] 프레임 읽기 실패, 재연결\n";
                 break;
@@ -608,6 +616,15 @@ void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke)
         }
 
         cap.release();
+
+        // 보정이 끝날 때까지 재연결을 미룬다 — 안 그러면 3초마다 재접속을 시도하면서
+        // 다시 스트림 경합을 일으킨다.
+        if (ArucoConfig_IsRunning(ch)) {
+            while (ArucoConfig_IsRunning(ch))
+                std::this_thread::sleep_for(std::chrono::milliseconds(300));
+            std::cout << "[cam" << ch + 1 << "] 보정 종료 — 서버 캡처 재개\n";
+        }
+
         std::this_thread::sleep_for(std::chrono::seconds(3));
     }
 }
