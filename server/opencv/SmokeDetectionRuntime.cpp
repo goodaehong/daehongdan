@@ -621,13 +621,22 @@ public:
                 std::chrono::duration<double, std::milli>(now - channel.latestSourceTime).count();
             snapshot.completedAgeMs =
                 std::chrono::duration<double, std::milli>(now - channel.latestCompletedTime).count();
+            snapshot.pipelineLatencyMs =
+                std::chrono::duration<double, std::milli>(
+                    channel.latestCompletedTime - channel.latestSourceTime).count();
         }
 
+        // completedAgeMs만 사용하면 큐에서 오래 기다린 프레임도 방금 생성된
+        // 결과처럼 보일 수 있다. 완료 당시 파이프라인 지연을 먼저 제한하고,
+        // 정상 결과의 화면 유지 시간만 완료 시각을 기준으로 계산한다.
+        const bool pipelineLatencyAcceptable = snapshot.hasResult &&
+            snapshot.pipelineLatencyMs <= smoke_config::MAX_PIPELINE_LATENCY_MS;
         snapshot.resultIsFresh = snapshot.hasResult &&
-            snapshot.resultAgeMs <= smoke_config::RESULT_FRESH_MS;
+            pipelineLatencyAcceptable &&
+            snapshot.completedAgeMs <= smoke_config::RESULT_FRESH_MS;
         snapshot.smokeDetected = snapshot.resultIsFresh && channel.smokeDetected;
         snapshot.boxIsFresh = snapshot.resultIsFresh &&
-            snapshot.resultAgeMs <= smoke_config::BOX_FRESH_MS &&
+            snapshot.completedAgeMs <= smoke_config::BOX_FRESH_MS &&
             channel.latestDetection.candidate && !channel.latestDetection.boxes.empty();
         return snapshot;
     }
