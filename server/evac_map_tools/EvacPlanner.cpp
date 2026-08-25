@@ -201,7 +201,7 @@ void saveRoutesText(const std::vector<Route>& routes, const std::string& path) {
 }
 
 // 화재/경로가 격자에 실제로 반영된 상태를 전광판별로 확인하는 디버그 맵 (*=화재위험구역, F=화재중심, 1=이 전광판 경로)
-void savePerStartDebugs(const std::vector<std::vector<int>>& grid, const std::vector<Location>& starts, const std::vector<Route>& routes, const std::vector<EvacFireCell>& fires, const std::string& outDir) {
+void savePerStartDebugs(const std::vector<std::vector<int>>& grid, const std::vector<Location>& starts, const std::vector<Route>& routes, const std::vector<FireCell>& fires, const std::string& outDir) {
     for (const auto& start : starts) {
         std::vector<std::string> debugMap(OUT_SIZE, std::string(OUT_SIZE, '.'));
         for (int y = 0; y < OUT_SIZE; ++y) {
@@ -265,7 +265,7 @@ std::vector<Point> compressToWaypoints(const std::vector<Point>& path) {
 }
 
 // --- 경로 계산 알고리즘 (화재 회피 및 우회) ---
-std::vector<Route> calculateRoutes(const std::vector<std::vector<int>>& grid, const std::vector<Location>& starts, const std::vector<Location>& exits, const std::vector<EvacFireCell>& fires) {
+std::vector<Route> calculateRoutes(const std::vector<std::vector<int>>& grid, const std::vector<Location>& starts, const std::vector<Location>& exits, const std::vector<FireCell>& fires) {
     
     std::vector<std::vector<int>> localGrid = grid;
     for (const auto& fire : fires) {
@@ -450,7 +450,7 @@ bool analyzeFloorPlan(const std::string& imagePath, FloorPlan& out) {
 }
 
 // --- 메인 파이프라인 함수 (버그 픽스 및 디버그 로직 복원) ---
-std::vector<std::vector<Point>> processFloorPlan(const std::string& imagePath, const std::vector<EvacFireCell>& fires) {
+std::vector<std::vector<Point>> processFloorPlan(const std::string& imagePath, const std::vector<FireCell>& fires) {
     FloorPlan fp;
     if (!analyzeFloorPlan(imagePath, fp)) return {};
 
