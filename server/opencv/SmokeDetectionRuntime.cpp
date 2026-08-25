@@ -510,7 +510,8 @@ public:
         for (std::size_t index = 0; index < channels_.size(); ++index)
         {
             const int phaseMs = static_cast<int>(index) *
-                smoke_config::SHARED_WORKER_INTERVAL_MS;
+                smoke_config::INFERENCE_INTERVAL_MS /
+                static_cast<int>(channels_.size());
             channels_[index].nextAcceptedTime = now + std::chrono::milliseconds(phaseMs);
         }
 
@@ -537,8 +538,7 @@ public:
 
             channel.nextAcceptedTime =
                 sourceTime + std::chrono::milliseconds(
-                    smoke_config::SHARED_WORKER_INTERVAL_MS *
-                    static_cast<int>(channels_.size()));
+                    smoke_config::INFERENCE_INTERVAL_MS);
             // 대기 중이어도 큐를 늘리지 않고 이 채널의 가장 최신 프레임으로 교체한다.
             frame.copyTo(channel.pendingFrame);
             channel.pendingFrameId = frameId;
@@ -592,7 +592,8 @@ public:
         channel.smokeTracks.clear();
         channel.nextSmokeTrackId = 1;
         const int phaseMs = static_cast<int>(channelIndex) *
-            smoke_config::SHARED_WORKER_INTERVAL_MS;
+            smoke_config::INFERENCE_INTERVAL_MS /
+            static_cast<int>(channels_.size());
         channel.nextAcceptedTime = Clock::now() + std::chrono::milliseconds(phaseMs);
     }
 
