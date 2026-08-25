@@ -234,6 +234,14 @@ void ServerLink::connectToServer(const QString &host, quint16 port)
         socket->connectToHost(host, port);
 }
 
+void ServerLink::disconnectFromServer()
+{
+    // abort()는 TLS close_notify 등을 기다리지 않고 OS 소켓을 즉시 닫는다 — 로그아웃 직후
+    // 서버가 바로 새 접속을 받을 수 있어야 하므로, 이벤트루프를 한 바퀴 더 도는
+    // disconnectFromHost()보다 이쪽이 맞다.
+    socket->abort();
+}
+
 void ServerLink::onSslErrors(const QList<QSslError> &errors)
 {
     ServerConfig::verifyServerCertificate(socket, errors);
