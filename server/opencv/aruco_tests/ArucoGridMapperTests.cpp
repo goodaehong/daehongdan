@@ -39,7 +39,10 @@ namespace
         {0, {31.50F, 1.50F}, 0.04F},
         {1, {58.50F, 1.50F}, 0.04F},
         {2, {31.50F, 28.50F}, 0.04F},
-        {3, {45.00F, 15.00F}, 0.04F}
+        {3, {45.00F, 14.00F}, 0.04F},
+        // The configuration intentionally registers ID 4 at a different
+        // world centre.  Centre RANSAC must reject it and retain IDs 0..3.
+        {4, {52.00F, 22.00F}, 0.04F}
     };
 
     void expect(bool condition, const std::string& message)
@@ -264,11 +267,15 @@ int main()
     };
     const cv::Mat firstWorldToImage = worldToImageHomography(firstBoardImage);
     const cv::Mat firstFrame = makeFrame(firstBoardImage, visible);
-    expect(mapper.updateFromFrame(firstFrame, 1),
+    const bool firstFrameUpdated = mapper.updateFromFrame(firstFrame, 1);
+    if (!firstFrameUpdated)
+        std::cerr << "first frame status: " << mapper.status().message << '\n';
+    expect(firstFrameUpdated,
         "three corners plus centre should update Homography: " + mapper.lastError());
     const ArucoMappingStatus firstStatus = mapper.status();
     expect(firstStatus.acceptedMarkers >= 4, "four configured markers should be accepted");
-    expect(firstStatus.inlierCorners >= 12, "marker corners should provide redundant inliers");
+    expect(firstStatus.inlierCorners == 4,
+        "centre Homography should report four inlier marker centres");
     expect(firstStatus.lensCalibrationConfigured &&
         firstStatus.lensCalibrationApplied,
         "loaded lens calibration should be applied to marker and fire points");
@@ -284,6 +291,22 @@ int main()
     expect(std::abs(factoryPoint.x - 45.0F) < 0.1F &&
         std::abs(factoryPoint.y - 15.0F) < 0.1F,
         "mapper should expose actual factory coordinates in metres");
+
+    GridCoordinateMapper outlierMapper;
+    expect(outlierMapper.loadArucoBoardConfiguration(TEST_CONFIG_PATH, 3),
+        "legacy QUALITY 4 12 configuration should migrate to four centre inliers");
+    expect(outlierMapper.loadCameraCalibration(calibrationPath.string(), 3),
+        "outlier mapper camera calibration should load");
+    const cv::Mat oneBadCentreFrame = makeFrame(
+        firstBoardImage, {0, 1, 2, 3, 4});
+    expect(outlierMapper.updateFromFrame(oneBadCentreFrame, 1),
+        "one rejected marker centre must leave a valid four-centre Homography: " +
+        outlierMapper.lastError());
+    const ArucoMappingStatus outlierStatus = outlierMapper.status();
+    expect(outlierStatus.inlierCorners == 4,
+        "RANSAC should retain exactly four marker centres");
+    expect(outlierStatus.message.find("rejectedIds=[4]") != std::string::npos,
+        "success log should identify the rejected marker ID");
 
     const std::filesystem::path staticHomographyPath =
         std::filesystem::temp_directory_path() /

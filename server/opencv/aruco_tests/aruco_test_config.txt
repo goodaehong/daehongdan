@@ -8,4 +8,7 @@ BOARD 4 30.00 0.00 60.00 30.00
 MARKER 4 0 31.50 1.50 0.04 0
 MARKER 4 1 58.50 1.50 0.04 0
 MARKER 4 2 31.50 28.50 0.04 0
-MARKER 4 3 45.00 15.00 0.04 0
+MARKER 4 3 45.00 14.00 0.04 0
+# Intentionally wrong for the synthetic ID 4 position.  The centre-based
+# RANSAC test verifies that this fifth marker is rejected while four remain.
+MARKER 4 4 35.00 8.00 0.04 0

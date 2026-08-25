@@ -716,6 +716,15 @@ bool GridCoordinateMapper::loadArucoBoardConfiguration(
         }
     }
 
+    // Compatibility with configurations saved before the centre-based
+    // Homography change.  The second QUALITY value used to mean a number of
+    // marker corners (normally 12), while it now represents marker centres.
+    // Requiring the legacy value would reject four valid centre inliers after
+    // RANSAC discards one bad marker.  The actual acceptance contract is the
+    // minimum visible-marker count, so migrate both old and new files to that
+    // value while loading.
+    minimumInlierCorners = minimumVisibleMarkers;
+
     const int selectedDictionaryId = dictionaryId(dictionaryName);
     if (!factoryWorldFound)
         factoryWorld = selectedBoard;
@@ -1003,7 +1012,7 @@ bool GridCoordinateMapper::updateFromFrame(
         inlierIds.push_back(id);
     }
     const int inlierMarkers = inlierCorners;
-    if (inlierMarkers < minimumInlierCorners || inlierMarkers < minimumVisibleMarkers)
+    if (inlierMarkers < minimumVisibleMarkers)
     {
         std::unique_lock<std::shared_mutex> lock(mutex_);
         lastError_ = "RANSAC rejected too many ArUco marker centres";
@@ -1108,7 +1117,8 @@ bool GridCoordinateMapper::updateFromFrame(
         status_.lensCalibrationApplied = lensCalibrationConfigured_;
         status_.lensCalibrationRmsPx = lensCalibrationRmsPx_;
         status_.message = "ArUco Homography updated (centerInliers=" +
-            idsToString(inlierIds) + ", centerRms=" + std::to_string(rms) + "px)";
+            idsToString(inlierIds) + ", rejectedIds=" + idsToString(rejectedIds) +
+            ", centerRms=" + std::to_string(rms) + "px)";
     }
     return true;
 }
