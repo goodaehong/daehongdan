@@ -20,7 +20,13 @@ Qt 박스가 누락되는 문제를 수정하고, 현장 세트장 연기에 추
 - 입력: 640×384
 - 클래스: `0=smoke`, `1=fire` (런타임은 smoke만 사용)
 - NCNN blob: `in0`, `out0`
-- 모델 폴더: `smoke_yolov8n_adapted_20260825_640x384_ncnn_model`
+- 모델 폴더: `smoke_yolov8n_round2_full10_20260825_640x384_ncnn_model`
+
+2차 현장 영상 적응 학습은 조기 종료를 끄고 10 epoch 전체를 수행했다.
+최종 선택된 `best.pt`의 전체 검증 결과는 precision 0.7683, recall 0.6797,
+mAP50 0.7587, mAP50-95 0.4458이다. smoke 클래스는 precision 0.775,
+recall 0.703, mAP50 0.777, mAP50-95 0.484였다. 서버 입력과 맞추기 위해
+NCNN은 반드시 640x384(`imgsz=(384, 640)`)로 다시 내보낸 파일을 사용한다.
 
 일반 검증셋에서는 기존 대비 precision이 0.7603에서 0.7645로 소폭
 상승했지만 recall은 0.7373에서 0.6975로 감소했다. smoke 클래스의

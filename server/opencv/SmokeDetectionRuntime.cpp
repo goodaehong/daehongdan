@@ -445,6 +445,7 @@ namespace
             track.box = detection.boxes[index].box;
             track.score = detection.boxes[index].score;
             track.hits = 1;
+            track.confirmed = track.hits >= smoke_config::CONFIRM_HITS;
             track.lastMatchedTime = sourceTime;
             channel.smokeTracks.push_back(track);
         }

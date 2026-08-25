@@ -235,9 +235,9 @@ namespace smoke_config
     constexpr int BOX_FRESH_MS = 5000;
 
     constexpr const char* MODEL_PARAM_PATH =
-        "models/smoke_yolov8n_adapted_20260825_640x384_ncnn_model/model.ncnn.param";
+        "models/smoke_yolov8n_round2_full10_20260825_640x384_ncnn_model/model.ncnn.param";
     constexpr const char* MODEL_BIN_PATH =
-        "models/smoke_yolov8n_adapted_20260825_640x384_ncnn_model/model.ncnn.bin";
+        "models/smoke_yolov8n_round2_full10_20260825_640x384_ncnn_model/model.ncnn.bin";
     constexpr const char* INPUT_BLOB_NAME = "in0";
     constexpr const char* OUTPUT_BLOB_NAME = "out0";
 }
