@@ -190,6 +190,10 @@ namespace smoke_config
     constexpr float RAW_CANDIDATE_THRESHOLD = CONFIDENCE_THRESHOLD;
     constexpr float NMS_THRESHOLD = 0.45F;
 
+    // 화면 대부분을 덮는 박스는 회색 벽/바닥 같은 정적 배경 오검출일 가능성이
+    // 높다. 이런 대형 박스에만 움직임 검증을 강제해 작은 실제 연기는 유지한다.
+    constexpr float LARGE_BOX_AREA_RATIO = 0.80F;
+
     // false이면 움직임 통계는 라벨에만 표시되고 YOLO 결과를 차단하지 않는다.
     constexpr bool REQUIRE_MOTION_VERIFICATION = false;
     constexpr int MOTION_ANALYSIS_WIDTH = 320;
@@ -211,7 +215,7 @@ namespace smoke_config
     constexpr float TRACK_MAX_CENTER_DISTANCE_RATIO = 0.45F;
     constexpr float MERGE_EXPANSION_RATIO = 0.12F;
     constexpr std::size_t MAX_TRACKS_PER_CHANNEL = 16;
-    constexpr int CONFIRM_HITS = 2;
+    constexpr int CONFIRM_HITS = 3;
     // 확정 전 후보는 빠르게 정리하고, 확정된 연기는 마지막 실제 검출부터 5초간 유지한다.
     constexpr int RELEASE_MISSES = 2;
     constexpr int RELEASE_HOLD_MS = 5000;

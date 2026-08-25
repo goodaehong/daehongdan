@@ -262,6 +262,19 @@ namespace
                 evidence = analyzeMotion(motionMask, motionBox);
             }
 
+            const double frameArea =
+                static_cast<double>(frame.cols) * static_cast<double>(frame.rows);
+            const double boxArea =
+                static_cast<double>(box.box.width) * static_cast<double>(box.box.height);
+            const double boxAreaRatio = frameArea > 0.0 ? boxArea / frameArea : 0.0;
+            const bool oversizedBox =
+                boxAreaRatio >= smoke_config::LARGE_BOX_AREA_RATIO;
+
+            // 세트장의 회색 벽/바닥을 화면 전체 연기로 분류하는 오검출을 막는다.
+            // 전체 움직임 검증은 느린 실제 연기를 놓칠 수 있으므로 대형 박스에만 적용한다.
+            if (oversizedBox && (!hasHistory || !evidence.verified))
+                continue;
+
             // 설정이 false이면 움직임은 진단 라벨에만 남고 YOLO 박스를 제거하지 않는다.
             if (smoke_config::REQUIRE_MOTION_VERIFICATION &&
                 (!hasHistory || !evidence.verified))
