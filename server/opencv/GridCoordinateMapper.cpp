@@ -590,10 +590,14 @@ bool GridCoordinateMapper::loadArucoBoardConfiguration(
         }
         else if (command == "QUALITY")
         {
+            // minimumInlierCorners는 이제 "인라이어 마커 중심 개수" 기준이다
+            // (재환님 요청으로 코너 기반 RANSAC을 중심점 기반으로 바꿈, 2026-08-25).
+            // 예전 코너 기준(최소 8=마커 2개×4코너) 하한을 그대로 두면 채널당
+            // 마커가 4~5개뿐이라 항상 "invalid QUALITY"로 걸린다 — 최소 2로 낮춘다.
             if (!(parser >> minimumVisibleMarkers >> minimumInlierCorners >>
                 maximumReprojectionRmsPx >> maximumHoldMs >> updateEveryFrames >>
                 smoothingAlpha) || minimumVisibleMarkers < 2 ||
-                minimumInlierCorners < 8 || maximumReprojectionRmsPx <= 0.0 ||
+                minimumInlierCorners < 2 || maximumReprojectionRmsPx <= 0.0 ||
                 maximumHoldMs < 0 || updateEveryFrames < 1 ||
                 smoothingAlpha <= 0.0 || smoothingAlpha > 1.0)
             {
