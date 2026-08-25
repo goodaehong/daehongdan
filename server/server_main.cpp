@@ -8,8 +8,9 @@
 #include <chrono>
 #include <ctime>
 #include <cstdlib>
-#include <fstream> 
+#include <fstream>
 #include <sys/stat.h>
+#include <csignal>
 
 #include "opencv/FireDetectionRuntime.h"
 #include "opencv/SmokeDetectionRuntime.h"
@@ -619,6 +620,12 @@ static void onCalibRunDone(int ch, CalibRunResult r, const std::string& detail) 
 }                                                             
 
 int main() {
+    // Qt가 정상 종료 절차 없이 창을 바로 닫으면(연결이 이미 끊긴 소켓에 SSL_write하게 됨),
+    // SIGPIPE 기본 동작이 프로세스 즉시 종료라서 서버 전체가 아무 로그도 없이 죽어버린다.
+    // 여기서 무시해두면 write()가 그냥 -1/EPIPE를 반환하고, txThreadLoop의 기존
+    // "bytes <= 0 → 송신 실패 로그 + 다음 연결 대기" 경로로 정상 처리된다.
+    std::signal(SIGPIPE, SIG_IGN);
+
     setenv("OPENCV_FFMPEG_CAPTURE_OPTIONS",
            "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay", 1);   // 저지연 옵션
     cv::setNumThreads(1);   // OpenCV 채널당 1스레드 = 멀티채널 최적화 핵심
