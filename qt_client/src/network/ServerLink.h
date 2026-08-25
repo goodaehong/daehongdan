@@ -26,6 +26,11 @@ public:
     explicit ServerLink(QObject *parent = nullptr);
 
     void connectToServer(const QString &host, quint16 port);
+    // 로그아웃 시 호출. 소켓을 즉시(동기적으로) 끊어서 서버가 "단일 접속" 슬롯을 바로 비우게 한다.
+    // deleteLater()로 넘겨서 다음 이벤트루프 때 소켓이 닫히길 기다리면, 그 사이 재로그인해서
+    // 새 ServerLink가 연결을 시도할 때 서버가 옛 연결이 아직 살아있다고 보고 새 접속을 거부한다
+    // ("다중 연결 시도 차단") — 로그아웃 직후 재로그인이 안 되는 것처럼 보이는 원인.
+    void disconnectFromServer();
 
     // 반환값: cmdId (응답 매칭용, controlResult/controlTimedOut 시그널에서 다시 옴)
     QString sendControl(const QString &zone, const QString &target, const QString &action, const QString &admin);

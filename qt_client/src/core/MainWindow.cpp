@@ -619,6 +619,10 @@ QWidget *MainWindow::createTopBar()
         "QPushButton:hover { border:1px solid #f87171; color:#f87171; }")
         .arg(kTextPrimary, kCardBg, kCardBorder));
     connect(logoutBtn, &QPushButton::clicked, this, [this]() {
+        // 소켓을 여기서 동기적으로 먼저 끊어야 한다 — MainWindow가 deleteLater()로 나중에
+        // 지워질 때 소켓도 같이 닫히길 기다리면, 그 틈에 재로그인 시 서버가 "단일 접속" 정책으로
+        // 새 연결을 거부해서 마치 서버가 죽은 것처럼 보인다.
+        serverLink->disconnectFromServer();
         emit loggedOut();
         close();
     });
