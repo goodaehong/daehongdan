@@ -1201,13 +1201,16 @@ bool GridCoordinateMapper::map(
         (world[0].x - factoryWorldM_.x) / factoryWorldM_.width;
     const double normalizedWorldY =
         (world[0].y - factoryWorldM_.y) / factoryWorldM_.height;
+    // FACTORY Y는 실측(현장) 좌표계라 위로 갈수록 커지는 값으로 입력되는데,
+    // 전광판 그리드/화면은 위가 0, 아래가 59라 Y만 뒤집어야 실제 위치와 맞는다.
+    const double displayNormalizedWorldY = 1.0 - normalizedWorldY;
     gridPoint.x = std::clamp(
         static_cast<int>(std::lround(
             USABLE_MIN + normalizedWorldX * (USABLE_MAX - USABLE_MIN))),
         USABLE_MIN, USABLE_MAX);
     gridPoint.y = std::clamp(
         static_cast<int>(std::lround(
-            USABLE_MIN + normalizedWorldY * (USABLE_MAX - USABLE_MIN))),
+            USABLE_MIN + displayNormalizedWorldY * (USABLE_MAX - USABLE_MIN))),
         USABLE_MIN, USABLE_MAX);
     if (factoryWorldPointM != nullptr)
         *factoryWorldPointM = world[0];
