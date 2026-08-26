@@ -57,11 +57,11 @@ found, the program deliberately builds a fire-only stub and prints an error at r
 Edit `smoke_config` in `AppConfig.h`:
 
 - input: 640x384
-- shared worker target interval: 1000 ms (about 4000 ms per channel with four channels)
-- NCNN threads: 3
-- confidence: 0.03 (temporary value for the current weak checkpoint)
-- confirmation: 3 hits
-- release: 3 misses
+- per-channel submission interval: 1000 ms (actual processing depends on Pi inference speed)
+- NCNN threads: 2 on ARM/Raspberry Pi, 3 on other platforms
+- confidence: 0.25
+- confirmation: 1 hit
+- release: 2 misses with a 5-second confirmed-result hold
 
 Measure CPU load and temperature on the actual Pi. If total CPU stays above 85%, first
-increase `SHARED_WORKER_INTERVAL_MS` before reducing the image size.
+increase `INFERENCE_INTERVAL_MS` before reducing the image size.
