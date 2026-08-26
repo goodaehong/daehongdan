@@ -286,8 +286,9 @@ int main()
         normalizedImagePoint({45.00F, 15.00F}, firstWorldToImage),
         grid, &factoryPoint),
         "channel-4 centre should map to the full-factory display grid");
-    expect(std::abs(grid.x - 44) <= 1 && std::abs(grid.y - 15) <= 1,
-        "channel-4 centre should map near full-factory grid (44,15)");
+    expect(std::abs(grid.x - 44) <= 1 && std::abs(grid.y - 44) <= 1,
+        "channel-4 centre should map near full-factory grid (44,44); "
+        "grid Y is flipped from world Y since the display's row 0 is the top edge");
     expect(std::abs(factoryPoint.x - 45.0F) < 0.1F &&
         std::abs(factoryPoint.y - 15.0F) < 0.1F,
         "mapper should expose actual factory coordinates in metres");
@@ -346,7 +347,7 @@ int main()
         "camera-shifted frame should refresh Homography: " + mapper.lastError());
     expect(mapper.map(normalizedImagePoint({37.50F, 22.50F}, secondWorldToImage), grid),
         "point after camera shake should still map");
-    expect(std::abs(grid.x - 37) <= 2 && std::abs(grid.y - 22) <= 2,
+    expect(std::abs(grid.x - 37) <= 2 && std::abs(grid.y - 37) <= 2,
         "camera shake corrected grid coordinate should remain stable");
 
     mapper.resetTracking();

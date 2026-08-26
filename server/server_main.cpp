@@ -42,10 +42,6 @@ struct FrameStore {
     std::atomic<int> frameH[4]{};
 };
 
-// 화재 하나의 평면도 좌표. 전광판 표시·경로 필터링용                      
-struct FireCell {
-    int x = 0, y = 0, radius = 0;
-};
 
 // 채널별 최신 감지 상태. 워커가 갱신, 판단(센서 스레드)이 읽음
 struct DetectionState {
@@ -132,7 +128,7 @@ static const int FIRE_POS_HOLD_SEC = 3;
 
 // 실물 전광판이 평면도의 몇 번 전광판인지. 평면도에서 전광판이 여러 개     
 // 잡혀도 실물은 하나라, 어느 자리인지 사람이 정해줘야 한다
-static const int EVAC_DISPLAY_ID = 1;
+static const int EVAC_DISPLAY_ID = 3;
 
 // 화재 위치와 대피경로를 전광판으로 보낸다.                                 
 // 화재 목록은 한 패킷(0xB2), 경로는 출구마다 한 패킷(0xB1)씩.
@@ -160,7 +156,7 @@ static void sendEvacPaths(const std::vector<FireCell>& fires) {
         return;
     }
 
-    for (const auto& r : FloorMapStore_RoutesFor(EVAC_DISPLAY_ID)) {
+    for (const auto& r : FloorMapStore_RoutesForFires(EVAC_DISPLAY_ID, fires)) {   
         // EvacPlanner는 {y,x} 순서, 전광판은 {x,y} 순서 — 뒤집어서 평탄화
         std::vector<uint8_t> xy;
         xy.reserve(r.waypoints.size() * 2);

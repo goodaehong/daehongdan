@@ -280,4 +280,43 @@ std::vector<EvacRoute> FloorMapStore_RoutesFor(int displayId) {
     for (const auto& r : g_routes)
         if (r.displayId == displayId) out.push_back(r);
     return out;   // 출구 순서대로 담긴다 (g_routes 자체가 그 순서)
-}                                                                  
+}                              
+
+// 화재를 피해 다시 계산한 경로. Qt 응답용 g_resultJson · g_routes 는 건드리지 않는다 —   
+// 그쪽은 「화재 없는 기준 결과」여야 재접속 때 엉뚱한 경로가 내려가지 않는다
+std::vector<EvacRoute> FloorMapStore_RoutesForFires(int displayId,
+                                                    const std::vector<FireCell>& fires) {
+    if (fires.empty()) return FloorMapStore_RoutesFor(displayId);   // 위험 해제 → 원래 경로
+
+    int displayCount = 0;
+    std::size_t baseCount = 0;
+    {
+        std::lock_guard<std::mutex> lk(g_mtx);
+        displayCount = g_displayCount;
+        baseCount    = g_routes.size();
+    }
+    if (displayCount <= 0 || baseCount == 0) return {};
+
+    // 경로는 (전광판1→출구1,2,…), (전광판2→…) 순으로 평탄하게 온다
+    const std::size_t exitCount = baseCount / (std::size_t)displayCount;
+
+    // 계산은 뮤텍스 밖에서. 수 초 걸릴 수 있어 Qt 요청까지 막으면 안 된다
+    std::vector<std::vector<Point>> routes;
+    try {
+        routes = processFloorPlan(FLOORMAP_IMAGE_PATH, fires);
+    } catch (const std::exception& e) {
+        std::cerr << "[대피경로] 화재 우회 계산 실패: " << e.what() << " — 기본 경로 사용\n";
+        return FloorMapStore_RoutesFor(displayId);
+    }
+    if (routes.size() != baseCount) {
+        std::cerr << "[대피경로] 우회 경로 개수 불일치 — 기본 경로 사용\n";
+        return FloorMapStore_RoutesFor(displayId);
+    }
+
+    const std::size_t base = (std::size_t)(displayId - 1) * exitCount;
+    std::vector<EvacRoute> out;
+    out.reserve(exitCount);
+    for (std::size_t i = 0; i < exitCount; i++)
+        out.push_back({displayId, (int)(i + 1), routes[base + i]});
+    return out;
+} 

@@ -15,7 +15,7 @@ int main(int argc, char** argv) {
     SetConsoleOutputCP(CP_UTF8);   // 윈도우 콘솔이 UTF-8 출력을 CP949로 잘못 읽어서 한글 깨지는 것 방지
 #endif
     std::vector<std::string> positional;
-    std::vector<EvacFireCell> fires;
+    std::vector<FireCell> fires;
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "--fires") {
