@@ -1,0 +1,305 @@
+﻿split,image,video,seconds,kind,box
+train,round3_smoke_positive_000_orig.jpg,연기.mp4,37.50,smoke_positive,"(345, 55, 430, 150)"
+train,round3_smoke_positive_000_bright.jpg,연기.mp4,37.50,smoke_positive,"(345, 55, 430, 150)"
+train,round3_smoke_positive_000_dark.jpg,연기.mp4,37.50,smoke_positive,"(345, 55, 430, 150)"
+train,round3_smoke_positive_000_soft.jpg,연기.mp4,37.50,smoke_positive,"(345, 55, 430, 150)"
+train,round3_smoke_positive_001_orig.jpg,연기.mp4,37.75,smoke_positive,"(np.int64(342), np.int64(52), np.int64(432), np.int64(150))"
+train,round3_smoke_positive_001_bright.jpg,연기.mp4,37.75,smoke_positive,"(np.int64(342), np.int64(52), np.int64(432), np.int64(150))"
+train,round3_smoke_positive_001_dark.jpg,연기.mp4,37.75,smoke_positive,"(np.int64(342), np.int64(52), np.int64(432), np.int64(150))"
+train,round3_smoke_positive_001_soft.jpg,연기.mp4,37.75,smoke_positive,"(np.int64(342), np.int64(52), np.int64(432), np.int64(150))"
+train,round3_smoke_positive_002_orig.jpg,연기.mp4,38.00,smoke_positive,"(np.int64(340), np.int64(50), np.int64(435), np.int64(150))"
+train,round3_smoke_positive_002_bright.jpg,연기.mp4,38.00,smoke_positive,"(np.int64(340), np.int64(50), np.int64(435), np.int64(150))"
+train,round3_smoke_positive_002_dark.jpg,연기.mp4,38.00,smoke_positive,"(np.int64(340), np.int64(50), np.int64(435), np.int64(150))"
+train,round3_smoke_positive_002_soft.jpg,연기.mp4,38.00,smoke_positive,"(np.int64(340), np.int64(50), np.int64(435), np.int64(150))"
+train,round3_smoke_positive_003_orig.jpg,연기.mp4,38.25,smoke_positive,"(np.int64(338), np.int64(45), np.int64(439), np.int64(151))"
+train,round3_smoke_positive_003_bright.jpg,연기.mp4,38.25,smoke_positive,"(np.int64(338), np.int64(45), np.int64(439), np.int64(151))"
+train,round3_smoke_positive_003_dark.jpg,연기.mp4,38.25,smoke_positive,"(np.int64(338), np.int64(45), np.int64(439), np.int64(151))"
+train,round3_smoke_positive_003_soft.jpg,연기.mp4,38.25,smoke_positive,"(np.int64(338), np.int64(45), np.int64(439), np.int64(151))"
+val,round3_smoke_positive_004_orig.jpg,연기.mp4,38.50,smoke_positive,"(np.int64(335), np.int64(40), np.int64(442), np.int64(152))"
+train,round3_smoke_positive_005_orig.jpg,연기.mp4,38.75,smoke_positive,"(np.int64(332), np.int64(35), np.int64(446), np.int64(154))"
+train,round3_smoke_positive_005_bright.jpg,연기.mp4,38.75,smoke_positive,"(np.int64(332), np.int64(35), np.int64(446), np.int64(154))"
+train,round3_smoke_positive_005_dark.jpg,연기.mp4,38.75,smoke_positive,"(np.int64(332), np.int64(35), np.int64(446), np.int64(154))"
+train,round3_smoke_positive_005_soft.jpg,연기.mp4,38.75,smoke_positive,"(np.int64(332), np.int64(35), np.int64(446), np.int64(154))"
+train,round3_smoke_positive_006_orig.jpg,연기.mp4,39.00,smoke_positive,"(np.int64(330), np.int64(30), np.int64(450), np.int64(155))"
+train,round3_smoke_positive_006_bright.jpg,연기.mp4,39.00,smoke_positive,"(np.int64(330), np.int64(30), np.int64(450), np.int64(155))"
+train,round3_smoke_positive_006_dark.jpg,연기.mp4,39.00,smoke_positive,"(np.int64(330), np.int64(30), np.int64(450), np.int64(155))"
+train,round3_smoke_positive_006_soft.jpg,연기.mp4,39.00,smoke_positive,"(np.int64(330), np.int64(30), np.int64(450), np.int64(155))"
+train,round3_smoke_positive_007_orig.jpg,연기.mp4,39.25,smoke_positive,"(np.int64(329), np.int64(29), np.int64(451), np.int64(160))"
+train,round3_smoke_positive_007_bright.jpg,연기.mp4,39.25,smoke_positive,"(np.int64(329), np.int64(29), np.int64(451), np.int64(160))"
+train,round3_smoke_positive_007_dark.jpg,연기.mp4,39.25,smoke_positive,"(np.int64(329), np.int64(29), np.int64(451), np.int64(160))"
+train,round3_smoke_positive_007_soft.jpg,연기.mp4,39.25,smoke_positive,"(np.int64(329), np.int64(29), np.int64(451), np.int64(160))"
+train,round3_smoke_positive_008_orig.jpg,연기.mp4,39.50,smoke_positive,"(np.int64(328), np.int64(28), np.int64(452), np.int64(165))"
+train,round3_smoke_positive_008_bright.jpg,연기.mp4,39.50,smoke_positive,"(np.int64(328), np.int64(28), np.int64(452), np.int64(165))"
+train,round3_smoke_positive_008_dark.jpg,연기.mp4,39.50,smoke_positive,"(np.int64(328), np.int64(28), np.int64(452), np.int64(165))"
+train,round3_smoke_positive_008_soft.jpg,연기.mp4,39.50,smoke_positive,"(np.int64(328), np.int64(28), np.int64(452), np.int64(165))"
+val,round3_smoke_positive_009_orig.jpg,연기.mp4,39.75,smoke_positive,"(np.int64(326), np.int64(26), np.int64(454), np.int64(170))"
+train,round3_smoke_positive_010_orig.jpg,연기.mp4,40.00,smoke_positive,"(np.int64(325), np.int64(25), np.int64(455), np.int64(175))"
+train,round3_smoke_positive_010_bright.jpg,연기.mp4,40.00,smoke_positive,"(np.int64(325), np.int64(25), np.int64(455), np.int64(175))"
+train,round3_smoke_positive_010_dark.jpg,연기.mp4,40.00,smoke_positive,"(np.int64(325), np.int64(25), np.int64(455), np.int64(175))"
+train,round3_smoke_positive_010_soft.jpg,연기.mp4,40.00,smoke_positive,"(np.int64(325), np.int64(25), np.int64(455), np.int64(175))"
+train,round3_smoke_positive_011_orig.jpg,연기.mp4,40.25,smoke_positive,"(np.int64(326), np.int64(30), np.int64(466), np.int64(175))"
+train,round3_smoke_positive_011_bright.jpg,연기.mp4,40.25,smoke_positive,"(np.int64(326), np.int64(30), np.int64(466), np.int64(175))"
+train,round3_smoke_positive_011_dark.jpg,연기.mp4,40.25,smoke_positive,"(np.int64(326), np.int64(30), np.int64(466), np.int64(175))"
+train,round3_smoke_positive_011_soft.jpg,연기.mp4,40.25,smoke_positive,"(np.int64(326), np.int64(30), np.int64(466), np.int64(175))"
+train,round3_smoke_positive_012_orig.jpg,연기.mp4,40.50,smoke_positive,"(np.int64(328), np.int64(35), np.int64(478), np.int64(175))"
+train,round3_smoke_positive_012_bright.jpg,연기.mp4,40.50,smoke_positive,"(np.int64(328), np.int64(35), np.int64(478), np.int64(175))"
+train,round3_smoke_positive_012_dark.jpg,연기.mp4,40.50,smoke_positive,"(np.int64(328), np.int64(35), np.int64(478), np.int64(175))"
+train,round3_smoke_positive_012_soft.jpg,연기.mp4,40.50,smoke_positive,"(np.int64(328), np.int64(35), np.int64(478), np.int64(175))"
+train,round3_smoke_positive_013_orig.jpg,연기.mp4,40.75,smoke_positive,"(np.int64(329), np.int64(40), np.int64(489), np.int64(175))"
+train,round3_smoke_positive_013_bright.jpg,연기.mp4,40.75,smoke_positive,"(np.int64(329), np.int64(40), np.int64(489), np.int64(175))"
+train,round3_smoke_positive_013_dark.jpg,연기.mp4,40.75,smoke_positive,"(np.int64(329), np.int64(40), np.int64(489), np.int64(175))"
+train,round3_smoke_positive_013_soft.jpg,연기.mp4,40.75,smoke_positive,"(np.int64(329), np.int64(40), np.int64(489), np.int64(175))"
+val,round3_smoke_positive_014_orig.jpg,연기.mp4,41.00,smoke_positive,"(np.int64(330), np.int64(45), np.int64(500), np.int64(175))"
+train,round3_smoke_positive_015_orig.jpg,연기.mp4,41.25,smoke_positive,"(np.int64(329), np.int64(41), np.int64(502), np.int64(175))"
+train,round3_smoke_positive_015_bright.jpg,연기.mp4,41.25,smoke_positive,"(np.int64(329), np.int64(41), np.int64(502), np.int64(175))"
+train,round3_smoke_positive_015_dark.jpg,연기.mp4,41.25,smoke_positive,"(np.int64(329), np.int64(41), np.int64(502), np.int64(175))"
+train,round3_smoke_positive_015_soft.jpg,연기.mp4,41.25,smoke_positive,"(np.int64(329), np.int64(41), np.int64(502), np.int64(175))"
+train,round3_smoke_positive_016_orig.jpg,연기.mp4,41.50,smoke_positive,"(np.int64(328), np.int64(38), np.int64(505), np.int64(175))"
+train,round3_smoke_positive_016_bright.jpg,연기.mp4,41.50,smoke_positive,"(np.int64(328), np.int64(38), np.int64(505), np.int64(175))"
+train,round3_smoke_positive_016_dark.jpg,연기.mp4,41.50,smoke_positive,"(np.int64(328), np.int64(38), np.int64(505), np.int64(175))"
+train,round3_smoke_positive_016_soft.jpg,연기.mp4,41.50,smoke_positive,"(np.int64(328), np.int64(38), np.int64(505), np.int64(175))"
+train,round3_smoke_positive_017_orig.jpg,연기.mp4,41.75,smoke_positive,"(np.int64(326), np.int64(34), np.int64(508), np.int64(175))"
+train,round3_smoke_positive_017_bright.jpg,연기.mp4,41.75,smoke_positive,"(np.int64(326), np.int64(34), np.int64(508), np.int64(175))"
+train,round3_smoke_positive_017_dark.jpg,연기.mp4,41.75,smoke_positive,"(np.int64(326), np.int64(34), np.int64(508), np.int64(175))"
+train,round3_smoke_positive_017_soft.jpg,연기.mp4,41.75,smoke_positive,"(np.int64(326), np.int64(34), np.int64(508), np.int64(175))"
+train,round3_smoke_positive_018_orig.jpg,연기.mp4,42.00,smoke_positive,"(np.int64(325), np.int64(30), np.int64(510), np.int64(175))"
+train,round3_smoke_positive_018_bright.jpg,연기.mp4,42.00,smoke_positive,"(np.int64(325), np.int64(30), np.int64(510), np.int64(175))"
+train,round3_smoke_positive_018_dark.jpg,연기.mp4,42.00,smoke_positive,"(np.int64(325), np.int64(30), np.int64(510), np.int64(175))"
+train,round3_smoke_positive_018_soft.jpg,연기.mp4,42.00,smoke_positive,"(np.int64(325), np.int64(30), np.int64(510), np.int64(175))"
+val,round3_smoke_positive_019_orig.jpg,연기.mp4,42.25,smoke_positive,"(np.int64(329), np.int64(29), np.int64(500), np.int64(169))"
+train,round3_smoke_positive_020_orig.jpg,연기.mp4,42.50,smoke_positive,"(np.int64(332), np.int64(28), np.int64(490), np.int64(162))"
+train,round3_smoke_positive_020_bright.jpg,연기.mp4,42.50,smoke_positive,"(np.int64(332), np.int64(28), np.int64(490), np.int64(162))"
+train,round3_smoke_positive_020_dark.jpg,연기.mp4,42.50,smoke_positive,"(np.int64(332), np.int64(28), np.int64(490), np.int64(162))"
+train,round3_smoke_positive_020_soft.jpg,연기.mp4,42.50,smoke_positive,"(np.int64(332), np.int64(28), np.int64(490), np.int64(162))"
+train,round3_smoke_positive_021_orig.jpg,연기.mp4,42.75,smoke_positive,"(np.int64(336), np.int64(26), np.int64(480), np.int64(156))"
+train,round3_smoke_positive_021_bright.jpg,연기.mp4,42.75,smoke_positive,"(np.int64(336), np.int64(26), np.int64(480), np.int64(156))"
+train,round3_smoke_positive_021_dark.jpg,연기.mp4,42.75,smoke_positive,"(np.int64(336), np.int64(26), np.int64(480), np.int64(156))"
+train,round3_smoke_positive_021_soft.jpg,연기.mp4,42.75,smoke_positive,"(np.int64(336), np.int64(26), np.int64(480), np.int64(156))"
+train,round3_smoke_positive_022_orig.jpg,연기.mp4,43.00,smoke_positive,"(np.int64(340), np.int64(25), np.int64(470), np.int64(150))"
+train,round3_smoke_positive_022_bright.jpg,연기.mp4,43.00,smoke_positive,"(np.int64(340), np.int64(25), np.int64(470), np.int64(150))"
+train,round3_smoke_positive_022_dark.jpg,연기.mp4,43.00,smoke_positive,"(np.int64(340), np.int64(25), np.int64(470), np.int64(150))"
+train,round3_smoke_positive_022_soft.jpg,연기.mp4,43.00,smoke_positive,"(np.int64(340), np.int64(25), np.int64(470), np.int64(150))"
+train,round3_smoke_positive_023_orig.jpg,연기.mp4,43.25,smoke_positive,"(np.int64(345), np.int64(28), np.int64(462), np.int64(145))"
+train,round3_smoke_positive_023_bright.jpg,연기.mp4,43.25,smoke_positive,"(np.int64(345), np.int64(28), np.int64(462), np.int64(145))"
+train,round3_smoke_positive_023_dark.jpg,연기.mp4,43.25,smoke_positive,"(np.int64(345), np.int64(28), np.int64(462), np.int64(145))"
+train,round3_smoke_positive_023_soft.jpg,연기.mp4,43.25,smoke_positive,"(np.int64(345), np.int64(28), np.int64(462), np.int64(145))"
+val,round3_smoke_positive_024_orig.jpg,연기.mp4,43.50,smoke_positive,"(350, 30, 455, 140)"
+train,round3_smoke_negative_000.jpg,연기.mp4,0.00,hard_negative,
+train,round3_smoke_negative_001.jpg,연기.mp4,1.00,hard_negative,
+train,round3_smoke_negative_002.jpg,연기.mp4,2.00,hard_negative,
+train,round3_smoke_negative_003.jpg,연기.mp4,3.00,hard_negative,
+train,round3_smoke_negative_004.jpg,연기.mp4,4.00,hard_negative,
+train,round3_smoke_negative_005.jpg,연기.mp4,5.00,hard_negative,
+val,round3_smoke_negative_006.jpg,연기.mp4,6.00,hard_negative,
+train,round3_smoke_negative_007.jpg,연기.mp4,7.00,hard_negative,
+train,round3_smoke_negative_008.jpg,연기.mp4,8.00,hard_negative,
+train,round3_smoke_negative_009.jpg,연기.mp4,9.00,hard_negative,
+train,round3_smoke_negative_010.jpg,연기.mp4,10.00,hard_negative,
+train,round3_smoke_negative_011.jpg,연기.mp4,11.00,hard_negative,
+train,round3_smoke_negative_012.jpg,연기.mp4,12.00,hard_negative,
+val,round3_smoke_negative_013.jpg,연기.mp4,13.00,hard_negative,
+train,round3_smoke_negative_014.jpg,연기.mp4,14.00,hard_negative,
+train,round3_smoke_negative_015.jpg,연기.mp4,15.00,hard_negative,
+train,round3_smoke_negative_016.jpg,연기.mp4,16.00,hard_negative,
+train,round3_smoke_negative_017.jpg,연기.mp4,17.00,hard_negative,
+train,round3_smoke_negative_018.jpg,연기.mp4,18.00,hard_negative,
+train,round3_smoke_negative_019.jpg,연기.mp4,19.00,hard_negative,
+val,round3_smoke_negative_020.jpg,연기.mp4,20.00,hard_negative,
+train,round3_smoke_negative_021.jpg,연기.mp4,21.00,hard_negative,
+train,round3_smoke_negative_022.jpg,연기.mp4,22.00,hard_negative,
+train,round3_smoke_negative_023.jpg,연기.mp4,23.00,hard_negative,
+train,round3_smoke_negative_024.jpg,연기.mp4,24.00,hard_negative,
+train,round3_smoke_negative_025.jpg,연기.mp4,25.00,hard_negative,
+train,round3_smoke_negative_026.jpg,연기.mp4,26.00,hard_negative,
+val,round3_smoke_negative_027.jpg,연기.mp4,27.00,hard_negative,
+train,round3_smoke_negative_028.jpg,연기.mp4,28.00,hard_negative,
+train,round3_smoke_negative_029.jpg,연기.mp4,29.00,hard_negative,
+train,round3_smoke_negative_030.jpg,연기.mp4,30.00,hard_negative,
+train,round3_smoke_negative_031.jpg,연기.mp4,31.00,hard_negative,
+train,round3_smoke_negative_032.jpg,연기.mp4,32.00,hard_negative,
+train,round3_smoke_negative_033.jpg,연기.mp4,33.00,hard_negative,
+val,round3_smoke_negative_034.jpg,연기.mp4,34.00,hard_negative,
+train,round3_smoke_negative_035.jpg,연기.mp4,35.00,hard_negative,
+train,round3_smoke_negative_036.jpg,연기.mp4,47.00,hard_negative,
+train,round3_smoke_negative_037.jpg,연기.mp4,48.00,hard_negative,
+train,round3_smoke_negative_038.jpg,연기.mp4,49.00,hard_negative,
+train,round3_smoke_negative_039.jpg,연기.mp4,50.00,hard_negative,
+train,round3_smoke_negative_040.jpg,연기.mp4,51.00,hard_negative,
+val,round3_smoke_negative_041.jpg,연기.mp4,52.00,hard_negative,
+train,round3_smoke_negative_042.jpg,연기.mp4,53.00,hard_negative,
+train,round3_smoke_negative_043.jpg,연기.mp4,54.00,hard_negative,
+train,round3_smoke_negative_044.jpg,연기.mp4,55.00,hard_negative,
+train,round3_smoke2_positive_000_orig.jpg,연기2.mp4,17.50,smoke_positive,"(350, 80, 420, 150)"
+train,round3_smoke2_positive_000_bright.jpg,연기2.mp4,17.50,smoke_positive,"(350, 80, 420, 150)"
+train,round3_smoke2_positive_000_dark.jpg,연기2.mp4,17.50,smoke_positive,"(350, 80, 420, 150)"
+train,round3_smoke2_positive_000_soft.jpg,연기2.mp4,17.50,smoke_positive,"(350, 80, 420, 150)"
+train,round3_smoke2_positive_001_orig.jpg,연기2.mp4,17.75,smoke_positive,"(np.int64(345), np.int64(72), np.int64(425), np.int64(152))"
+train,round3_smoke2_positive_001_bright.jpg,연기2.mp4,17.75,smoke_positive,"(np.int64(345), np.int64(72), np.int64(425), np.int64(152))"
+train,round3_smoke2_positive_001_dark.jpg,연기2.mp4,17.75,smoke_positive,"(np.int64(345), np.int64(72), np.int64(425), np.int64(152))"
+train,round3_smoke2_positive_001_soft.jpg,연기2.mp4,17.75,smoke_positive,"(np.int64(345), np.int64(72), np.int64(425), np.int64(152))"
+train,round3_smoke2_positive_002_orig.jpg,연기2.mp4,18.00,smoke_positive,"(np.int64(340), np.int64(65), np.int64(430), np.int64(155))"
+train,round3_smoke2_positive_002_bright.jpg,연기2.mp4,18.00,smoke_positive,"(np.int64(340), np.int64(65), np.int64(430), np.int64(155))"
+train,round3_smoke2_positive_002_dark.jpg,연기2.mp4,18.00,smoke_positive,"(np.int64(340), np.int64(65), np.int64(430), np.int64(155))"
+train,round3_smoke2_positive_002_soft.jpg,연기2.mp4,18.00,smoke_positive,"(np.int64(340), np.int64(65), np.int64(430), np.int64(155))"
+train,round3_smoke2_positive_003_orig.jpg,연기2.mp4,18.25,smoke_positive,"(np.int64(335), np.int64(58), np.int64(442), np.int64(161))"
+train,round3_smoke2_positive_003_bright.jpg,연기2.mp4,18.25,smoke_positive,"(np.int64(335), np.int64(58), np.int64(442), np.int64(161))"
+train,round3_smoke2_positive_003_dark.jpg,연기2.mp4,18.25,smoke_positive,"(np.int64(335), np.int64(58), np.int64(442), np.int64(161))"
+train,round3_smoke2_positive_003_soft.jpg,연기2.mp4,18.25,smoke_positive,"(np.int64(335), np.int64(58), np.int64(442), np.int64(161))"
+val,round3_smoke2_positive_004_orig.jpg,연기2.mp4,18.50,smoke_positive,"(np.int64(330), np.int64(50), np.int64(455), np.int64(168))"
+train,round3_smoke2_positive_005_orig.jpg,연기2.mp4,18.75,smoke_positive,"(np.int64(325), np.int64(42), np.int64(468), np.int64(174))"
+train,round3_smoke2_positive_005_bright.jpg,연기2.mp4,18.75,smoke_positive,"(np.int64(325), np.int64(42), np.int64(468), np.int64(174))"
+train,round3_smoke2_positive_005_dark.jpg,연기2.mp4,18.75,smoke_positive,"(np.int64(325), np.int64(42), np.int64(468), np.int64(174))"
+train,round3_smoke2_positive_005_soft.jpg,연기2.mp4,18.75,smoke_positive,"(np.int64(325), np.int64(42), np.int64(468), np.int64(174))"
+train,round3_smoke2_positive_006_orig.jpg,연기2.mp4,19.00,smoke_positive,"(np.int64(320), np.int64(35), np.int64(480), np.int64(180))"
+train,round3_smoke2_positive_006_bright.jpg,연기2.mp4,19.00,smoke_positive,"(np.int64(320), np.int64(35), np.int64(480), np.int64(180))"
+train,round3_smoke2_positive_006_dark.jpg,연기2.mp4,19.00,smoke_positive,"(np.int64(320), np.int64(35), np.int64(480), np.int64(180))"
+train,round3_smoke2_positive_006_soft.jpg,연기2.mp4,19.00,smoke_positive,"(np.int64(320), np.int64(35), np.int64(480), np.int64(180))"
+train,round3_smoke2_positive_007_orig.jpg,연기2.mp4,19.25,smoke_positive,"(np.int64(324), np.int64(41), np.int64(482), np.int64(182))"
+train,round3_smoke2_positive_007_bright.jpg,연기2.mp4,19.25,smoke_positive,"(np.int64(324), np.int64(41), np.int64(482), np.int64(182))"
+train,round3_smoke2_positive_007_dark.jpg,연기2.mp4,19.25,smoke_positive,"(np.int64(324), np.int64(41), np.int64(482), np.int64(182))"
+train,round3_smoke2_positive_007_soft.jpg,연기2.mp4,19.25,smoke_positive,"(np.int64(324), np.int64(41), np.int64(482), np.int64(182))"
+train,round3_smoke2_positive_008_orig.jpg,연기2.mp4,19.50,smoke_positive,"(np.int64(328), np.int64(48), np.int64(485), np.int64(185))"
+train,round3_smoke2_positive_008_bright.jpg,연기2.mp4,19.50,smoke_positive,"(np.int64(328), np.int64(48), np.int64(485), np.int64(185))"
+train,round3_smoke2_positive_008_dark.jpg,연기2.mp4,19.50,smoke_positive,"(np.int64(328), np.int64(48), np.int64(485), np.int64(185))"
+train,round3_smoke2_positive_008_soft.jpg,연기2.mp4,19.50,smoke_positive,"(np.int64(328), np.int64(48), np.int64(485), np.int64(185))"
+val,round3_smoke2_positive_009_orig.jpg,연기2.mp4,19.75,smoke_positive,"(np.int64(331), np.int64(54), np.int64(488), np.int64(188))"
+train,round3_smoke2_positive_010_orig.jpg,연기2.mp4,20.00,smoke_positive,"(np.int64(335), np.int64(60), np.int64(490), np.int64(190))"
+train,round3_smoke2_positive_010_bright.jpg,연기2.mp4,20.00,smoke_positive,"(np.int64(335), np.int64(60), np.int64(490), np.int64(190))"
+train,round3_smoke2_positive_010_dark.jpg,연기2.mp4,20.00,smoke_positive,"(np.int64(335), np.int64(60), np.int64(490), np.int64(190))"
+train,round3_smoke2_positive_010_soft.jpg,연기2.mp4,20.00,smoke_positive,"(np.int64(335), np.int64(60), np.int64(490), np.int64(190))"
+train,round3_smoke2_positive_011_orig.jpg,연기2.mp4,20.25,smoke_positive,"(np.int64(339), np.int64(62), np.int64(485), np.int64(185))"
+train,round3_smoke2_positive_011_bright.jpg,연기2.mp4,20.25,smoke_positive,"(np.int64(339), np.int64(62), np.int64(485), np.int64(185))"
+train,round3_smoke2_positive_011_dark.jpg,연기2.mp4,20.25,smoke_positive,"(np.int64(339), np.int64(62), np.int64(485), np.int64(185))"
+train,round3_smoke2_positive_011_soft.jpg,연기2.mp4,20.25,smoke_positive,"(np.int64(339), np.int64(62), np.int64(485), np.int64(185))"
+train,round3_smoke2_positive_012_orig.jpg,연기2.mp4,20.50,smoke_positive,"(np.int64(342), np.int64(65), np.int64(480), np.int64(180))"
+train,round3_smoke2_positive_012_bright.jpg,연기2.mp4,20.50,smoke_positive,"(np.int64(342), np.int64(65), np.int64(480), np.int64(180))"
+train,round3_smoke2_positive_012_dark.jpg,연기2.mp4,20.50,smoke_positive,"(np.int64(342), np.int64(65), np.int64(480), np.int64(180))"
+train,round3_smoke2_positive_012_soft.jpg,연기2.mp4,20.50,smoke_positive,"(np.int64(342), np.int64(65), np.int64(480), np.int64(180))"
+train,round3_smoke2_positive_013_orig.jpg,연기2.mp4,20.75,smoke_positive,"(np.int64(346), np.int64(68), np.int64(475), np.int64(175))"
+train,round3_smoke2_positive_013_bright.jpg,연기2.mp4,20.75,smoke_positive,"(np.int64(346), np.int64(68), np.int64(475), np.int64(175))"
+train,round3_smoke2_positive_013_dark.jpg,연기2.mp4,20.75,smoke_positive,"(np.int64(346), np.int64(68), np.int64(475), np.int64(175))"
+train,round3_smoke2_positive_013_soft.jpg,연기2.mp4,20.75,smoke_positive,"(np.int64(346), np.int64(68), np.int64(475), np.int64(175))"
+val,round3_smoke2_positive_014_orig.jpg,연기2.mp4,21.00,smoke_positive,"(np.int64(350), np.int64(70), np.int64(470), np.int64(170))"
+train,round3_smoke2_positive_015_orig.jpg,연기2.mp4,21.25,smoke_positive,"(np.int64(355), np.int64(75), np.int64(460), np.int64(162))"
+train,round3_smoke2_positive_015_bright.jpg,연기2.mp4,21.25,smoke_positive,"(np.int64(355), np.int64(75), np.int64(460), np.int64(162))"
+train,round3_smoke2_positive_015_dark.jpg,연기2.mp4,21.25,smoke_positive,"(np.int64(355), np.int64(75), np.int64(460), np.int64(162))"
+train,round3_smoke2_positive_015_soft.jpg,연기2.mp4,21.25,smoke_positive,"(np.int64(355), np.int64(75), np.int64(460), np.int64(162))"
+train,round3_smoke2_positive_016_orig.jpg,연기2.mp4,21.50,smoke_positive,"(360, 80, 450, 155)"
+train,round3_smoke2_positive_016_bright.jpg,연기2.mp4,21.50,smoke_positive,"(360, 80, 450, 155)"
+train,round3_smoke2_positive_016_dark.jpg,연기2.mp4,21.50,smoke_positive,"(360, 80, 450, 155)"
+train,round3_smoke2_positive_016_soft.jpg,연기2.mp4,21.50,smoke_positive,"(360, 80, 450, 155)"
+train,round3_smoke2_negative_000.jpg,연기2.mp4,0.00,hard_negative,
+train,round3_smoke2_negative_001.jpg,연기2.mp4,1.00,hard_negative,
+train,round3_smoke2_negative_002.jpg,연기2.mp4,2.00,hard_negative,
+train,round3_smoke2_negative_003.jpg,연기2.mp4,3.00,hard_negative,
+train,round3_smoke2_negative_004.jpg,연기2.mp4,4.00,hard_negative,
+train,round3_smoke2_negative_005.jpg,연기2.mp4,5.00,hard_negative,
+val,round3_smoke2_negative_006.jpg,연기2.mp4,6.00,hard_negative,
+train,round3_smoke2_negative_007.jpg,연기2.mp4,7.00,hard_negative,
+train,round3_smoke2_negative_008.jpg,연기2.mp4,8.00,hard_negative,
+train,round3_smoke2_negative_009.jpg,연기2.mp4,9.00,hard_negative,
+train,round3_smoke2_negative_010.jpg,연기2.mp4,10.00,hard_negative,
+train,round3_smoke2_negative_011.jpg,연기2.mp4,11.00,hard_negative,
+train,round3_smoke2_negative_012.jpg,연기2.mp4,12.00,hard_negative,
+val,round3_smoke2_negative_013.jpg,연기2.mp4,13.00,hard_negative,
+train,round3_smoke2_negative_014.jpg,연기2.mp4,14.00,hard_negative,
+train,round3_smoke2_negative_015.jpg,연기2.mp4,15.00,hard_negative,
+train,round3_smoke2_negative_016.jpg,연기2.mp4,25.00,hard_negative,
+train,round3_smoke2_negative_017.jpg,연기2.mp4,26.00,hard_negative,
+train,round3_smoke2_negative_018.jpg,연기2.mp4,27.00,hard_negative,
+train,round3_smoke2_negative_019.jpg,연기2.mp4,28.00,hard_negative,
+val,round3_smoke2_negative_020.jpg,연기2.mp4,29.00,hard_negative,
+train,round3_smoke3_positive_000_orig.jpg,연기3.mp4,26.50,smoke_positive,"(350, 60, 430, 150)"
+train,round3_smoke3_positive_000_bright.jpg,연기3.mp4,26.50,smoke_positive,"(350, 60, 430, 150)"
+train,round3_smoke3_positive_000_dark.jpg,연기3.mp4,26.50,smoke_positive,"(350, 60, 430, 150)"
+train,round3_smoke3_positive_000_soft.jpg,연기3.mp4,26.50,smoke_positive,"(350, 60, 430, 150)"
+train,round3_smoke3_positive_001_orig.jpg,연기3.mp4,26.75,smoke_positive,"(np.int64(342), np.int64(42), np.int64(445), np.int64(160))"
+train,round3_smoke3_positive_001_bright.jpg,연기3.mp4,26.75,smoke_positive,"(np.int64(342), np.int64(42), np.int64(445), np.int64(160))"
+train,round3_smoke3_positive_001_dark.jpg,연기3.mp4,26.75,smoke_positive,"(np.int64(342), np.int64(42), np.int64(445), np.int64(160))"
+train,round3_smoke3_positive_001_soft.jpg,연기3.mp4,26.75,smoke_positive,"(np.int64(342), np.int64(42), np.int64(445), np.int64(160))"
+train,round3_smoke3_positive_002_orig.jpg,연기3.mp4,27.00,smoke_positive,"(np.int64(335), np.int64(25), np.int64(460), np.int64(170))"
+train,round3_smoke3_positive_002_bright.jpg,연기3.mp4,27.00,smoke_positive,"(np.int64(335), np.int64(25), np.int64(460), np.int64(170))"
+train,round3_smoke3_positive_002_dark.jpg,연기3.mp4,27.00,smoke_positive,"(np.int64(335), np.int64(25), np.int64(460), np.int64(170))"
+train,round3_smoke3_positive_002_soft.jpg,연기3.mp4,27.00,smoke_positive,"(np.int64(335), np.int64(25), np.int64(460), np.int64(170))"
+train,round3_smoke3_positive_003_orig.jpg,연기3.mp4,27.25,smoke_positive,"(np.int64(331), np.int64(21), np.int64(472), np.int64(174))"
+train,round3_smoke3_positive_003_bright.jpg,연기3.mp4,27.25,smoke_positive,"(np.int64(331), np.int64(21), np.int64(472), np.int64(174))"
+train,round3_smoke3_positive_003_dark.jpg,연기3.mp4,27.25,smoke_positive,"(np.int64(331), np.int64(21), np.int64(472), np.int64(174))"
+train,round3_smoke3_positive_003_soft.jpg,연기3.mp4,27.25,smoke_positive,"(np.int64(331), np.int64(21), np.int64(472), np.int64(174))"
+val,round3_smoke3_positive_004_orig.jpg,연기3.mp4,27.50,smoke_positive,"(np.int64(328), np.int64(18), np.int64(485), np.int64(178))"
+train,round3_smoke3_positive_005_orig.jpg,연기3.mp4,27.75,smoke_positive,"(np.int64(324), np.int64(14), np.int64(498), np.int64(181))"
+train,round3_smoke3_positive_005_bright.jpg,연기3.mp4,27.75,smoke_positive,"(np.int64(324), np.int64(14), np.int64(498), np.int64(181))"
+train,round3_smoke3_positive_005_dark.jpg,연기3.mp4,27.75,smoke_positive,"(np.int64(324), np.int64(14), np.int64(498), np.int64(181))"
+train,round3_smoke3_positive_005_soft.jpg,연기3.mp4,27.75,smoke_positive,"(np.int64(324), np.int64(14), np.int64(498), np.int64(181))"
+train,round3_smoke3_positive_006_orig.jpg,연기3.mp4,28.00,smoke_positive,"(np.int64(320), np.int64(10), np.int64(510), np.int64(185))"
+train,round3_smoke3_positive_006_bright.jpg,연기3.mp4,28.00,smoke_positive,"(np.int64(320), np.int64(10), np.int64(510), np.int64(185))"
+train,round3_smoke3_positive_006_dark.jpg,연기3.mp4,28.00,smoke_positive,"(np.int64(320), np.int64(10), np.int64(510), np.int64(185))"
+train,round3_smoke3_positive_006_soft.jpg,연기3.mp4,28.00,smoke_positive,"(np.int64(320), np.int64(10), np.int64(510), np.int64(185))"
+train,round3_smoke3_positive_007_orig.jpg,연기3.mp4,28.25,smoke_positive,"(np.int64(324), np.int64(10), np.int64(502), np.int64(180))"
+train,round3_smoke3_positive_007_bright.jpg,연기3.mp4,28.25,smoke_positive,"(np.int64(324), np.int64(10), np.int64(502), np.int64(180))"
+train,round3_smoke3_positive_007_dark.jpg,연기3.mp4,28.25,smoke_positive,"(np.int64(324), np.int64(10), np.int64(502), np.int64(180))"
+train,round3_smoke3_positive_007_soft.jpg,연기3.mp4,28.25,smoke_positive,"(np.int64(324), np.int64(10), np.int64(502), np.int64(180))"
+train,round3_smoke3_positive_008_orig.jpg,연기3.mp4,28.50,smoke_positive,"(np.int64(328), np.int64(10), np.int64(495), np.int64(175))"
+train,round3_smoke3_positive_008_bright.jpg,연기3.mp4,28.50,smoke_positive,"(np.int64(328), np.int64(10), np.int64(495), np.int64(175))"
+train,round3_smoke3_positive_008_dark.jpg,연기3.mp4,28.50,smoke_positive,"(np.int64(328), np.int64(10), np.int64(495), np.int64(175))"
+train,round3_smoke3_positive_008_soft.jpg,연기3.mp4,28.50,smoke_positive,"(np.int64(328), np.int64(10), np.int64(495), np.int64(175))"
+val,round3_smoke3_positive_009_orig.jpg,연기3.mp4,28.75,smoke_positive,"(np.int64(331), np.int64(10), np.int64(488), np.int64(170))"
+train,round3_smoke3_positive_010_orig.jpg,연기3.mp4,29.00,smoke_positive,"(np.int64(335), np.int64(10), np.int64(480), np.int64(165))"
+train,round3_smoke3_positive_010_bright.jpg,연기3.mp4,29.00,smoke_positive,"(np.int64(335), np.int64(10), np.int64(480), np.int64(165))"
+train,round3_smoke3_positive_010_dark.jpg,연기3.mp4,29.00,smoke_positive,"(np.int64(335), np.int64(10), np.int64(480), np.int64(165))"
+train,round3_smoke3_positive_010_soft.jpg,연기3.mp4,29.00,smoke_positive,"(np.int64(335), np.int64(10), np.int64(480), np.int64(165))"
+train,round3_smoke3_positive_011_orig.jpg,연기3.mp4,29.25,smoke_positive,"(np.int64(334), np.int64(11), np.int64(482), np.int64(166))"
+train,round3_smoke3_positive_011_bright.jpg,연기3.mp4,29.25,smoke_positive,"(np.int64(334), np.int64(11), np.int64(482), np.int64(166))"
+train,round3_smoke3_positive_011_dark.jpg,연기3.mp4,29.25,smoke_positive,"(np.int64(334), np.int64(11), np.int64(482), np.int64(166))"
+train,round3_smoke3_positive_011_soft.jpg,연기3.mp4,29.25,smoke_positive,"(np.int64(334), np.int64(11), np.int64(482), np.int64(166))"
+train,round3_smoke3_positive_012_orig.jpg,연기3.mp4,29.50,smoke_positive,"(np.int64(332), np.int64(12), np.int64(485), np.int64(168))"
+train,round3_smoke3_positive_012_bright.jpg,연기3.mp4,29.50,smoke_positive,"(np.int64(332), np.int64(12), np.int64(485), np.int64(168))"
+train,round3_smoke3_positive_012_dark.jpg,연기3.mp4,29.50,smoke_positive,"(np.int64(332), np.int64(12), np.int64(485), np.int64(168))"
+train,round3_smoke3_positive_012_soft.jpg,연기3.mp4,29.50,smoke_positive,"(np.int64(332), np.int64(12), np.int64(485), np.int64(168))"
+train,round3_smoke3_positive_013_orig.jpg,연기3.mp4,29.75,smoke_positive,"(np.int64(331), np.int64(14), np.int64(488), np.int64(169))"
+train,round3_smoke3_positive_013_bright.jpg,연기3.mp4,29.75,smoke_positive,"(np.int64(331), np.int64(14), np.int64(488), np.int64(169))"
+train,round3_smoke3_positive_013_dark.jpg,연기3.mp4,29.75,smoke_positive,"(np.int64(331), np.int64(14), np.int64(488), np.int64(169))"
+train,round3_smoke3_positive_013_soft.jpg,연기3.mp4,29.75,smoke_positive,"(np.int64(331), np.int64(14), np.int64(488), np.int64(169))"
+val,round3_smoke3_positive_014_orig.jpg,연기3.mp4,30.00,smoke_positive,"(np.int64(330), np.int64(15), np.int64(490), np.int64(170))"
+train,round3_smoke3_positive_015_orig.jpg,연기3.mp4,30.25,smoke_positive,"(np.int64(338), np.int64(20), np.int64(478), np.int64(162))"
+train,round3_smoke3_positive_015_bright.jpg,연기3.mp4,30.25,smoke_positive,"(np.int64(338), np.int64(20), np.int64(478), np.int64(162))"
+train,round3_smoke3_positive_015_dark.jpg,연기3.mp4,30.25,smoke_positive,"(np.int64(338), np.int64(20), np.int64(478), np.int64(162))"
+train,round3_smoke3_positive_015_soft.jpg,연기3.mp4,30.25,smoke_positive,"(np.int64(338), np.int64(20), np.int64(478), np.int64(162))"
+train,round3_smoke3_positive_016_orig.jpg,연기3.mp4,30.50,smoke_positive,"(345, 25, 465, 155)"
+train,round3_smoke3_positive_016_bright.jpg,연기3.mp4,30.50,smoke_positive,"(345, 25, 465, 155)"
+train,round3_smoke3_positive_016_dark.jpg,연기3.mp4,30.50,smoke_positive,"(345, 25, 465, 155)"
+train,round3_smoke3_positive_016_soft.jpg,연기3.mp4,30.50,smoke_positive,"(345, 25, 465, 155)"
+train,round3_smoke3_negative_000.jpg,연기3.mp4,0.00,hard_negative,
+train,round3_smoke3_negative_001.jpg,연기3.mp4,1.00,hard_negative,
+train,round3_smoke3_negative_002.jpg,연기3.mp4,2.00,hard_negative,
+train,round3_smoke3_negative_003.jpg,연기3.mp4,3.00,hard_negative,
+train,round3_smoke3_negative_004.jpg,연기3.mp4,4.00,hard_negative,
+train,round3_smoke3_negative_005.jpg,연기3.mp4,5.00,hard_negative,
+val,round3_smoke3_negative_006.jpg,연기3.mp4,6.00,hard_negative,
+train,round3_smoke3_negative_007.jpg,연기3.mp4,7.00,hard_negative,
+train,round3_smoke3_negative_008.jpg,연기3.mp4,8.00,hard_negative,
+train,round3_smoke3_negative_009.jpg,연기3.mp4,9.00,hard_negative,
+train,round3_smoke3_negative_010.jpg,연기3.mp4,10.00,hard_negative,
+train,round3_smoke3_negative_011.jpg,연기3.mp4,11.00,hard_negative,
+train,round3_smoke3_negative_012.jpg,연기3.mp4,12.00,hard_negative,
+val,round3_smoke3_negative_013.jpg,연기3.mp4,13.00,hard_negative,
+train,round3_smoke3_negative_014.jpg,연기3.mp4,14.00,hard_negative,
+train,round3_smoke3_negative_015.jpg,연기3.mp4,15.00,hard_negative,
+train,round3_smoke3_negative_016.jpg,연기3.mp4,16.00,hard_negative,
+train,round3_smoke3_negative_017.jpg,연기3.mp4,17.00,hard_negative,
+train,round3_smoke3_negative_018.jpg,연기3.mp4,18.00,hard_negative,
+train,round3_smoke3_negative_019.jpg,연기3.mp4,19.00,hard_negative,
+val,round3_smoke3_negative_020.jpg,연기3.mp4,20.00,hard_negative,
+train,round3_smoke3_negative_021.jpg,연기3.mp4,21.00,hard_negative,
+train,round3_smoke3_negative_022.jpg,연기3.mp4,22.00,hard_negative,
+train,round3_smoke3_negative_023.jpg,연기3.mp4,23.00,hard_negative,
+train,round3_smoke3_negative_024.jpg,연기3.mp4,24.00,hard_negative,
+train,round3_smoke3_negative_025.jpg,연기3.mp4,34.00,hard_negative,
+train,round3_smoke3_negative_026.jpg,연기3.mp4,35.00,hard_negative,
+val,round3_smoke3_negative_027.jpg,연기3.mp4,36.00,hard_negative,
+train,round3_smoke3_negative_028.jpg,연기3.mp4,37.00,hard_negative,
+train,round3_smoke3_negative_029.jpg,연기3.mp4,38.00,hard_negative,
+train,round3_smoke3_negative_030.jpg,연기3.mp4,39.00,hard_negative,
+train,round3_smoke3_negative_031.jpg,연기3.mp4,40.00,hard_negative,
+train,round3_smoke3_negative_032.jpg,연기3.mp4,41.00,hard_negative,
+train,round3_smoke3_negative_033.jpg,연기3.mp4,42.00,hard_negative,
+val,round3_smoke3_negative_034.jpg,연기3.mp4,43.00,hard_negative,

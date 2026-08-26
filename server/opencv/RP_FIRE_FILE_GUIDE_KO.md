@@ -296,7 +296,7 @@ WiseAI 기능만 빠르게 설정하고 시험하려는 사람을 위한 간단�
 
 `smoke_config` namespace에 포함된다.
 
-- NCNN 입력 크기 `640×384`
+- NCNN 입력 크기 `416×256`
 - 최대 채널 수 `4`
 - 채널당 추론 간격
 - NCNN CPU 스레드 수
@@ -655,7 +655,7 @@ NCNN 형식의 YOLO 연기 모델을 직접 실행한다.
   `.param`과 `.bin`을 읽어 NCNN 네트워크를 준비한다.
 
 - `detect(inputFrame)`  
-  프레임을 640×384 입력에 맞게 letterbox 처리하고 추론한다.
+  프레임을 416×256 입력에 맞게 letterbox 처리하고 추론한다.
 
 - `isReady()`  
   모델이 정상적으로 로드되었는지 반환한다.
@@ -704,7 +704,7 @@ modelError
 
 ```text
 models/
-└─ smoke_yolov8n_round2_full10_20260825_640x384_ncnn_model/
+└─ smoke_yolov8n_round3_field_20260826_416x256_ncnn_model/
    ├─ model.ncnn.param
    ├─ model.ncnn.bin
    └─ metadata.yaml
@@ -787,9 +787,9 @@ NCNN 연기 모델 설정과 빌드에 관한 기존 설명서다.
 CMakeLists.txt
 RP_Fire.vcxproj
 RP_Fire.vcxproj.filters
-models/smoke_yolov8n_round2_full10_20260825_640x384_ncnn_model/model.ncnn.param
-models/smoke_yolov8n_round2_full10_20260825_640x384_ncnn_model/model.ncnn.bin
-models/smoke_yolov8n_round2_full10_20260825_640x384_ncnn_model/metadata.yaml
+models/smoke_yolov8n_round3_field_20260826_416x256_ncnn_model/model.ncnn.param
+models/smoke_yolov8n_round3_field_20260826_416x256_ncnn_model/model.ncnn.bin
+models/smoke_yolov8n_round3_field_20260826_416x256_ncnn_model/metadata.yaml
 ```
 
 ### 함께 올리는 것을 권장
@@ -868,7 +868,7 @@ sudo apt install -y ffmpeg
 배포 폴더/
 ├─ fire_detection
 └─ models/
-   └─ smoke_yolov8n_round2_full10_20260825_640x384_ncnn_model/
+   └─ smoke_yolov8n_round3_field_20260826_416x256_ncnn_model/
       ├─ model.ncnn.param
       ├─ model.ncnn.bin
       └─ metadata.yaml
