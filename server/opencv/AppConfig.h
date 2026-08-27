@@ -187,9 +187,10 @@ namespace smoke_config
     // 공개 D-Fire 모델은 0: smoke, 1: fire이며 여기서는 smoke만 사용한다.
     constexpr int SMOKE_CLASS_ID = 0;
     // Round 6 adds hard negatives from all four deployed camera channels and
-    // tight labels around the actual smoke plume. At 0.60, the full 184733 test
-    // video produced no pre-smoke/cam3 false alarms and detected visible smoke.
-    constexpr float CONFIDENCE_THRESHOLD = 0.60F;
+    // tight labels around the actual smoke plume. A 0.20 threshold detects the
+    // short 194403 plume (0.23-0.42) while reviewed no-smoke frames from the
+    // 184733 and 194403 videos remain below 0.19, including zero cam3 hits.
+    constexpr float CONFIDENCE_THRESHOLD = 0.20F;
     constexpr float RAW_CANDIDATE_THRESHOLD = CONFIDENCE_THRESHOLD;
     constexpr float NMS_THRESHOLD = 0.45F;
 
