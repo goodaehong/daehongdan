@@ -186,11 +186,10 @@ namespace smoke_config
 
     // 공개 D-Fire 모델은 0: smoke, 1: fire이며 여기서는 smoke만 사용한다.
     constexpr int SMOKE_CLASS_ID = 0;
-    // Round 6 adds hard negatives from all four deployed camera channels and
-    // tight labels around the actual smoke plume. A 0.20 threshold detects the
-    // short 194403 plume (0.23-0.42) while reviewed no-smoke frames from the
-    // 184733 and 194403 videos remain below 0.19, including zero cam3 hits.
-    constexpr float CONFIDENCE_THRESHOLD = 0.20F;
+    // Round 8 balances the reviewed field-smoke sequences while retaining the
+    // all-channel hard negatives. At 0.40, the three latest recordings keep
+    // reliable plume detections without any hits on the no-smoke camera feeds.
+    constexpr float CONFIDENCE_THRESHOLD = 0.40F;
     constexpr float RAW_CANDIDATE_THRESHOLD = CONFIDENCE_THRESHOLD;
     constexpr float NMS_THRESHOLD = 0.45F;
 
@@ -236,9 +235,9 @@ namespace smoke_config
     constexpr int BOX_FRESH_MS = 5000;
 
     constexpr const char* MODEL_PARAM_PATH =
-        "models/smoke_yolov8n_round6_cam3_hardnegative_20260827_416x256_ncnn_model/model.ncnn.param";
+        "models/smoke_yolov8n_round8_balanced_field_20260827_416x256_ncnn_model/model.ncnn.param";
     constexpr const char* MODEL_BIN_PATH =
-        "models/smoke_yolov8n_round6_cam3_hardnegative_20260827_416x256_ncnn_model/model.ncnn.bin";
+        "models/smoke_yolov8n_round8_balanced_field_20260827_416x256_ncnn_model/model.ncnn.bin";
     constexpr const char* INPUT_BLOB_NAME = "in0";
     constexpr const char* OUTPUT_BLOB_NAME = "out0";
 }
