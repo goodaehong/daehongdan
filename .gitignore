@@ -113,3 +113,8 @@ server/opencv/camera.env
 **/out/
 **/bin/
 **/obj/
+
+# Local smoke-training datasets, rendered reviews, and Python caches
+.work/
+smoke_label_review/
+**/__pycache__/
