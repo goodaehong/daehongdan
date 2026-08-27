@@ -400,6 +400,8 @@ void GraphPage::setEventMarkersFromServer(const QJsonArray &rows)
         EventStamp stamp;
         stamp.ts = qint64(row.value("ts").toDouble());
         stamp.danger = (severity == "danger");
+        stamp.gasPpm = row.value("gasPpm").toDouble();
+        stamp.smokePpm = row.value("smokePpm").toDouble();
 
         const QString cause = causeText(row.value("cause").toString());
         stamp.label = QString("%1 %2%3")
@@ -413,7 +415,9 @@ void GraphPage::setEventMarkersFromServer(const QJsonArray &rows)
 
 void GraphPage::rebuildEventMarkers()
 {
-    QVector<GraphEventMarker> markers;
+    // 가스/연기 그래프가 마커 리스트를 공유하면 서로 다른 농도값을 보여줄 수 없어서
+    // (한쪽 그래프에 마우스 올렸는데 다른 쪽 농도가 뜨면 안 됨) 그래프별로 따로 만든다.
+    QVector<GraphEventMarker> gasMarkers, smokeMarkers;
 
     // 그래프 데이터 선이 이제 구간 경계(currentSegmentRangeFrom~To) 기준 시간 비율로 그려지므로,
     // 마커도 같은 기준을 써야 데이터 선과 위치가 어긋나지 않는다(예전엔 표본 첫/끝 시각 기준이라
@@ -423,16 +427,24 @@ void GraphPage::rebuildEventMarkers()
             // 지금 보고 있는 구간 밖의 사건은 그냥 버린다(다른 날짜/구간을 보는 중 등).
             if (stamp.ts < currentSegmentRangeFrom || stamp.ts > currentSegmentRangeTo)
                 continue;
-            GraphEventMarker m;
-            m.xRatio = double(stamp.ts - currentSegmentRangeFrom) / double(currentSegmentRangeTo - currentSegmentRangeFrom);
-            m.danger = stamp.danger;
-            m.label = stamp.label;
-            markers.append(m);
+            const double xRatio = double(stamp.ts - currentSegmentRangeFrom) / double(currentSegmentRangeTo - currentSegmentRangeFrom);
+
+            GraphEventMarker gm;
+            gm.xRatio = xRatio;
+            gm.danger = stamp.danger;
+            gm.label = stamp.label + QString(" (%1ppm)").arg(stamp.gasPpm, 0, 'f', 1);
+            gasMarkers.append(gm);
+
+            GraphEventMarker sm;
+            sm.xRatio = xRatio;
+            sm.danger = stamp.danger;
+            sm.label = stamp.label + QString(" (%1ppm)").arg(stamp.smokePpm, 0, 'f', 1);
+            smokeMarkers.append(sm);
         }
     }
 
-    gasGraph->setEventMarkers(markers);
-    smokeGraph->setEventMarkers(markers);
+    gasGraph->setEventMarkers(gasMarkers);
+    smokeGraph->setEventMarkers(smokeMarkers);
 }
 
 void GraphPage::showQueryFailed(const QString &reason)
