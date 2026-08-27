@@ -1,0 +1,16 @@
+{
+  "gpu": "Tesla T4",
+  "stage_a_holdout_smoke3": {
+    "map50": 0.875,
+    "map50_95": 0.40042857142857147,
+    "precision": 0.9885317093511027,
+    "recall": 0.875
+  },
+  "final_combined_validation": {
+    "map50": 0.7078490580192647,
+    "map50_95": 0.4010770593488219,
+    "precision": 0.751142642484184,
+    "recall": 0.6969659815340421
+  },
+  "export": "best_ncnn_model"
+}
