@@ -1,0 +1,6 @@
+{
+  "gpu": "Tesla T4",
+  "test_map50": 0.875,
+  "test_map50_95": 0.41200000000000003,
+  "export": "best_ncnn_model"
+}
