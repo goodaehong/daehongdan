@@ -186,9 +186,9 @@ namespace smoke_config
 
     // 공개 D-Fire 모델은 0: smoke, 1: fire이며 여기서는 smoke만 사용한다.
     constexpr int SMOKE_CLASS_ID = 0;
-    // Round 4B is calibrated for the deployed camera/miniature set. At 0.60,
-    // reviewed no-smoke frames stayed below threshold while visible field smoke
-    // remained detectable; lower thresholds relearn the static emitter scene.
+    // Round 6 adds hard negatives from all four deployed camera channels and
+    // tight labels around the actual smoke plume. At 0.60, the full 184733 test
+    // video produced no pre-smoke/cam3 false alarms and detected visible smoke.
     constexpr float CONFIDENCE_THRESHOLD = 0.60F;
     constexpr float RAW_CANDIDATE_THRESHOLD = CONFIDENCE_THRESHOLD;
     constexpr float NMS_THRESHOLD = 0.45F;
@@ -235,9 +235,9 @@ namespace smoke_config
     constexpr int BOX_FRESH_MS = 5000;
 
     constexpr const char* MODEL_PARAM_PATH =
-        "models/smoke_yolov8n_round4b_field_calibrated_20260827_416x256_ncnn_model/model.ncnn.param";
+        "models/smoke_yolov8n_round6_cam3_hardnegative_20260827_416x256_ncnn_model/model.ncnn.param";
     constexpr const char* MODEL_BIN_PATH =
-        "models/smoke_yolov8n_round4b_field_calibrated_20260827_416x256_ncnn_model/model.ncnn.bin";
+        "models/smoke_yolov8n_round6_cam3_hardnegative_20260827_416x256_ncnn_model/model.ncnn.bin";
     constexpr const char* INPUT_BLOB_NAME = "in0";
     constexpr const char* OUTPUT_BLOB_NAME = "out0";
 }

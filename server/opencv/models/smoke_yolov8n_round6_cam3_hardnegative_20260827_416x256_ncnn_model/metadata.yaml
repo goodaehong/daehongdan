@@ -1,0 +1,21 @@
+description: Ultralytics best model trained on /content/smoke_round6_bundle_v2/dataset/data_round6.yaml
+author: Ultralytics
+date: '2026-08-27T10:33:35.264104+00:00'
+version: 8.4.128
+license: AGPL-3.0 License (https://ultralytics.com/license)
+docs: https://docs.ultralytics.com
+stride: 32
+task: detect
+head: Detect
+batch: 1
+imgsz:
+- 256
+- 416
+names:
+  0: smoke
+  1: fire
+args:
+  batch: 1
+  quantize: null
+channels: 3
+end2end: false
