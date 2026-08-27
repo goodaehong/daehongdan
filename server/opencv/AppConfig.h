@@ -170,9 +170,9 @@ namespace camera_health_config
 // 공개 D-Fire YOLOv8n 연기 NCNN 설정
 namespace smoke_config
 {
-    // 640x360 원본을 확대하지 않고 위아래 12픽셀씩 패딩해 640x384로 추론한다.
-    constexpr int INPUT_WIDTH = 640;
-    constexpr int INPUT_HEIGHT = 384;
+    // 원본 종횡비를 유지해 416x256 letterbox 입력으로 추론한다.
+    constexpr int INPUT_WIDTH = 416;
+    constexpr int INPUT_HEIGHT = 256;
     constexpr int MAX_CHANNELS = 4;
 
     // 모델 하나를 모든 채널이 공유하며 각 채널은 1초마다 최신 프레임을 제출한다.
@@ -186,7 +186,7 @@ namespace smoke_config
 
     // 공개 D-Fire 모델은 0: smoke, 1: fire이며 여기서는 smoke만 사용한다.
     constexpr int SMOKE_CLASS_ID = 0;
-    constexpr float CONFIDENCE_THRESHOLD = 0.25F;
+    constexpr float CONFIDENCE_THRESHOLD = 0.15F;
     constexpr float RAW_CANDIDATE_THRESHOLD = CONFIDENCE_THRESHOLD;
     constexpr float NMS_THRESHOLD = 0.45F;
 
@@ -232,9 +232,9 @@ namespace smoke_config
     constexpr int BOX_FRESH_MS = 5000;
 
     constexpr const char* MODEL_PARAM_PATH =
-        "models/smoke_yolov8n_round2_full10_20260825_640x384_ncnn_model/model.ncnn.param";
+        "models/smoke_yolov8n_round3_field_20260826_416x256_ncnn_model/model.ncnn.param";
     constexpr const char* MODEL_BIN_PATH =
-        "models/smoke_yolov8n_round2_full10_20260825_640x384_ncnn_model/model.ncnn.bin";
+        "models/smoke_yolov8n_round3_field_20260826_416x256_ncnn_model/model.ncnn.bin";
     constexpr const char* INPUT_BLOB_NAME = "in0";
     constexpr const char* OUTPUT_BLOB_NAME = "out0";
 }
