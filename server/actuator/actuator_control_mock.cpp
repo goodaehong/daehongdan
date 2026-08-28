@@ -55,12 +55,12 @@ bool Actuator_Execute(const std::string& target, const std::string& action,
 }
 
 // 자동 대응. decideResponse() 결과를 그대로 적용 (사이렌 → 밸브 → 팬 순)
-bool Actuator_Apply(const Response& r, const std::string& src) {
+bool Actuator_Apply(const ActuatorCommand& c, const std::string& src) {
     bool ok = true;
-    ok &= Actuator_Execute("siren", r.siren ? "on" : "off", src);
-    ok &= Actuator_Execute("valve", r.valve ? "open" : "close", src);
-    const char* fanAct = (r.fan == 0) ? "off" : (r.fan == 1) ? "low"
-                       : (r.fan == 2) ? "mid" : "high";
+    ok &= Actuator_Execute("siren", c.siren ? "on" : "off", src);
+    ok &= Actuator_Execute("valve", c.valve ? "open" : "close", src);
+    const char* fanAct = (c.fan == 0) ? "off" : (c.fan == 1) ? "low"
+                       : (c.fan == 2) ? "mid" : "high";
     ok &= Actuator_Execute("fan", fanAct, src);
     return ok;
 }

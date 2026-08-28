@@ -1,19 +1,30 @@
 #pragma once
 #include <cstdint>
 #include <string>
-#include "../sensors/sensor_reader.h"
+
+// 평상시 화면에 올릴 값. 판단·센서 타입을 직접 받지 않고 이 구조체로만 받는다
+// (판단 쪽 구조체가 바뀌어도 전광판 코드는 그대로 두려고)
+struct DisplayUpdate {
+    int   gasLevel;   // 0=정상, 1=주의, 2=위험. 기준값은 판단 계층 소유라 밖에서 정해 넘김
+    float gasPpm;     // 클램프·반올림은 이 모듈이
+    float temp;
+    float humidity;
+};
+
+// 대피 화면 종류. 어떤 cause 가 어느 화면인지는 판단 계층이 정한다
+enum class DisplayDisaster { Fire, Gas };
 
 // 시작 시 1회. "/dev/serial0" 115200 8N1. 실패해도 서버는 계속 감
 bool StmDisplay_Open(const char* devPath);
 void StmDisplay_Close();
 
-// 평상시 화면 갱신 (1초 주기). state = "safe"/"warning"/"danger"
-// 변환은 전부 이 안에서 — state→face/gasColor, float→uint8 반올림, gas 4자리 클램프, 시각 조회
-// (화면 표현 바꿔도 server_main 안 건드리게)
-bool StmDisplay_SendUpdate(const SensorReading& s, const std::string& state);
+// 평상시 화면 갱신 (1초 주기)
+// 표현 변환은 전부 이 안에서 — float→uint8 반올림, gas 4자리 클램프, 시각 조회
+// (화면 표현 바꿔도 호출부는 안 건드리게)
+bool StmDisplay_SendUpdate(const DisplayUpdate& u);
 
-// 위험 대피 화면 전환 (위험 진입 시 1회). cause는 Cause:: 값, zoneId 1=A/2=B/3=C/4=D
-bool StmDisplay_SendAlert(const std::string& cause, int zoneId);
+// 위험 대피 화면 전환 (위험 진입 시 1회). zoneId 1=A/2=B/3=C/4=D
+bool StmDisplay_SendAlert(DisplayDisaster type, int zoneId);
 
 // 위험 해제 → 평상시 화면 복귀
 bool StmDisplay_SendClear();
