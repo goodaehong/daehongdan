@@ -42,7 +42,7 @@
 
 ## 🖼️ 사진 (Images)
 ![대피경로 디스플레이1](./images/Fire_evacuation_route1.png)
-![대피경로 디스플레이2](./images/Fire_evacuation_route2.png)
+![대피경로 디스플레이2](./images/Fire_evacuation_route.png)
 
 ---
 
