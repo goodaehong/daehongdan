@@ -4,7 +4,7 @@
 
 // 격자 한 변의 크기 (비트맵은 GRID_SIZE x GRID_SIZE)
 // HUB75 테두리가 상하좌우 각 2px씩이라 실제 지도는 60x60만 씀 (STM32 main.c와 반드시 일치해야 함)
-// server/opencv/GridCoordinateMapper.h의 감지 좌표 격자(60)와 통일 — 화재 감지 위치와
+// server/detection/GridCoordinateMapper.h의 감지 좌표 격자(60)와 통일 — 화재 감지 위치와
 // 대피경로가 같은 좌표계를 쓰도록 팀에서 60으로 확정 (2026-08-19).
 constexpr int GRID_SIZE = 60;
 

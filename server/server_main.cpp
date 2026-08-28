@@ -12,10 +12,10 @@
 #include <sys/stat.h>
 #include <csignal>
 
-#include "opencv/FireDetectionRuntime.h"
-#include "opencv/SmokeDetectionRuntime.h"
-#include "opencv/PersonMetadataReceiver.h"
-#include "opencv/AppConfig.h"
+#include "detection/FireDetectionRuntime.h"
+#include "detection/SmokeDetectionRuntime.h"
+#include "detection/PersonMetadataReceiver.h"
+#include "detection/AppConfig.h"
 
 #include "net/link.h"
 #include "sensors/sensor_reader.h"

@@ -104,15 +104,15 @@ server/floormap/floor_map.json
 server/floormap/floor_map_meta.json 
 
 # 현장마다 다시 생성되는 카메라/좌표 파일
-server/opencv/homography_ch*.yml
-server/opencv/homography_ch*.yml.bak
+server/detection/homography_ch*.yml
+server/detection/homography_ch*.yml.bak
 
 # TLS 인증서/개인키 (현장마다 다름, 직접 배치 — 절대 커밋 금지)
 server/net/server_cert.pem
 server/net/server_private.pem
-server/opencv/homography_ch*.yml.*.bak
-server/opencv/aruco_board_config.txt.*.bak
-server/opencv/camera.env
+server/detection/homography_ch*.yml.*.bak
+server/detection/aruco_board_config.txt.*.bak
+server/detection/camera.env
 **/out/
 **/bin/
 **/obj/

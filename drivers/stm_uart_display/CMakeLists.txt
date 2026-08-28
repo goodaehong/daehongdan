@@ -16,7 +16,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs videoio calib3d objdetect)
 
-set(OPENCV_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../server/opencv)
+set(OPENCV_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../server/detection)
 
 add_executable(fire_uart_test
     fire_uart_test.cpp

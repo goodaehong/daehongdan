@@ -68,11 +68,11 @@ MARKER 4 0 31.50 1.50 0.04 0
  -> 채널별 homography_chN.yml 저장
 ```
 
-프로젝트 루트에서 `./server/opencv/calibration/SetupArucoChannel.sh N`을 실행하면
+프로젝트 루트에서 `./server/detection/tools/calibration/SetupArucoChannel.sh N`을 실행하면
 좌표 입력 후 고정값
 생성까지 연속으로 실행된다. 여기서 `N`은 1~4 채널이다. 두 단계를 분리해야 할
-때만 `./server/opencv/calibration/ConfigureArucoChannel.sh N`과
-`./server/opencv/calibration/RunFixedHomographyCalibration.sh N`을 순서대로 사용한다.
+때만 `./server/detection/tools/calibration/ConfigureArucoChannel.sh N`과
+`./server/detection/tools/calibration/RunFixedHomographyCalibration.sh N`을 순서대로 사용한다.
 설치 보정 중에는 화재·연기 서버를 정지하고, 설정한 마커 중 적어도 네 개가
 안정적으로 보이게 한다.
 
@@ -97,7 +97,7 @@ Linux 실행기는 기본적으로 현재 운영 서버와 동일한
 
 ```bash
 export DHD_CALIBRATION_SOURCE_TEMPLATE='rtsp://127.0.0.1:8554/cam{channel}det'
-./server/opencv/calibration/SetupArucoChannel.sh 3
+./server/detection/tools/calibration/SetupArucoChannel.sh 3
 ```
 
 OpenCV `DetectionBox`에는 `gridX`, `gridY`, `displayRadiusCells`와 함께

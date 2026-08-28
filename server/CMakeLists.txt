@@ -20,8 +20,11 @@ endif()
 
 # ── 소스 목록 ──
 
-# 재환님 감지 코어 (server/opencv). 하네스(CameraStream/main 등)는 제외
-set(FIRE_CORE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/opencv)
+# 재환님 감지 코어 (server/detection). 단독 실행 도구는 detection/tools/ 로 분리
+# 서버가 링크하지 않는 도구류는 감지 코어 아래 tools/ 에 있다 (보정 스크립트 등)
+set(DETECTION_TOOLS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/detection/tools)
+
+set(FIRE_CORE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/detection)
 set(FIRE_CORE_SRC
     ${FIRE_CORE_DIR}/IgnoreRegionFilter.cpp
     ${FIRE_CORE_DIR}/FlameDetector.cpp
@@ -128,7 +131,7 @@ target_compile_definitions(server_main PRIVATE
     FIRE_ARUCO_CONFIG_PATH="${FIRE_CORE_DIR}/aruco_board_config.txt"
     FIRE_CAMERA_CALIBRATION_DIR="${FIRE_CORE_DIR}"
     FIRE_STATIC_HOMOGRAPHY_DIR="${FIRE_CORE_DIR}"
-    CALIB_SCRIPT_DIR="${FIRE_CORE_DIR}/calibration"
+    CALIB_SCRIPT_DIR="${DETECTION_TOOLS_DIR}/calibration"
     RTSP_BASE_URL="${RTSP_BASE_URL}"
     QT_LINK_PORT=${QT_LINK_PORT}
     ACTUATOR_DEVICE="${ACTUATOR_DEVICE}"

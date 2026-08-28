@@ -1,6 +1,6 @@
 // test_alert_uart.cpp의 화재 테스트(3~8번 메뉴)는 (5,5)/(40,20) 같은 하드코딩된
 // 좌표를 그냥 UART로 쏘기만 한다. 이 도구는 그 대신 실제 카메라 영상을
-// FireDetectionRuntime(server/opencv, ArUco 기반 격자 변환)에 그대로 태워서 나온
+// FireDetectionRuntime(server/detection, ArUco 기반 격자 변환)에 그대로 태워서 나온
 // 진짜 gridX/gridY/displayRadiusCells를 STM32로 전송한다 - 카메라 → 화재 검출 →
 // 격자 변환 → UART 전송까지 실제 파이프라인이 맞물려 동작하는지 확인하는 용도.
 //
