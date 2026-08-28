@@ -14,10 +14,10 @@ target_link_libraries(charuco_calibrator PRIVATE ${OpenCV_LIBS})
 
 add_executable(fixed_homography_calibrator
     FixedHomographyCalibrator.cpp
-    ../GridCoordinateMapper.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../GridCoordinateMapper.cpp)
 target_include_directories(fixed_homography_calibrator PRIVATE
     ${OpenCV_INCLUDE_DIRS}
-    ${CMAKE_CURRENT_SOURCE_DIR}/..)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 target_link_libraries(fixed_homography_calibrator PRIVATE ${OpenCV_LIBS})
 
 if(MSVC)

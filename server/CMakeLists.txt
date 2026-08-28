@@ -20,8 +20,11 @@ endif()
 
 # ── 소스 목록 ──
 
-# 재환님 감지 코어 (server/opencv). 하네스(CameraStream/main 등)는 제외
-set(FIRE_CORE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/opencv)
+# 재환님 감지 코어 (server/detection). 단독 실행 도구는 detection/tools/ 로 분리
+# 서버가 링크하지 않는 도구류는 감지 코어 아래 tools/ 에 있다 (보정 스크립트 등)
+set(DETECTION_TOOLS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/detection/tools)
+
+set(FIRE_CORE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/detection)
 set(FIRE_CORE_SRC
     ${FIRE_CORE_DIR}/IgnoreRegionFilter.cpp
     ${FIRE_CORE_DIR}/FlameDetector.cpp
@@ -44,6 +47,10 @@ set(EVAC_SRC ${EVAC_DIR}/EvacPlanner.cpp)
 
 # 서버 모듈 (대홍)
 set(SERVER_SRC
+    ${CMAKE_CURRENT_SOURCE_DIR}/shared_state.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/camera_worker.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/control_loop.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/sensor_worker.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/judgement.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/alarm_state.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/qt_link.cpp
@@ -63,6 +70,13 @@ option(ENABLE_TLS        "Qt 연결에 TLS 사용"   OFF)
 # USB 사운드카드는 꽂는 순서에 따라 hw 번호가 바뀔 수 있어 하드코딩 대신 빌드 옵션으로 뺌.
 # 장치가 바뀌면 -DSPEAKER_ALSA_DEVICE=hw:X,0 으로 재지정.
 set(SPEAKER_ALSA_DEVICE "hw:2,0" CACHE STRING "스피커 출력에 쓸 ALSA 장치")
+
+# 현장마다 달라질 수 있는 접속 정보·장치 경로. 소스에 박지 않고 빌드 옵션으로 뺌
+# (DB·클립·인증서 경로와 같은 방식). 재지정 예 — -DQT_LINK_PORT=10000
+set(RTSP_BASE_URL     "rtsp://localhost:8554/cam" CACHE STRING "채널 번호를 뒤에 붙여 쓰는 RTSP 기본 주소")
+set(QT_LINK_PORT      9999                        CACHE STRING "Qt 연결을 받을 포트 (Qt 쪽 설정과 같아야 함)")
+set(ACTUATOR_DEVICE   "/dev/stm_actuator"         CACHE STRING "STM 액추에이터 보드 장치 (udev 심볼릭 링크)")
+set(STM_DISPLAY_DEVICE "/dev/stm_display"         CACHE STRING "STM 전광판 보드 장치 (udev 심볼릭 링크)")
 
 if(USE_MOCK_SENSOR)
     set(SENSOR_SRC ${CMAKE_CURRENT_SOURCE_DIR}/sensors/sensor_reader_mock.cpp)
@@ -121,7 +135,11 @@ target_compile_definitions(server_main PRIVATE
     FIRE_ARUCO_CONFIG_PATH="${FIRE_CORE_DIR}/aruco_board_config.txt"
     FIRE_CAMERA_CALIBRATION_DIR="${FIRE_CORE_DIR}"
     FIRE_STATIC_HOMOGRAPHY_DIR="${FIRE_CORE_DIR}"
-    CALIB_SCRIPT_DIR="${FIRE_CORE_DIR}/calibration")
+    CALIB_SCRIPT_DIR="${DETECTION_TOOLS_DIR}/calibration"
+    RTSP_BASE_URL="${RTSP_BASE_URL}"
+    QT_LINK_PORT=${QT_LINK_PORT}
+    ACTUATOR_DEVICE="${ACTUATOR_DEVICE}"
+    STM_DISPLAY_DEVICE="${STM_DISPLAY_DEVICE}")
 
 if(ENABLE_TLS)
     find_package(OpenSSL REQUIRED)

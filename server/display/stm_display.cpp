@@ -1,5 +1,4 @@
 #include "stm_display.h"
-#include "../judgement.h"
 #include "../../drivers/stm_uart_display/stm_display_protocol.h"
 
 #include <ctime>
@@ -36,20 +35,20 @@ void StmDisplay_Close()
     s_fd = -1;
 }
 
-bool StmDisplay_SendUpdate(const SensorReading& s, const std::string& state)
+bool StmDisplay_SendUpdate(const DisplayUpdate& u)
 {
-    (void)state;   // 표정/가스 그래프 둘 다 이제 종합 판정이 아니라 가스 농도로만 결정됨
-    // 화재/연기만 감지되고 가스는 정상이어도 표정·그래프가 빨갛게 뜨던 문제 수정
-    // (judgement.cpp의 gasLevel 참고 - 화재/연기 경보는 SendAlert의 전용 화면으로 따로 처리됨)
-    uint8_t face = (uint8_t)gasLevel(s.gasPpm);
+    // 표정/가스 그래프 둘 다 종합 판정이 아니라 가스 농도로만 결정된다.
+    // 화재/연기만 감지되고 가스는 정상이어도 표정·그래프가 빨갛게 뜨던 문제 때문
+    // (화재/연기 경보는 SendAlert의 전용 화면으로 따로 처리됨)
+    uint8_t face = (uint8_t)u.gasLevel;
     uint8_t gasColor = face;
 
     // gas: 0~9999로 클램프 (전광판이 4자리까지만 표시 가능)
-    float gasClamped = s.gasPpm < 0.0f ? 0.0f : (s.gasPpm > 9999.0f ? 9999.0f : s.gasPpm);
+    float gasClamped = u.gasPpm < 0.0f ? 0.0f : (u.gasPpm > 9999.0f ? 9999.0f : u.gasPpm);
     uint16_t gas = (uint16_t)(gasClamped + 0.5f);
 
-    uint8_t temp = (uint8_t)(s.temp + 0.5f);
-    uint8_t humidity = (uint8_t)(s.humidity + 0.5f);
+    uint8_t temp = (uint8_t)(u.temp + 0.5f);
+    uint8_t humidity = (uint8_t)(u.humidity + 0.5f);
 
     // 시각은 센서값이 아니라 서버(=STM32에 전달하는 시점)의 현재 시각
     time_t now = time(nullptr);
@@ -75,10 +74,10 @@ bool StmDisplay_GetLinkOk()
     return s_linkOk;
 }
 
-bool StmDisplay_SendAlert(const std::string& cause, int zoneId)
+bool StmDisplay_SendAlert(DisplayDisaster type, int zoneId)
 {
-    // Cause::Gas만 가스 화면, 나머지(화재/연기/복합 원인)는 전부 화재 화면 (팀 확인 완료)
-    uint8_t disasterType = (cause == Cause::Gas) ? STM_DISPLAY_DISASTER_GAS : STM_DISPLAY_DISASTER_FIRE;
+    uint8_t disasterType = (type == DisplayDisaster::Gas) ? STM_DISPLAY_DISASTER_GAS
+                                                          : STM_DISPLAY_DISASTER_FIRE;
     bool sent = StmDisplayProtocol_SendAlert(s_fd, disasterType, (uint8_t)zoneId);
     ReconnectIfBroken(sent);
     return sent;

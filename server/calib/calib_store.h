@@ -1,6 +1,6 @@
 #pragma once
 #include <string>
-#include "opencv/GridCoordinateMapper.h"   // ArucoMappingStatus
+#include "detection/GridCoordinateMapper.h"   // ArucoMappingStatus
 
 // 보정 단계. 파일이 하나씩 갖춰질수록 다음 단계로 올라간다
 enum class CalibStage {
