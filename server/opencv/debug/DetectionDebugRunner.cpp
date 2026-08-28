@@ -541,7 +541,7 @@ int main(int argc, char** argv)
 
     const std::filesystem::path modelDirectory =
         executableDirectory(argv[0]) / "models" /
-        "smoke_yolov8n_round4b_field_calibrated_20260827_416x256_ncnn_model";
+        "smoke_yolov8n_round8_balanced_field_20260827_416x256_ncnn_model";
     const std::string paramPath =
         (modelDirectory / "model.ncnn.param").string();
     const std::string binPath =

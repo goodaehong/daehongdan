@@ -19,14 +19,15 @@ Qt 박스가 누락되는 문제를 수정하고, 현장 세트장 연기에 추
 - 입력: 416×256
 - 클래스: `0=smoke`, `1=fire` (런타임은 smoke만 사용)
 - NCNN blob: `in0`, `out0`
-- 모델 폴더: `smoke_yolov8n_round4b_field_calibrated_20260827_416x256_ncnn_model`
-- 런타임 confidence: `0.60`
-- Round 4/4B 교정 과정과 영상 검증: `training/ROUND4_FIELD_CALIBRATION_REPORT_KO.md`
+- 모델 폴더: `smoke_yolov8n_round8_balanced_field_20260827_416x256_ncnn_model`
+- 런타임 confidence: `0.40`
+- 최종 현장 검증: `training/ROUND8_BALANCED_FIELD_REPORT_KO.md`
+- Round 4/4B 교정 과정: `training/ROUND4_FIELD_CALIBRATION_REPORT_KO.md`
 
 3차 학습은 추가 현장 영상 3개에서 만든 양성 변형 203장과 하드 네거티브
 101장으로 Round 2 가중치를 Google Colab Tesla T4에서 18 epoch 미세 조정했다.
-추가 데이터 검증 분할의 mAP50은 0.8912, mAP50-95는 0.5979였다. 자세한
-학습 조건과 NCNN 확인 결과는 `training/ROUND3_COLAB_REPORT_KO.md`를 참조한다.
+추가 데이터 검증 분할의 mAP50은 0.8912, mAP50-95는 0.5979였다. 이후의
+현장 교정과 최종 모델 선정 결과는 위 Round 4/4B 및 Round 8 보고서에 정리했다.
 
 아래 내용은 비교를 위해 남겨 둔 Round 2 기록이다.
 

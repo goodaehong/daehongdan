@@ -1,5 +1,10 @@
 # RP_Fire 코드 상세 해설서
 
+> 보관 문서: 이 문서의 `main`·`CameraStream`·`ConsoleFireApplication`·
+> `FireView`는 현재 `daehongdan` 서버 실행 경로에서 사용하지 않는 이전
+> 독립 하네스다. 실제 배포 코어는 `server/CMakeLists.txt`의 `server_main`에서
+> 빌드하며, 이 문서는 개발 과정 설명을 위해 유지한다.
+
 이 문서는 `RP_Fire`의 실제 코드를 위에서 아래로 읽을 수 있도록 설명한다.
 전체 파일의 용도와 배포 파일 목록은
 [`RP_FIRE_FILE_GUIDE_KO.md`](RP_FIRE_FILE_GUIDE_KO.md)를 참고한다.

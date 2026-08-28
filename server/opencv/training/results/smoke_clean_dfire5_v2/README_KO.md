@@ -1,10 +1,14 @@
 # Smoke Clean D-Fire5 V2 학습 결과
 
+> 보관 보고서: V2 모델은 Round 8 모델로 대체되어 모델 파일과 프레임별
+> CSV 산출물은 저장소 용량 정리 과정에서 제거했다. 현재 운영 모델과 설정은
+> `../../ROUND8_BALANCED_FIELD_REPORT_KO.md` 및 `../../../AppConfig.h`를 참조한다.
+
 - 학습일: 2026-08-27
 - 기반 모델: D-Fire YOLOv8n (`smoke`, `fire`)
 - 입력 크기: 416×256
 - 최종 배포 형식: NCNN
-- 최종 모델 경로: `server/opencv/models/smoke_yolov8n_clean_dfire5_v2_20260827_416x256_ncnn_model`
+- 당시 모델 경로: `server/opencv/models/smoke_yolov8n_clean_dfire5_v2_20260827_416x256_ncnn_model` (현재 제거됨)
 
 ## 검증 결과
 
@@ -13,8 +17,8 @@
 | Stage A 완전 보류 `연기3.mp4` | 0.989 | 0.875 | 0.875 | 0.400 |
 | 최종 통합 검증 | 0.751 | 0.697 | 0.708 | 0.401 |
 
-PyTorch와 NCNN의 다섯 영상 감사 결과는 동일했다. 상세 프레임별 신뢰도는
-`five_video_audit_pt.csv`와 `five_video_audit_ncnn.csv`에 저장했다.
+PyTorch와 NCNN의 다섯 영상 감사 결과는 동일했다. 당시 생성한 상세 프레임별
+신뢰도 CSV는 최종 운영에 사용하지 않아 저장소에서 제거했다.
 
 ## 운영 권장값
 
