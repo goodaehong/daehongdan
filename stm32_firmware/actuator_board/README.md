@@ -18,6 +18,8 @@
 ## 🏁 회로도(Circuit Diagram)
 ![회로도](../images/circuit_diagram.png)
 
+---
+
 ## 📖 개요 (Overview)
 본 펌웨어는 재난/위험 상황(가스 누출 등) 발생 시 상위 시스템의 판단에 따라 즉각적인 물리적 방어 조치를 수행합니다. 비차단(Non-blocking) 기반의 하드웨어 타이머와 상태 머신(State Machine)을 활용하여 CPU 부하 없이 다수의 액추에이터를 동시에 제어하며, 양방향 상태 동기화를 지원합니다.
 
