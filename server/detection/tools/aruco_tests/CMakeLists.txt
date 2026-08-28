@@ -9,10 +9,10 @@ find_package(OpenCV REQUIRED COMPONENTS core imgproc calib3d objdetect)
 
 add_executable(aruco_grid_mapper_tests
     ArucoGridMapperTests.cpp
-    ../GridCoordinateMapper.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../GridCoordinateMapper.cpp
 )
 target_include_directories(aruco_grid_mapper_tests PRIVATE
-    ..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../..
     ${OpenCV_INCLUDE_DIRS}
 )
 target_link_libraries(aruco_grid_mapper_tests PRIVATE ${OpenCV_LIBS})
@@ -26,10 +26,10 @@ add_test(NAME aruco_grid_mapper_tests COMMAND aruco_grid_mapper_tests)
 # Compile-only integration guard. This catches API drift between the dynamic
 # mapper and the existing fire runtime without requiring server SQLite/NCNN.
 add_library(aruco_fire_runtime_compile OBJECT
-    ../FireDetectionRuntime.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../FireDetectionRuntime.cpp
 )
 target_include_directories(aruco_fire_runtime_compile PRIVATE
-    ..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../..
     ${OpenCV_INCLUDE_DIRS}
 )
 target_compile_definitions(aruco_fire_runtime_compile PRIVATE SMOKE_HAS_NCNN=0)

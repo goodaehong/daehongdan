@@ -10,7 +10,7 @@
 #include <opencv2/core/utils/logger.hpp>
 #include <opencv2/videoio.hpp>
 
-#include "../GridCoordinateMapper.h"
+#include "GridCoordinateMapper.h"
 
 namespace
 {

@@ -13,15 +13,15 @@ endif()
 
 add_executable(DetectionDebugRunner
     DetectionDebugRunner.cpp
-    ../FlameDetector.cpp
-    ../FireAlarmController.cpp
-    ../FireDetectionRuntime.cpp
-    ../GridCoordinateMapper.cpp
-    ../IgnoreRegionFilter.cpp
-    ../SmokeDetector.cpp
-    ../SmokeDetectionRuntime.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../FlameDetector.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../FireAlarmController.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../FireDetectionRuntime.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../GridCoordinateMapper.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../IgnoreRegionFilter.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../SmokeDetector.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../SmokeDetectionRuntime.cpp)
 
-target_include_directories(DetectionDebugRunner PRIVATE .. ${OpenCV_INCLUDE_DIRS})
+target_include_directories(DetectionDebugRunner PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../.. ${OpenCV_INCLUDE_DIRS})
 target_link_libraries(DetectionDebugRunner PRIVATE ${OpenCV_LIBS})
 
 if(ENABLE_SMOKE_NCNN)
@@ -33,7 +33,7 @@ endif()
 
 add_custom_command(TARGET DetectionDebugRunner POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_CURRENT_SOURCE_DIR}/../models"
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../models"
         "$<TARGET_FILE_DIR:DetectionDebugRunner>/models"
     COMMENT "Copying smoke NCNN model beside DetectionDebugRunner")
 

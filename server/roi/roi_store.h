@@ -1,6 +1,6 @@
 #pragma once
 #include <string>
-#include "../opencv/IgnoreRegionFilter.h"
+#include "../detection/IgnoreRegionFilter.h"
 
 // Qt 수신 스레드 ↔ 채널별 worker 스레드 사이의 ROI 전달용 보관소.
 // FireDetectionRuntime이 worker() 지역변수라 수신 쪽에서 직접 못 건드림.
