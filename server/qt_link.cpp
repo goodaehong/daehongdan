@@ -498,6 +498,9 @@ void QtLink_RecvWorker(Link& link, AlarmState& alarm, Database& db) {
 
             else
                 link.send(handleQuery(db, line));
-        }                                                                           
+        }                                        
+        else
+            std::cerr << "[Qt] 알 수 없는 요청 무시: "
+                      << line.substr(0, 120) << "\n";                                     
     }
 }
