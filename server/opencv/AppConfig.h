@@ -170,12 +170,12 @@ namespace camera_health_config
 // 공개 D-Fire YOLOv8n 연기 NCNN 설정
 namespace smoke_config
 {
-    // 640x360 원본을 확대하지 않고 위아래 12픽셀씩 패딩해 640x384로 추론한다.
-    constexpr int INPUT_WIDTH = 640;
-    constexpr int INPUT_HEIGHT = 384;
+    // 원본 종횡비를 유지해 416x256 letterbox 입력으로 추론한다(round4b 모델).
+    constexpr int INPUT_WIDTH = 416;
+    constexpr int INPUT_HEIGHT = 256;
     constexpr int MAX_CHANNELS = 4;
 
-    // 모델 하나를 모든 채널이 공유하며 채널별로 1초에 최신 프레임 하나만 제출한다.
+    // 모델 하나를 모든 채널이 공유하며 각 채널은 1초마다 최신 프레임을 제출한다.
     constexpr int INFERENCE_INTERVAL_MS = 1000;
 #if defined(__arm__) || defined(__aarch64__)
     // 영상 수신과 OpenCV 화염 검출에 CPU를 남기기 위해 NCNN 스레드를 제한한다.
@@ -186,7 +186,10 @@ namespace smoke_config
 
     // 공개 D-Fire 모델은 0: smoke, 1: fire이며 여기서는 smoke만 사용한다.
     constexpr int SMOKE_CLASS_ID = 0;
-    constexpr float CONFIDENCE_THRESHOLD = 0.25F;
+    // Round 8 balances the reviewed field-smoke sequences while retaining the
+    // all-channel hard negatives. At 0.40, the three latest recordings keep
+    // reliable plume detections without any hits on the no-smoke camera feeds.
+    constexpr float CONFIDENCE_THRESHOLD = 0.40F;
     constexpr float RAW_CANDIDATE_THRESHOLD = CONFIDENCE_THRESHOLD;
     constexpr float NMS_THRESHOLD = 0.45F;
 
@@ -215,19 +218,26 @@ namespace smoke_config
     constexpr float TRACK_MAX_CENTER_DISTANCE_RATIO = 0.45F;
     constexpr float MERGE_EXPANSION_RATIO = 0.12F;
     constexpr std::size_t MAX_TRACKS_PER_CHANNEL = 16;
-    constexpr int CONFIRM_HITS = 3;
+    // 4채널에서는 채널별 결과가 약 4초마다 나오므로 3회 확인은 최초 표시를
+    // 12초 이상 늦춘다. 모델 임계값을 통과한 첫 결과부터 표시하고 센서 융합은
+    // 서버의 최종 경보 단계에서 담당한다.
+    constexpr int CONFIRM_HITS = 1;
     // 확정 전 후보는 빠르게 정리하고, 확정된 연기는 마지막 실제 검출부터 5초간 유지한다.
     constexpr int RELEASE_MISSES = 2;
     constexpr int RELEASE_HOLD_MS = 5000;
     constexpr int RELEASE_HOLD_RESULTS =
-        (RELEASE_HOLD_MS + INFERENCE_INTERVAL_MS - 1) / INFERENCE_INTERVAL_MS;
-    constexpr int RESULT_FRESH_MS = 2500;
-    constexpr int BOX_FRESH_MS = 1500;
+        (RELEASE_HOLD_MS + INFERENCE_INTERVAL_MS - 1) /
+        INFERENCE_INTERVAL_MS;
+    // 결과가 완성될 때 이미 지나치게 오래된 프레임이면 사용하지 않는다.
+    constexpr int MAX_PIPELINE_LATENCY_MS = 2500;
+    // 정상 완료 결과와 박스는 다음 채널 결과 사이에도 안정적으로 유지한다.
+    constexpr int RESULT_FRESH_MS = 5000;
+    constexpr int BOX_FRESH_MS = 5000;
 
     constexpr const char* MODEL_PARAM_PATH =
-        "models/smoke_yolov8n_public_640x384_ncnn_model/model.ncnn.param";
+        "models/smoke_yolov8n_round8_balanced_field_20260827_416x256_ncnn_model/model.ncnn.param";
     constexpr const char* MODEL_BIN_PATH =
-        "models/smoke_yolov8n_public_640x384_ncnn_model/model.ncnn.bin";
+        "models/smoke_yolov8n_round8_balanced_field_20260827_416x256_ncnn_model/model.ncnn.bin";
     constexpr const char* INPUT_BLOB_NAME = "in0";
     constexpr const char* OUTPUT_BLOB_NAME = "out0";
 }

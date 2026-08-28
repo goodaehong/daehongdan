@@ -92,7 +92,9 @@ private:
 
     // 사건 마커용. 그래프 x축은 표본 인덱스 기준이라 "시각 -> x비율" 변환에 실제 표본 시각이 필요하다.
     QVector<qint64> sampleTimes;
-    struct EventStamp { qint64 ts = 0; bool danger = false; QString label; };
+    // gasPpm/smokePpm: 사건 발생 시점의 농도값. 가스/연기 그래프 각각 자기 값만 마커 문구에
+    // 붙여야 해서 label엔 안 넣고 따로 들고 있다가 rebuildEventMarkers()에서 조합한다.
+    struct EventStamp { qint64 ts = 0; bool danger = false; QString label; double gasPpm = 0.0; double smokePpm = 0.0; };
     QVector<EventStamp> eventStamps;
     // 그래프를 보는 동안 시간이 흘러도 화면이 그 자리에 멈춰있지 않도록 주기적으로 다시 조회한다.
     QTimer *liveRefreshTimer = nullptr;

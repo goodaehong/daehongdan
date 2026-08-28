@@ -1,5 +1,9 @@
 # RP_Fire 파일별 상세 설명서
 
+> 보관 문서: 이 문서가 설명하는 독립 `RP_Fire` 실행 하네스는 현재
+> `daehongdan` 서버 실행 경로에서 사용하지 않아 소스와 빌드 설정을 정리했다.
+> 아래 내용은 감지 코어의 개발 과정과 이전 독립 실행 구조를 설명하는 기록이다.
+
 이 문서는 `RP_Fire` 프로젝트의 전체 구조와 각 파일의 역할을 설명한다.
 특히 이번에 추가한 한화비전 `PNM-C16083RVQ` WiseAI 사람 객체 좌표 수신
 기능, 기존 OpenCV 화염 감지, NCNN 연기 감지의 연결 관계를 중심으로
@@ -296,7 +300,7 @@ WiseAI 기능만 빠르게 설정하고 시험하려는 사람을 위한 간단�
 
 `smoke_config` namespace에 포함된다.
 
-- NCNN 입력 크기 `640×384`
+- NCNN 입력 크기 `416×256`
 - 최대 채널 수 `4`
 - 채널당 추론 간격
 - NCNN CPU 스레드 수
@@ -655,7 +659,7 @@ NCNN 형식의 YOLO 연기 모델을 직접 실행한다.
   `.param`과 `.bin`을 읽어 NCNN 네트워크를 준비한다.
 
 - `detect(inputFrame)`  
-  프레임을 640×384 입력에 맞게 letterbox 처리하고 추론한다.
+  프레임을 416×256 입력에 맞게 letterbox 처리하고 추론한다.
 
 - `isReady()`  
   모델이 정상적으로 로드되었는지 반환한다.
@@ -704,7 +708,7 @@ modelError
 
 ```text
 models/
-└─ smoke_yolov8n_public_640x384_ncnn_model/
+└─ smoke_yolov8n_round4b_field_calibrated_20260827_416x256_ncnn_model/
    ├─ model.ncnn.param
    ├─ model.ncnn.bin
    └─ metadata.yaml
@@ -787,9 +791,9 @@ NCNN 연기 모델 설정과 빌드에 관한 기존 설명서다.
 CMakeLists.txt
 RP_Fire.vcxproj
 RP_Fire.vcxproj.filters
-models/smoke_yolov8n_public_640x384_ncnn_model/model.ncnn.param
-models/smoke_yolov8n_public_640x384_ncnn_model/model.ncnn.bin
-models/smoke_yolov8n_public_640x384_ncnn_model/metadata.yaml
+models/smoke_yolov8n_round4b_field_calibrated_20260827_416x256_ncnn_model/model.ncnn.param
+models/smoke_yolov8n_round4b_field_calibrated_20260827_416x256_ncnn_model/model.ncnn.bin
+models/smoke_yolov8n_round4b_field_calibrated_20260827_416x256_ncnn_model/metadata.yaml
 ```
 
 ### 함께 올리는 것을 권장
@@ -868,7 +872,7 @@ sudo apt install -y ffmpeg
 배포 폴더/
 ├─ fire_detection
 └─ models/
-   └─ smoke_yolov8n_public_640x384_ncnn_model/
+   └─ smoke_yolov8n_round4b_field_calibrated_20260827_416x256_ncnn_model/
       ├─ model.ncnn.param
       ├─ model.ncnn.bin
       └─ metadata.yaml

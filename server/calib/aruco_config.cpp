@@ -161,8 +161,11 @@ bool ArucoConfig_Apply(const std::string& line, int* chOut, std::string* reason)
       << "GRID 60 0 59\n"
       << "FACTORY " << fmt(fx0) << " " << fmt(fy0) << " " << fmt(fx1) << " " << fmt(fy1) << "\n"
       << "MODEL_SCALE " << fmt(scale) << "\n"
-      << "# minimum markers, minimum inlier corners, maximum RMS px, hold ms, update frames, smoothing\n"
-      << "QUALITY 4 12 2.0 1500 1 0.45\n\n";
+      // 마커 중심점 기준 Homography로 바뀌면서(2026-08-25) 두 번째 값은
+      // "코너 개수"가 아니라 "인라이어 마커 중심 개수"다. 채널당 마커가
+      // 보통 4~5개뿐이라 12로 두면 절대 못 채워서 항상 실패한다.
+      << "# minimum markers, minimum inlier marker centres, maximum RMS px, hold ms, update frames, smoothing\n"
+      << "QUALITY 4 4 2.0 1500 1 0.45\n\n";
     for (const auto& l : others) o << l << "\n";
     o << "\n# Channel " << ch << "\n"
       << "BOARD " << ch << " " << fmt(bx0) << " " << fmt(by0) << " "
@@ -267,6 +270,16 @@ bool ArucoConfig_RunCalibration(int ch, std::string* reason) {
     {
         std::lock_guard<std::mutex> lk(g_mtx);
         if (g_running[ch - 1]) { if (reason) *reason = "이미 계산 중입니다"; return false; }
+        // 채널별로 각자 RTSP 스트림에 독립 접속하는 별도 프로세스라, 여러 채널을
+        // 동시에 돌리면 파이 리소스 경합으로 다 같이 실패한다(2026-08-25, 재환님
+        // 지적) — 한 번에 한 채널만 계산하도록 막는다.
+        for (int other = 0; other < 4; ++other) {
+            if (other != ch - 1 && g_running[other]) {
+                if (reason) *reason = "다른 채널(cam" + std::to_string(other + 1) +
+                    ") 보정이 진행 중입니다 — 끝난 뒤 다시 시도하세요";
+                return false;
+            }
+        }
         g_running[ch - 1] = true;
         g_cancel[ch - 1]  = false;
     }

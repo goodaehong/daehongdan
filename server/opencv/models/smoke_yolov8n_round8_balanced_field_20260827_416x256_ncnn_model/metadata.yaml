@@ -1,7 +1,7 @@
-description: Ultralytics rabahdev_dfire_YOLOv8n_50e_640x384 model trained on /Users/rbh/Downloads/archive/data.yaml
+description: Ultralytics best model trained on /content/smoke_round8_bundle/dataset/data_round8.yaml
 author: Ultralytics
-date: '2026-07-28T09:56:10.580564'
-version: 8.4.90
+date: '2026-08-27T13:08:29.578373+00:00'
+version: 8.4.128
 license: AGPL-3.0 License (https://ultralytics.com/license)
 docs: https://docs.ultralytics.com
 stride: 32
@@ -9,8 +9,8 @@ task: detect
 head: Detect
 batch: 1
 imgsz:
-- 384
-- 640
+- 256
+- 416
 names:
   0: smoke
   1: fire

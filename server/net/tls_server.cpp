@@ -5,6 +5,7 @@
 #include <sys/socket.h>
 #include <poll.h>
 #include <cerrno>
+#include <csignal>
 
 TlsServer::TlsServer(int port) : serverPort_(port), ctx_(nullptr), ssl_(nullptr), isRunning_(false), serverFd_(-1) {
     initOpenSSL();
@@ -43,6 +44,10 @@ void TlsServer::stop() {
 }
 
 void TlsServer::initOpenSSL() {
+    // OpenSSL의 소켓 BIO는 상대가 연결을 끊은 직후 SSL_write()가 실행되면
+    // SIGPIPE를 발생시킬 수 있다. 기본 동작은 프로세스 종료이므로 서버 전체가
+    // Qt의 일시적인 연결 해제 하나로 죽지 않도록 무시하고 반환값으로 처리한다.
+    std::signal(SIGPIPE, SIG_IGN);
     SSL_load_error_strings();
     OpenSSL_add_ssl_algorithms();
 }
@@ -242,6 +247,24 @@ void TlsServer::run() {
                     std::cerr << "[TLS] 다중 연결 시도 차단" << std::endl;
                     close(newFd);
                 }
+            }
+
+            // 정상 종료뿐 아니라 네트워크 단절·클라이언트 강제 종료도 즉시
+            // 세션 정리 대상으로 처리한다. 이를 무시하면 ssl_이 남아서 이후
+            // Qt 재접속이 계속 "다중 연결"로 거부될 수 있다.
+            if (pfds[0].revents & (POLLERR | POLLHUP | POLLNVAL)) {
+                {
+                    std::lock_guard<std::mutex> sslLock(sslMutex_);
+                    if (ssl_) {
+                        SSL_shutdown(ssl_);
+                        SSL_free(ssl_);
+                        ssl_ = nullptr;
+                    }
+                }
+                connected_ = false;
+                close(clientFd);
+                std::cout << "[TLS] 클라이언트 연결 종료" << std::endl;
+                break;
             }
 
             if (!(pfds[0].revents & POLLIN)) {
