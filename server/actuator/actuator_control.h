@@ -2,7 +2,14 @@
 #include <string>
 #include <vector>
 #include <cstdint>
-#include "../judgement.h"
+
+// 실행할 대응 값. 판단 쪽 Response 를 직접 받지 않고 이 구조체로만 받는다
+// (판단 결과 구조가 바뀌어도 액추에이터 코드는 그대로 두려고)
+struct ActuatorCommand {
+    int fan;     // 0=OFF, 1~3=약/중/강
+    int valve;   // 0=닫힘, 1=열림
+    int siren;   // 0=OFF, 1=ON
+};
 
 // 패킷 특수 바이트
 constexpr uint8_t STX = 0x02;
@@ -39,9 +46,9 @@ struct ActuatorSnapshot {
 // 시작 시 1회. UART 포트 열기. 실패해도 서버는 계속 감
 bool Actuator_Init(const char* devPath);
 
-// 자동 대응 실행. decideResponse() 결과 그대로 받음 (왜 이 값인지는 몰라도 됨)
+// 자동 대응 실행. 판단이 정한 값을 그대로 받음 (왜 이 값인지는 몰라도 됨)
 // src = 로그 출처 표시용 ("자동:gas" 등), 동작엔 영향 없음
-bool Actuator_Apply(const Response& r, const std::string& src);
+bool Actuator_Apply(const ActuatorCommand& c, const std::string& src);
 
 // 수동 제어 (Qt 버튼). target="fan"/"valve"/"siren"
 // action: fan="off"/"low"/"mid"/"high", valve="open"/"close", siren="on"/"off"

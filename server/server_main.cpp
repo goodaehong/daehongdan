@@ -81,6 +81,21 @@ std::string saveSnapshot(FrameStore& store, int ch, const std::string& zone, lon
     return path;
 }
 
+// ── 판단 결과 → 출력 모듈 입력으로 변환 ──
+// 출력 모듈(전광판·액추에이터)이 판단 쪽 타입을 알지 않도록 배선하는 쪽에서 바꿔 넘긴다
+static ActuatorCommand toCommand(const Response& r) {
+    return ActuatorCommand{ r.fan, r.valve, r.siren };
+}
+
+static DisplayUpdate toDisplayUpdate(const SensorReading& s) {
+    return DisplayUpdate{ gasLevel(s.gasPpm), s.gasPpm, s.temp, s.humidity };
+}
+
+// Cause::Gas 만 가스 화면, 나머지(화재·연기·복합 원인)는 전부 화재 화면 (팀 확인 완료)
+static DisplayDisaster toDisaster(const std::string& cause) {
+    return (cause == Cause::Gas) ? DisplayDisaster::Gas : DisplayDisaster::Fire;
+}
+
 // Response → event_log에 남길 대응 내역 문자열
 static std::string respToText(const Response& r) {
     const char* fan = (r.fan == 0) ? "off" : (r.fan == 1) ? "low"
@@ -253,11 +268,11 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
         if (o.dangerEntered && !o.emergEntered) { 
             std::string src = "자동:" + o.j.cause;
             Response r = decideResponse(o.j.cause);
-            bool ok = Actuator_Apply(r, src);                            
+            bool ok = Actuator_Apply(toCommand(r), src);                            
             if (!ok) std::cerr << "[액추에이터] 자동 대응 실패 — " << src << "\n";
             QtLink_SetTarget(r);                       // responseOk 비교 기준 갱신
             QtLink_SendActuator(link, Actuator_GetState());
-            StmDisplay_SendAlert(o.j.cause, 1);
+            StmDisplay_SendAlert(toDisaster(o.j.cause), 1);
             // 대피 화면으로 바뀌는 순간 경로부터 보낸다. 화재 위치는 유지 조건    
             // 때문에 몇 초 뒤에나 확정돼서, 그 사이 지도만 있고 경로가 빈다
             sendEvacPaths({});
@@ -276,7 +291,7 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
         if (o.released) {
             // 해제 직후 다시 위험이면 복귀시키지 않는다 (다음 tick에 새 사태로 재대응) 
             if (o.wasDanger && o.naturalState != "danger") {
-                if (!Actuator_Apply(responseForSafe(), "자동:해제"))        
+                if (!Actuator_Apply(toCommand(responseForSafe()), "자동:해제"))        
                     std::cerr << "[액추에이터] 해제 대응 실패\n"; 
                 QtLink_SetTarget(responseForSafe());
                 QtLink_SendActuator(link, Actuator_GetState());
@@ -295,11 +310,11 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
         // 이미 위험이면 상태 변화 없이 대응만 다시 나간다
         if (o.emergEntered) {
             Response r = decideResponse(o.j.cause);
-            bool ok = Actuator_Apply(r, "비상:" + o.j.cause);   // 조합은 서버가 정하므로 auto로
+            bool ok = Actuator_Apply(toCommand(r), "비상:" + o.j.cause);   // 조합은 서버가 정하므로 auto로
             if (!ok) std::cerr << "[액추에이터] 비상 대응 실패\n";
             QtLink_SetTarget(r);   
             QtLink_SendActuator(link, Actuator_GetState());
-            StmDisplay_SendAlert(o.j.cause, 1);
+            StmDisplay_SendAlert(toDisaster(o.j.cause), 1);
             sendEvacPaths({});   // 자동 전환과 같은 이유 — 경로부터 먼저         
             sentFires.clear();    
             SpeakerAlert_Start();
@@ -315,7 +330,7 @@ void sensorWorker(Link& link, FrameStore& store, AlarmState& alarm) {
         }                                                             
 
         QtLink_SendSensor(link, s, o,st);
-        StmDisplay_SendUpdate(s, o.j.state);
+        StmDisplay_SendUpdate(toDisplayUpdate(s));
 
         // ── 전광판 대피경로: 화재 위치가 바뀌었을 때만 보낸다 ──           
         // 매초 보내면 출구 수만큼 패킷 + 대기가 반복되고 화면도 깜빡인다
@@ -417,7 +432,7 @@ static void loadFactoryMapping(FireDetectionRuntime& runtime, int ch) {
 
 // ── 채널 워커: RTSP 연결 → 프레임 읽기 → 감지 → 전송. 끊기면 재연결 ──
 void worker(int ch, FrameStore& store, Link& link, SmokeDetectionRuntime& smoke) {
-    std::string url = "rtsp://localhost:8554/cam" + std::to_string(ch + 1);
+    std::string url = std::string(RTSP_BASE_URL) + std::to_string(ch + 1);
 
     PersonMetadataReceiver person;
     person.start(url);              // 카메라 WiseAI 사람 메타데이터 수신 (FFmpeg)
@@ -649,7 +664,7 @@ int main() {
 
     // ── 초기화. 하나 실패해도 나머지는 계속 감 ──
     Link* link = CreateLink();
-    if (!link->start(9999)) {
+    if (!link->start(QT_LINK_PORT)) {
         std::cerr << "[링크] 시작 실패\n";
         return 1;
     }
@@ -663,11 +678,11 @@ int main() {
     ArucoConfig_SetOnDone(onCalibRunDone);                                                                                                                           
     RoiStore_Load();   // 저장된 ROI 복원. 파일 없으면 빈 상태로 시작  
     FloorMapStore_Load();   // 저장된 평면도 변환 결과 복원 
-    if (!Actuator_Init("/dev/stm_actuator"))          // STM 액추에이터 보드 (USB) (심볼릭링크)
+    if (!Actuator_Init(ACTUATOR_DEVICE))          // STM 액추에이터 보드 (USB) (심볼릭링크)
         std::cerr << "[액추에이터] 초기화 실패 — 계속 진행\n";
-    Actuator_Apply(responseForSafe(), "자동:초기화");   // 재시작 후 상태를 알 수 없으므로 평상으로 맞춤 
+    Actuator_Apply(toCommand(responseForSafe()), "자동:초기화");   // 재시작 후 상태를 알 수 없으므로 평상으로 맞춤 
     QtLink_SetTarget(responseForSafe());                                              
-    if (!StmDisplay_Open("/dev/stm_display"))        // STM 전광판 보드 (GPIO UART) (심볼릭링크)
+    if (!StmDisplay_Open(STM_DISPLAY_DEVICE))        // STM 전광판 보드 (GPIO UART) (심볼릭링크)
         std::cerr << "[전광판] 초기화 실패 — 계속 진행\n";    
     StmDisplay_SendClear();   // 이전 실행이 대피 화면에서 끝났을 수 있으므로 평상 복귀                
     SpeakerAlert_Stop();      // 이전 실행이 재생 중 종료됐을 수 있으므로 정리   

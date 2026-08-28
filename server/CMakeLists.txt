@@ -64,6 +64,13 @@ option(ENABLE_TLS        "Qt 연결에 TLS 사용"   OFF)
 # 장치가 바뀌면 -DSPEAKER_ALSA_DEVICE=hw:X,0 으로 재지정.
 set(SPEAKER_ALSA_DEVICE "hw:2,0" CACHE STRING "스피커 출력에 쓸 ALSA 장치")
 
+# 현장마다 달라질 수 있는 접속 정보·장치 경로. 소스에 박지 않고 빌드 옵션으로 뺌
+# (DB·클립·인증서 경로와 같은 방식). 재지정 예 — -DQT_LINK_PORT=10000
+set(RTSP_BASE_URL     "rtsp://localhost:8554/cam" CACHE STRING "채널 번호를 뒤에 붙여 쓰는 RTSP 기본 주소")
+set(QT_LINK_PORT      9999                        CACHE STRING "Qt 연결을 받을 포트 (Qt 쪽 설정과 같아야 함)")
+set(ACTUATOR_DEVICE   "/dev/stm_actuator"         CACHE STRING "STM 액추에이터 보드 장치 (udev 심볼릭 링크)")
+set(STM_DISPLAY_DEVICE "/dev/stm_display"         CACHE STRING "STM 전광판 보드 장치 (udev 심볼릭 링크)")
+
 if(USE_MOCK_SENSOR)
     set(SENSOR_SRC ${CMAKE_CURRENT_SOURCE_DIR}/sensors/sensor_reader_mock.cpp)
 else()
@@ -121,7 +128,11 @@ target_compile_definitions(server_main PRIVATE
     FIRE_ARUCO_CONFIG_PATH="${FIRE_CORE_DIR}/aruco_board_config.txt"
     FIRE_CAMERA_CALIBRATION_DIR="${FIRE_CORE_DIR}"
     FIRE_STATIC_HOMOGRAPHY_DIR="${FIRE_CORE_DIR}"
-    CALIB_SCRIPT_DIR="${FIRE_CORE_DIR}/calibration")
+    CALIB_SCRIPT_DIR="${FIRE_CORE_DIR}/calibration"
+    RTSP_BASE_URL="${RTSP_BASE_URL}"
+    QT_LINK_PORT=${QT_LINK_PORT}
+    ACTUATOR_DEVICE="${ACTUATOR_DEVICE}"
+    STM_DISPLAY_DEVICE="${STM_DISPLAY_DEVICE}")
 
 if(ENABLE_TLS)
     find_package(OpenSSL REQUIRED)
