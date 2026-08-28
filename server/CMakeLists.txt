@@ -38,7 +38,7 @@ set(DB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/db)
 set(DB_SRC ${DB_DIR}/Database.cpp
            ${DB_DIR}/query_handler.cpp)   
 
-# 대피경로 계산 (server/evac_map_tools). 데모용 server.cpp 는 main()이 있어 제외  
+# 대피경로 계산 (server/evac_map_tools). 데모용 evac_demo.cpp 는 main()이 있어 제외  
 set(EVAC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/evac_map_tools)
 set(EVAC_SRC ${EVAC_DIR}/EvacPlanner.cpp) 
 

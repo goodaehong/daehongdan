@@ -86,6 +86,9 @@ drivers/stm_uart_display/send_test_uart
 drivers/stm_uart_display/sensor_uart_driver
 drivers/stm_uart_display/test_alert_uart
 
+# server/evac_map_tools 대피경로 데모 실행 파일 (같은 이유) 
+server/evac_map_tools/evac_server
+
 #DB
 *.db
 # 스냅샷 이미지 (실행 중 생성되는 데이터)
