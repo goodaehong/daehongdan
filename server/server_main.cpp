@@ -8,8 +8,9 @@
 #include <chrono>
 #include <ctime>
 #include <cstdlib>
-#include <fstream> 
+#include <fstream>
 #include <sys/stat.h>
+#include <csignal>
 
 #include "opencv/FireDetectionRuntime.h"
 #include "opencv/SmokeDetectionRuntime.h"
@@ -41,10 +42,6 @@ struct FrameStore {
     std::atomic<int> frameH[4]{};
 };
 
-// 화재 하나의 평면도 좌표. 전광판 표시·경로 필터링용                      
-struct FireCell {
-    int x = 0, y = 0, radius = 0;
-};
 
 // 채널별 최신 감지 상태. 워커가 갱신, 판단(센서 스레드)이 읽음
 struct DetectionState {
@@ -131,7 +128,7 @@ static const int FIRE_POS_HOLD_SEC = 3;
 
 // 실물 전광판이 평면도의 몇 번 전광판인지. 평면도에서 전광판이 여러 개     
 // 잡혀도 실물은 하나라, 어느 자리인지 사람이 정해줘야 한다
-static const int EVAC_DISPLAY_ID = 1;
+static const int EVAC_DISPLAY_ID = 3;
 
 // 화재 위치와 대피경로를 전광판으로 보낸다.                                 
 // 화재 목록은 한 패킷(0xB2), 경로는 출구마다 한 패킷(0xB1)씩.
@@ -159,7 +156,7 @@ static void sendEvacPaths(const std::vector<FireCell>& fires) {
         return;
     }
 
-    for (const auto& r : FloorMapStore_RoutesFor(EVAC_DISPLAY_ID)) {
+    for (const auto& r : FloorMapStore_RoutesForFires(EVAC_DISPLAY_ID, fires)) {   
         // EvacPlanner는 {y,x} 순서, 전광판은 {x,y} 순서 — 뒤집어서 평탄화
         std::vector<uint8_t> xy;
         xy.reserve(r.waypoints.size() * 2);
@@ -623,6 +620,12 @@ static void onCalibRunDone(int ch, CalibRunResult r, const std::string& detail) 
 }                                                             
 
 int main() {
+    // Qt가 정상 종료 절차 없이 창을 바로 닫으면(연결이 이미 끊긴 소켓에 SSL_write하게 됨),
+    // SIGPIPE 기본 동작이 프로세스 즉시 종료라서 서버 전체가 아무 로그도 없이 죽어버린다.
+    // 여기서 무시해두면 write()가 그냥 -1/EPIPE를 반환하고, txThreadLoop의 기존
+    // "bytes <= 0 → 송신 실패 로그 + 다음 연결 대기" 경로로 정상 처리된다.
+    std::signal(SIGPIPE, SIG_IGN);
+
     setenv("OPENCV_FFMPEG_CAPTURE_OPTIONS",
            "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay", 1);   // 저지연 옵션
     cv::setNumThreads(1);   // OpenCV 채널당 1스레드 = 멀티채널 최적화 핵심

@@ -11,7 +11,7 @@ LDFLAGS = `pkg-config --libs opencv4`
 TARGET = evac_server
 
 # 컴파일할 소스 파일들
-SRCS = server.cpp EvacPlanner.cpp
+SRCS = evac_demo.cpp EvacPlanner.cpp
 
 # 소스 파일을 기반으로 생성될 오브젝트 파일들(.o)
 OBJS = $(SRCS:.cpp=.o)

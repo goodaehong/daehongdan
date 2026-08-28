@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(OpenCV REQUIRED)
 
-add_executable(evac_server server.cpp EvacPlanner.cpp)
+add_executable(evac_server evac_demo.cpp EvacPlanner.cpp) 
 target_link_libraries(evac_server PRIVATE ${OpenCV_LIBS})
 target_include_directories(evac_server PRIVATE ${OpenCV_INCLUDE_DIRS})
 if(MSVC)
