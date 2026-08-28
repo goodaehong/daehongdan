@@ -7,15 +7,15 @@
 
 ---
 
-## ✨ STM32F4 PINOUT
+## 🫆 STM32F4 PINOUT
 ![STM32 핀아웃1](../images/STM32_1.png)
 ![STM32 핀아웃2](../images/STM32_2.png)
 ![STM32 핀아웃3](../images/STM32_3.png)
 
-## ✨ HSI(Hardware Software Interface)
+## 🎨 HSI(Hardware Software Interface)
 ![HSI](../images/HSI.png)
 
-## ✨ 회로도(Circuit Diagram)
+## 🏁 회로도(Circuit Diagram)
 ![회로도](../images/circuit_diagram.png)
 
 ## 📖 개요 (Overview)
