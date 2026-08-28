@@ -40,15 +40,15 @@
 
 ---
 
+## 🖼️ 사진 (Images)
+![대피경로 디스플레이1](./images/Fire_evacuation_route1.png)
+![대피경로 디스플레이2](./images/Fire_evacuation_route2.png)
+
+---
+
 ## 🚀 사용 예시 (Usage)
 
 **1. 평상시 경로 계산 (화재 미발생)**
 ```cpp
 // 화재 정보(빈 배열) 없이 호출하여 기본 최적 대피 경로 계산
 std::vector<std::vector<Point>> routes = processFloorPlan("map.png", {});
-
----
-
-## 🖼️ 사진 (Images)
-![대피경로 디스플레이1](./images/Fire_evacuation_route1.png)
-![대피경로 디스플레이2](./images/Fire_evacuation_route2.png)
