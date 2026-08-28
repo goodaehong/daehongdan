@@ -47,6 +47,10 @@ set(EVAC_SRC ${EVAC_DIR}/EvacPlanner.cpp)
 
 # 서버 모듈 (대홍)
 set(SERVER_SRC
+    ${CMAKE_CURRENT_SOURCE_DIR}/shared_state.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/camera_worker.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/control_loop.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/sensor_worker.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/judgement.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/alarm_state.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/qt_link.cpp
