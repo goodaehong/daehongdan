@@ -284,6 +284,234 @@ namespace
             cv::Point(clipped.x, std::max(22, clipped.y - 8)), 0.55, cv::Scalar(255, 255, 0));
     }
 
+    cv::Mat asBgr(const cv::Mat& source)
+    {
+        if (source.empty()) return {};
+        cv::Mat result;
+        if (source.channels() == 1)
+            cv::cvtColor(source, result, cv::COLOR_GRAY2BGR);
+        else
+            source.copyTo(result);
+        return result;
+    }
+
+    cv::Mat channelStrip(const cv::Mat& source, bool scaleHue = false)
+    {
+        if (source.empty()) return {};
+        std::vector<cv::Mat> channels;
+        cv::split(source, channels);
+        if (channels.size() != 3) return asBgr(source);
+        if (scaleHue)
+            channels[0].convertTo(channels[0], CV_8U, 255.0 / 179.0);
+
+        std::vector<cv::Mat> bgrChannels;
+        bgrChannels.reserve(3);
+        for (const cv::Mat& channel : channels)
+            bgrChannels.push_back(asBgr(channel));
+        cv::Mat strip;
+        cv::hconcat(bgrChannels, strip);
+        return strip;
+    }
+
+    cv::Mat maskMergeVisual(const FireDebugImages& debug)
+    {
+        if (debug.fireColorMask.empty() || debug.foregroundMask.empty()) return {};
+        cv::Mat green = debug.combinedMask.empty() ?
+            cv::Mat::zeros(debug.fireColorMask.size(), CV_8UC1) : debug.combinedMask;
+        std::vector<cv::Mat> channels = {
+            debug.foregroundMask,
+            green,
+            debug.fireColorMask
+        };
+        cv::Mat visual;
+        cv::merge(channels, visual);
+        return visual;
+    }
+
+    cv::Mat colorSpaceVisual(const FireDebugImages& debug)
+    {
+        if (debug.grayImage.empty() || debug.hsvImage.empty() || debug.yCrCbImage.empty())
+            return {};
+        const cv::Mat gray = asBgr(debug.grayImage);
+        const cv::Mat hsv = channelStrip(debug.hsvImage, true);
+        const cv::Mat ycrcb = channelStrip(debug.yCrCbImage);
+        const int rowWidth = std::max({ gray.cols, hsv.cols, ycrcb.cols });
+        const int rowHeight = std::max(1, gray.rows / 3);
+        auto makeRow = [rowWidth, rowHeight](const cv::Mat& source)
+        {
+            cv::Mat row;
+            cv::resize(source, row, cv::Size(rowWidth, rowHeight), 0.0, 0.0, cv::INTER_AREA);
+            return row;
+        };
+        std::vector<cv::Mat> rows = { makeRow(gray), makeRow(hsv), makeRow(ycrcb) };
+        cv::Mat visual;
+        cv::vconcat(rows, visual);
+        return visual;
+    }
+
+    cv::Mat controllerVisual(const cv::Size& size, const FireAlarmStatus& alarm)
+    {
+        const int width = std::max(320, size.width);
+        const int height = std::max(180, size.height);
+        cv::Mat visual(height, width, CV_8UC3, cv::Scalar(242, 240, 238));
+        const cv::Point center(width / 2, height / 2 - 18);
+        const int radius = std::max(28, height / 7);
+        const cv::Scalar inactive(155, 155, 155);
+        const cv::Scalar accent = alarm.alarmActive ?
+            cv::Scalar(55, 55, 225) : cv::Scalar(120, 95, 220);
+
+        cv::ellipse(visual, center, cv::Size(radius, radius + 8),
+            0.0, 200.0, 340.0, accent, 6, cv::LINE_AA);
+        cv::line(visual,
+            cv::Point(center.x - radius - 8, center.y + radius),
+            cv::Point(center.x + radius + 8, center.y + radius),
+            accent, 6, cv::LINE_AA);
+        cv::circle(visual, cv::Point(center.x, center.y + radius + 10),
+            7, accent, cv::FILLED, cv::LINE_AA);
+
+        const int barWidth = std::max(180, width * 2 / 3);
+        const int barHeight = 16;
+        const int barX = (width - barWidth) / 2;
+        const int barY = height - 45;
+        cv::rectangle(visual, cv::Rect(barX, barY, barWidth, barHeight), inactive, 2, cv::LINE_AA);
+        const double ratio = alarm.requiredConfirmMs > 0.0 ?
+            std::clamp(alarm.pendingFireMs / alarm.requiredConfirmMs, 0.0, 1.0) : 0.0;
+        const int fillWidth = std::max(0, cvRound((barWidth - 4) * ratio));
+        if (fillWidth > 0)
+            cv::rectangle(visual, cv::Rect(barX + 2, barY + 2, fillWidth, barHeight - 4),
+                accent, cv::FILLED, cv::LINE_AA);
+        return visual;
+    }
+
+    cv::Mat fitPipelineTile(const cv::Mat& source, const cv::Size& tileSize)
+    {
+        cv::Mat tile(tileSize, CV_8UC3, cv::Scalar(242, 240, 238));
+        const cv::Mat bgr = asBgr(source);
+        if (bgr.empty()) return tile;
+        const double scale = std::min(
+            static_cast<double>(tileSize.width - 8) / bgr.cols,
+            static_cast<double>(tileSize.height - 8) / bgr.rows);
+        const cv::Size resizedSize(
+            std::max(1, cvRound(bgr.cols * scale)),
+            std::max(1, cvRound(bgr.rows * scale)));
+        cv::Mat resized;
+        cv::resize(bgr, resized, resizedSize, 0.0, 0.0,
+            scale < 1.0 ? cv::INTER_AREA : cv::INTER_NEAREST);
+        const int x = (tile.cols - resized.cols) / 2;
+        const int y = (tile.rows - resized.rows) / 2;
+        resized.copyTo(tile(cv::Rect(x, y, resized.cols, resized.rows)));
+        cv::rectangle(tile, cv::Rect(1, 1, tile.cols - 2, tile.rows - 2),
+            cv::Scalar(205, 201, 198), 2, cv::LINE_AA);
+        return tile;
+    }
+
+    cv::Mat makePipelineOverview(
+        const FireDebugImages& debug,
+        const FireAlarmStatus& alarm)
+    {
+        const cv::Mat transformVisual = colorSpaceVisual(debug);
+        const cv::Mat mergeVisual = maskMergeVisual(debug);
+        const cv::Size baseSize = debug.analysisFrame.empty() ?
+            cv::Size(640, 360) : debug.analysisFrame.size();
+        const cv::Mat alarmVisual = controllerVisual(baseSize, alarm);
+        const std::vector<cv::Mat> stages = {
+            debug.analysisFrame,
+            transformVisual,
+            mergeVisual,
+            debug.candidateMask,
+            debug.contourOverlay,
+            debug.featureScoreOverlay,
+            debug.trackingOverlay,
+            debug.confirmedOverlay,
+            alarmVisual
+        };
+
+        const cv::Size tileSize(210, 130);
+        const int gap = 30;
+        const int margin = 35;
+        const int canvasWidth = 2200;
+        const int canvasHeight = 1000;
+        cv::Mat overview(canvasHeight, canvasWidth, CV_8UC3, cv::Scalar(242, 240, 238));
+        const int totalWidth = static_cast<int>(stages.size()) * tileSize.width +
+            (static_cast<int>(stages.size()) - 1) * gap;
+        const int startX = (canvasWidth - totalWidth) / 2;
+        const int y = (canvasHeight - tileSize.height) / 2;
+        for (std::size_t index = 0; index < stages.size(); ++index)
+        {
+            const int x = startX + static_cast<int>(index) * (tileSize.width + gap);
+            fitPipelineTile(stages[index], tileSize).copyTo(
+                overview(cv::Rect(x, y, tileSize.width, tileSize.height)));
+            if (index + 1 < stages.size())
+            {
+                const cv::Point from(x + tileSize.width + 5, y + tileSize.height / 2);
+                const cv::Point to(x + tileSize.width + gap - 5, y + tileSize.height / 2);
+                cv::arrowedLine(overview, from, to,
+                    cv::Scalar(120, 95, 220), 3, cv::LINE_AA, 0, 0.35);
+            }
+        }
+        (void)margin;
+        return overview;
+    }
+
+    bool saveFirePipelineCapture(
+        const FireRuntimeSnapshot& snapshot,
+        const std::filesystem::path& outputDirectory)
+    {
+        const FireDebugImages& debug = snapshot.detection.debugImages;
+        if (debug.analysisFrame.empty())
+        {
+            std::cerr << "[CAPTURE] no fire debug frame is available yet\n";
+            return false;
+        }
+
+        std::error_code error;
+        std::filesystem::create_directories(outputDirectory, error);
+        if (error)
+        {
+            std::cerr << "[CAPTURE] cannot create " << outputDirectory
+                << ": " << error.message() << '\n';
+            return false;
+        }
+
+        const cv::Mat hsvChannels = channelStrip(debug.hsvImage, true);
+        const cv::Mat yCrCbChannels = channelStrip(debug.yCrCbImage);
+        const cv::Mat mergeVisual = maskMergeVisual(debug);
+        const cv::Mat alarmVisual = controllerVisual(debug.analysisFrame.size(), snapshot.alarm);
+        const std::vector<std::pair<std::string, cv::Mat>> images = {
+            { "01_camera_frame.png", debug.analysisFrame },
+            { "02_gray.png", debug.grayImage },
+            { "03_hsv_channels.png", hsvChannels },
+            { "04_ycrcb_channels.png", yCrCbChannels },
+            { "05_fire_color_mask.png", debug.fireColorMask },
+            { "06_motion_mask.png", debug.foregroundMask },
+            { "07_color_motion_combined.png", mergeVisual },
+            { "08_combined_mask_raw.png", debug.combinedMask },
+            { "09_morphology_cleaned.png", debug.candidateMask },
+            { "10_contour_candidates.png", debug.contourOverlay },
+            { "11_feature_scoring.png", debug.featureScoreOverlay },
+            { "12_temporal_tracking.png", debug.trackingOverlay },
+            { "13_confirmed_fire_box.png", debug.confirmedOverlay },
+            { "14_controller_alarm_progress.png", alarmVisual },
+            { "15_pipeline_overview.png", makePipelineOverview(debug, snapshot.alarm) }
+        };
+
+        bool success = true;
+        for (const auto& image : images)
+        {
+            if (image.second.empty()) continue;
+            const std::filesystem::path path = outputDirectory / image.first;
+            if (!cv::imwrite(path.string(), image.second))
+            {
+                std::cerr << "[CAPTURE] failed to write " << path << '\n';
+                success = false;
+            }
+        }
+        if (success)
+            std::cout << "[CAPTURE] fire pipeline PNGs saved to "
+                << std::filesystem::absolute(outputDirectory) << '\n';
+        return success;
+    }
+
     void printFireSnapshot(const FireRuntimeSnapshot& snapshot)
     {
         std::cout << "\n[FIRE frame=" << snapshot.resultFrameId
@@ -453,6 +681,10 @@ int main(int argc, char** argv)
 
     std::uint64_t maxFrames = 0;
     bool headless = false;
+    bool captureOnAlarm = false;
+    bool captureCompleted = false;
+    std::uint64_t captureFrame = 0;
+    std::filesystem::path captureDirectory = "fire_pipeline_capture";
     std::string arucoConfigPath;
     std::string cameraCalibrationPath;
     std::string staticHomographyPath;
@@ -464,6 +696,12 @@ int main(int argc, char** argv)
             maxFrames = static_cast<std::uint64_t>(std::stoull(argv[++index]));
         else if (argument == "--headless")
             headless = true;
+        else if (argument == "--capture-dir" && index + 1 < argc)
+            captureDirectory = argv[++index];
+        else if (argument == "--capture-frame" && index + 1 < argc)
+            captureFrame = static_cast<std::uint64_t>(std::stoull(argv[++index]));
+        else if (argument == "--capture-alarm")
+            captureOnAlarm = true;
         else if (argument == "--aruco-config" && index + 1 < argc)
             arucoConfigPath = argv[++index];
         else if (argument == "--camera-calibration" && index + 1 < argc)
@@ -632,7 +870,7 @@ int main(int argc, char** argv)
             std::clamp(static_cast<int>(std::lround(1000.0 / sourceFps)), 1, 100) : 30);
 
     std::cout << "Keys: Q/Esc quit, Space pause, D fire analysis, "
-        "R apply ROI, U undo ROI, C clear ROI\n";
+        "S save fire-pipeline PNGs, R apply ROI, U undo ROI, C clear ROI\n";
     while (true)
     {
         bool newFrame = false;
@@ -753,6 +991,18 @@ int main(int argc, char** argv)
             lastPrintedSmokeFrameId = smoke.resultFrameId;
         }
 
+        if (!captureCompleted && fire.hasResult && fire.resultFrameId != 0)
+        {
+            const bool frameReached = captureFrame > 0 && fire.resultFrameId >= captureFrame;
+            const bool alarmReached = captureOnAlarm && fire.alarm.alarmActive;
+            if (frameReached || alarmReached)
+            {
+                captureCompleted = saveFirePipelineCapture(fire, captureDirectory);
+                if (captureCompleted && headless)
+                    break;
+            }
+        }
+
         if (!headless)
         {
             cv::Mat annotated = frame.clone();
@@ -789,7 +1039,7 @@ int main(int argc, char** argv)
             drawOutlinedText(annotated, cameraText.str(), cv::Point(16, 58), 0.60,
                 camera.contaminationSuspected ? cv::Scalar(0, 0, 255) : cv::Scalar(0, 255, 0));
             drawOutlinedText(annotated,
-                "L-click ROI | R apply | U undo | C clear | D analysis | Space pause | Q quit",
+                "L-click ROI | R apply | U undo | C clear | D analysis | S capture | Space pause | Q quit",
                 cv::Point(16, annotated.rows - 18), 0.48, cv::Scalar(255, 255, 255));
 
             cv::Mat display = makeDisplayFrame(annotated);
@@ -813,6 +1063,10 @@ int main(int argc, char** argv)
             showFireAnalysis = !showFireAnalysis;
             std::cout << "[VIEW] fire analysis overlay="
                 << (showFireAnalysis ? "ON" : "OFF") << '\n';
+        }
+        else if (key == 's' || key == 'S')
+        {
+            saveFirePipelineCapture(fire, captureDirectory);
         }
         else if (key == 'r' || key == 'R')
         {

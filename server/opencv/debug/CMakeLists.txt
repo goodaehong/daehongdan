@@ -23,6 +23,7 @@ add_executable(DetectionDebugRunner
 
 target_include_directories(DetectionDebugRunner PRIVATE .. ${OpenCV_INCLUDE_DIRS})
 target_link_libraries(DetectionDebugRunner PRIVATE ${OpenCV_LIBS})
+target_compile_definitions(DetectionDebugRunner PRIVATE FIRE_DEBUG_VIEW=1)
 
 if(ENABLE_SMOKE_NCNN)
     target_compile_definitions(DetectionDebugRunner PRIVATE SMOKE_HAS_NCNN=1)

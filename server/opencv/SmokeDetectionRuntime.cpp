@@ -5,6 +5,7 @@
 #include <cmath>
 #include <condition_variable>
 #include <cstdio>
+#include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <thread>
@@ -335,6 +336,7 @@ namespace
         SmokeDetectionRuntime::TimePoint pendingSourceTime{};
         SmokeDetectionRuntime::TimePoint nextAcceptedTime{};
         bool pending = false;
+        bool inFlight = false;
 
         cv::Mat previousMotionGray;
         SmokeDetectionResult latestDetection;
@@ -515,9 +517,26 @@ public:
             channels_[index].nextAcceptedTime = now + std::chrono::milliseconds(phaseMs);
         }
 
-        modelReady_ = detector_.load(paramPath, binPath);
-        modelError_ = detector_.lastError();
-        workerThread_ = std::thread(&Impl::workerLoop, this);
+        const std::size_t workerCount = std::max<std::size_t>(
+            1, std::min<std::size_t>(
+                channels_.size(), static_cast<std::size_t>(smoke_config::WORKER_COUNT)));
+        detectors_.reserve(workerCount);
+        for (std::size_t index = 0; index < workerCount; ++index)
+        {
+            auto detector = std::make_unique<SmokeDetector>();
+            if (!detector->load(paramPath, binPath))
+            {
+                modelError_ = detector->lastError();
+                detectors_.clear();
+                return;
+            }
+            detectors_.push_back(std::move(detector));
+        }
+
+        modelReady_ = true;
+        workerThreads_.reserve(detectors_.size());
+        for (std::size_t index = 0; index < detectors_.size(); ++index)
+            workerThreads_.emplace_back(&Impl::workerLoop, this, index);
     }
 
     ~Impl() { stop(); }
@@ -652,8 +671,11 @@ public:
     {
         bool expected = true;
         if (!running_.compare_exchange_strong(expected, false)) return;
-        condition_.notify_one();
-        if (workerThread_.joinable()) workerThread_.join();
+        condition_.notify_all();
+        for (std::thread& worker : workerThreads_)
+        {
+            if (worker.joinable()) worker.join();
+        }
     }
 
 private:
@@ -661,7 +683,7 @@ private:
     {
         for (const ChannelState& channel : channels_)
         {
-            if (channel.pending) return true;
+            if (channel.pending && !channel.inFlight) return true;
         }
         return false;
     }
@@ -678,7 +700,7 @@ private:
         {
             const std::size_t index = (roundRobinCursor_ + offset) % channels_.size();
             ChannelState& channel = channels_[index];
-            if (!channel.pending) continue;
+            if (!channel.pending || channel.inFlight) continue;
 
             channelIndex = index;
             frame = channel.pendingFrame;
@@ -687,13 +709,14 @@ private:
             sourceTime = channel.pendingSourceTime;
             channel.pendingFrame.release();
             channel.pending = false;
+            channel.inFlight = true;
             roundRobinCursor_ = (index + 1) % channels_.size();
             return true;
         }
         return false;
     }
 
-    void workerLoop()
+    void workerLoop(std::size_t workerIndex)
     {
         while (true)
         {
@@ -711,11 +734,13 @@ private:
             }
 
             const TimePoint started = Clock::now();
-            SmokeDetectionResult detection = detector_.detect(frame);
+            SmokeDetectionResult detection = detectors_[workerIndex]->detect(frame);
             cv::Mat currentMotionGray;
 
             std::lock_guard<std::mutex> lock(mutex_);
             ChannelState& channel = channels_[channelIndex];
+            channel.inFlight = false;
+            condition_.notify_all();
             if (epoch != channel.epoch) continue;
 
             applyMotionScore(
@@ -748,7 +773,7 @@ private:
         }
     }
 
-    SmokeDetector detector_;
+    std::vector<std::unique_ptr<SmokeDetector>> detectors_;
     bool modelReady_ = false;
     std::string modelError_;
 
@@ -757,7 +782,7 @@ private:
     std::vector<ChannelState> channels_;
     std::size_t roundRobinCursor_ = 0;
     std::atomic<bool> running_{ true };
-    std::thread workerThread_;
+    std::vector<std::thread> workerThreads_;
 };
 
 SmokeDetectionRuntime::SmokeDetectionRuntime(

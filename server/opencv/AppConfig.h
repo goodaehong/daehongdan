@@ -177,6 +177,10 @@ namespace smoke_config
 
     // 모델 하나를 모든 채널이 공유하며 각 채널은 1초마다 최신 프레임을 제출한다.
     constexpr int INFERENCE_INTERVAL_MS = 1000;
+    // Two independent NCNN model instances process different camera channels
+    // concurrently. This prevents one slow inference from delaying all four
+    // channels while keeping the per-channel detection cadence at one second.
+    constexpr int WORKER_COUNT = 2;
 #if defined(__arm__) || defined(__aarch64__)
     // 영상 수신과 OpenCV 화염 검출에 CPU를 남기기 위해 NCNN 스레드를 제한한다.
     constexpr int NCNN_NUM_THREADS = 2;

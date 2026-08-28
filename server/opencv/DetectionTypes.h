@@ -31,10 +31,19 @@ struct PersonMetadataFrame
 // FIRE_DEBUG_VIEW에서 화염 검출 단계별 마스크를 확인할 때 사용한다.
 struct FireDebugImages
 {
+    cv::Mat analysisFrame;
+    cv::Mat grayImage;
+    cv::Mat hsvImage;
+    cv::Mat yCrCbImage;
     cv::Mat fireColorMask;
     cv::Mat skinMask;
     cv::Mat foregroundMask;
+    cv::Mat combinedMask;
     cv::Mat candidateMask;
+    cv::Mat contourOverlay;
+    cv::Mat featureScoreOverlay;
+    cv::Mat trackingOverlay;
+    cv::Mat confirmedOverlay;
 };
 
 // 동일 검출 트랙의 대표 위치를 시간순으로 전달한다. timestampMs는

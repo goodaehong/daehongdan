@@ -658,6 +658,11 @@ DetectionResult FlameDetector::detect(
     cvtColor(frame, gray, COLOR_BGR2GRAY);
     cvtColor(frame, hsv, COLOR_BGR2HSV);
 
+#if FIRE_DEBUG_VIEW
+    Mat ycrcb;
+    cvtColor(frame, ycrcb, COLOR_BGR2YCrCb);
+#endif
+
     vector<Mat> hsvChannels;
     split(hsv, hsvChannels);
     const Mat& hue = hsvChannels[0];
@@ -671,6 +676,9 @@ DetectionResult FlameDetector::detect(
 
     Mat candidateMask;
     bitwise_and(colorMask, motionMask, candidateMask);
+#if FIRE_DEBUG_VIEW
+    const Mat combinedMask = candidateMask.clone();
+#endif
     Mat expandedColor, coreHalo;
     dilate(colorMask, expandedColor, kernel7_);
     bitwise_and(whiteCoreMask, expandedColor, coreHalo);
@@ -686,6 +694,17 @@ DetectionResult FlameDetector::detect(
             return contourArea(a) > contourArea(b);
         });
 
+#if FIRE_DEBUG_VIEW
+    Mat contourOverlay = frame.clone();
+    for (const vector<Point>& contour : contours)
+    {
+        if (contourArea(contour) < flame_config::MIN_CONTOUR_AREA) continue;
+        drawContours(contourOverlay, vector<vector<Point>>{ contour }, -1,
+            Scalar(203, 79, 244), 2, LINE_AA);
+    }
+    Mat featureScoreOverlay = frame.clone();
+#endif
+
     vector<Features> accepted;
     const size_t limit = min(contours.size(), static_cast<size_t>(flame_config::MAX_CONTOURS_TO_ANALYZE));
     for (size_t i = 0; i < limit; ++i)
@@ -694,6 +713,19 @@ DetectionResult FlameDetector::detect(
         Features features = analyzeContour(
             contours[i], gray, hue, value, colorMask, motionMask,
             candidateMask, skinMask, whiteCoreMask);
+#if FIRE_DEBUG_VIEW
+        if (!features.box.empty())
+        {
+            const bool passes = features.score >= flame_config::NEW_TRACK_MIN_SCORE;
+            const Scalar color = passes ? Scalar(70, 205, 90) : Scalar(125, 125, 125);
+            rectangle(featureScoreOverlay, features.box, color, 2, LINE_AA);
+            const int barWidth = std::max(1, cvRound(features.box.width * clamp01(features.score)));
+            const int barY = std::max(2, features.box.y - 7);
+            rectangle(featureScoreOverlay,
+                Rect(features.box.x, barY, std::min(barWidth, features.box.width), 5),
+                color, FILLED, LINE_AA);
+        }
+#endif
         if (features.box.empty() || features.score < flame_config::NEW_TRACK_MIN_SCORE) continue;
         if (ignoreRegionFilter_.shouldIgnore(features.box, frame.size())) continue;
         accepted.push_back(features);
@@ -703,6 +735,27 @@ DetectionResult FlameDetector::detect(
     if (frameIndex_ >= flame_config::BACKGROUND_WARMUP_FRAMES)
         result.boxes = updateTracks(
             accepted, frameId, timestampMs);
+
+#if FIRE_DEBUG_VIEW
+    Mat trackingOverlay = frame.clone();
+    for (const Track& track : tracks_)
+    {
+        if (track.misses > 1 || track.box.empty()) continue;
+        const Scalar color = track.confirmed ? Scalar(40, 40, 230) : Scalar(60, 170, 255);
+        rectangle(trackingOverlay, track.box, color, 2, LINE_AA);
+        const double progress = clamp01(
+            static_cast<double>(track.hits) / std::max(1, flame_config::CONFIRM_HITS));
+        const int progressWidth = std::max(1, cvRound(track.box.width * progress));
+        const int progressY = std::min(frame.rows - 6, track.box.y + track.box.height + 3);
+        rectangle(trackingOverlay,
+            Rect(track.box.x, progressY, std::min(progressWidth, track.box.width), 4),
+            color, FILLED, LINE_AA);
+    }
+
+    Mat confirmedOverlay = frame.clone();
+    for (const DetectionBox& box : result.boxes)
+        rectangle(confirmedOverlay, box.box, Scalar(35, 35, 230), 3, LINE_AA);
+#endif
 
     result.candidate = !accepted.empty();
     result.detected = !result.boxes.empty();
@@ -758,10 +811,19 @@ DetectionResult FlameDetector::detect(
         });
 
 #if FIRE_DEBUG_VIEW
+    result.debugImages.analysisFrame = frame;
+    result.debugImages.grayImage = gray;
+    result.debugImages.hsvImage = hsv;
+    result.debugImages.yCrCbImage = ycrcb;
     result.debugImages.fireColorMask = colorMask;
     result.debugImages.skinMask = skinMask;
     result.debugImages.foregroundMask = motionMask;
+    result.debugImages.combinedMask = combinedMask;
     result.debugImages.candidateMask = candidateMask;
+    result.debugImages.contourOverlay = contourOverlay;
+    result.debugImages.featureScoreOverlay = featureScoreOverlay;
+    result.debugImages.trackingOverlay = trackingOverlay;
+    result.debugImages.confirmedOverlay = confirmedOverlay;
 #endif
 
     gray.copyTo(previousGray_);
