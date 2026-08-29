@@ -42,8 +42,8 @@ Qt 보정 실행 ──▶ 별도 스레드에서 스크립트 실행 ──▶ 
 | `aruco_config.cpp/h` | 좌표 검증 · 설정 저장 · 스크립트 실행·취소 |
 | `calib_store.cpp/h` | 채널별 보정 단계 · 실시간 마커 상태 · Qt 조회 응답 |
 
-설정·결과 파일은 `server/detection/` 에 있습니다
-(`aruco_board_config.txt` · `homography_ch*.yml` — 실행 중 생성, 커밋 안 함).
+설정·결과 파일 위치 — `server/detection/`
+(`aruco_board_config.txt` · `homography_ch*.yml`, 실행 중 생성, 커밋 안 함)
 
 ---
 

@@ -202,7 +202,7 @@ sudo systemctl stop serial-getty@ttyAMA0.service
 sudo systemctl disable serial-getty@ttyAMA0.service
 ```
 
-- USB VCP 를 쓰는 `test_alert_uart.cpp` 는 이 문제와 무관합니다
+- USB VCP 를 쓰는 `test_alert_uart.cpp` 는 이 문제와 무관
 
 ### 3. STM32 장치 경로가 뒤바뀜
 
