@@ -11,20 +11,28 @@
 ## ⚙️ 동작
 
 ```
-판정 결과 ──▶ ActuatorCommand ──▶ UART 패킷 ──▶ STM32
-Qt 버튼   ──▶ Actuator_Execute ──┘
+판정 결과 ──▶ ActuatorCommand ──▶ UART 패킷 ──▶ STM32 보드
+Qt 버튼   ──────────┘
 ```
 
-**자동과 수동이 같은 경로로 들어갑니다.** 경로를 나누면 장치 상태가 두 곳에서 갱신되어
-어긋납니다. 대신 `src` 값으로 출처를 구분해 기록에 남깁니다 (`자동:gas` · `manual`).
+### 자동과 수동이 한 경로
 
-**판단 계층의 타입을 직접 받지 않습니다.** `ActuatorCommand{fan, valve, siren}` 으로만 받아,
-판정 구조가 바뀌어도 이 모듈은 그대로 둡니다. 변환은 배선하는 쪽(`control_loop`)이 합니다.
+- 경로를 나누면 장치 상태가 두 곳에서 갱신되어 어긋남
+- 출처(`src`)만 구분해 기록에 남김 — `자동:gas` · `manual`
+- 수동으로 조작한 장치는 자동 목표값과 달라도 정상으로 취급
 
-**상태를 추적합니다.** 수동으로 조작한 장치는 자동 목표값과 달라도 정상으로 봅니다
-(`ActuatorSnapshot` 의 `fanSrc` · `valveSrc` · `sirenSrc`).
+### 판단 계층을 안 받음
 
-| 패킷 | 내용 |
+| 받는 것 | 안 받는 것 |
+| --- | --- |
+| `ActuatorCommand{fan, valve, siren}` | 판정 결과 타입 |
+
+- 판정 구조가 바뀌어도 이 모듈은 그대로
+- 변환은 배선하는 쪽(`control_loop`)이 담당
+
+### UART 패킷
+
+| 구성 | 값 |
 | --- | --- |
 | 구조 | `STX(0x02)` · `Length` · `Command` · `Data` · `Checksum` · `ETX(0x03)` |
 | 체크섬 | `Length` ~ `Data` XOR 누적 |
@@ -34,11 +42,11 @@ Qt 버튼   ──▶ Actuator_Execute ──┘
 
 ## 📁 주요 파일
 
-| 파일 | 역할 |
+| 파일 | 하는 일 |
 | --- | --- |
-| `actuator_control.h` | `ActuatorCommand` · `ActuatorSnapshot` · CMD 상수 |
+| `actuator_control.h` | 명령·상태 구조 · 공개 함수 |
 | `actuator_controller.cpp` | 실물 — UART 열기 · 패킷 조립 · 상태 폴링 |
-| `actuator_control_mock.cpp` | mock — 상태만 들고 있고 전송 안 함 |
+| `actuator_control_mock.cpp` | mock — 상태만 보관, 전송 안 함 |
 
 ---
 
@@ -49,15 +57,24 @@ cmake -S server -B server/build -DUSE_MOCK_ACTUATOR=ON   # mock
 ```
 
 - 장치 경로는 `ACTUATOR_DEVICE` 로 주입 (기본 `/dev/stm_actuator`)
-- 보드를 뽑았다 꽂으면 `Actuator_Poll()` 이 5초 주기로 재연결을 시도합니다
+- 보드를 뽑았다 꽂으면 5초 주기로 재연결을 시도합니다
 
 ---
 
 ## 🛠 문제 해결
 
-- **보드 미인식** — `dmesg` 에 `USB disconnect` 가 있으면 보드가 실제로 빠진 것입니다
-- **프로토콜 중복** — `drivers/stm_uart_actuator/stm_actuator_protocol.c` 에 같은 구현이
-  있으나 서버는 자체 구현을 씁니다 → [drivers/README.md](../../drivers/README.md) 문제 해결 3번
+### 프로토콜 구현이 두 벌
+
+- **상황** — `drivers/stm_uart_actuator/` 에 같은 프로토콜 구현이 있으나 서버는 자체 구현 사용
+- **비교** — 두 구현의 패킷·체크섬은 동일함을 확인
+- **판단** — 통합 가능하나, 검증이 끝난 경로를 건드리지 않기 위해 현행 유지
+- 전광판은 반대로 드라이버 구현을 링크해서 씁니다 → [drivers/README.md](../../drivers/README.md)
+
+### 보드 미인식
+
+```bash
+dmesg | tail          # USB disconnect 가 있으면 보드가 실제로 빠진 것
+```
 
 ---
 

@@ -14,17 +14,17 @@
                                                               ──▶ 드라이버 probe
 ```
 
-- 오버레이가 없으면 드라이버를 `insmod` 해도 **프로브가 안 되고 sysfs 노드도 안 생깁니다**
-- `compatible` 문자열이 드라이버의 `of_match_table` 과 일치해야 매칭됩니다
+- 오버레이가 없으면 드라이버를 올려도 **프로브가 안 되고 sysfs 노드도 안 생김**
+- `compatible` 문자열이 드라이버의 매칭 테이블과 일치해야 연결됨
 
 ---
 
 ## 📁 주요 파일
 
-| 파일 | 대상 드라이버 | 버스 | compatible |
+| 파일 | 대상 드라이버 | 연결 | compatible |
 | --- | --- | --- | --- |
 | `dht22-overlay.dts` | `drivers/dht22` | GPIO4 (BCM, 물리핀 7) · 풀업 포함 | `aosong,dht22` |
-| `ads1115-overlay.dts` | `drivers/gas_sensor` | I2C1 (GPIO2/3, 물리핀 3/5) · addr `0x48` | `ti,ads1115` |
+| `ads1115-overlay.dts` | `drivers/gas_sensor` | I2C1 (GPIO2/3, 물리핀 3/5) · 주소 `0x48` | `ti,ads1115` |
 
 ---
 
