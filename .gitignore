@@ -1,34 +1,22 @@
-# Prerequisites
-*.d
+# ─────────────────────────────────────────────
+#  빌드 산출물
+# ─────────────────────────────────────────────
 
-# Object files
+# 오브젝트 · 라이브러리 · 실행 파일
+*.d
 *.o
-*.ko
 *.obj
 *.elf
-
-# Linker output
-*.ilk
-*.map
-*.exp
-
-# Precompiled Headers
 *.gch
 *.pch
-
-# Libraries
 *.lib
 *.a
 *.la
 *.lo
-
-# Shared objects (inc. Windows DLLs)
 *.dll
 *.so
 *.so.*
 *.dylib
-
-# Executables
 *.exe
 *.out
 *.app
@@ -36,88 +24,104 @@
 *.x86_64
 *.hex
 
-# Debug files
+# 링커 · 디버그 정보
+*.ilk
+*.map
+*.exp
 *.dSYM/
 *.su
 *.idb
 *.pdb
+*.dwo
 
-# Kernel Module Compile Results
+# 커널 모듈 빌드 (drivers/dht22 · drivers/gas_sensor)
+*.ko
 *.mod*
-# 커널 빌드의 숨김 명령 파일만 무시한다.
+*.symvers
+*.order
+*.dtbo
 .*.cmd
 .tmp_versions/
-modules.order
-Module.symvers
 Mkfile.old
 dkms.conf
 
-# debug information files
-*.dwo
-
-# Qt Creator / CMake build artifacts
+# CMake · Qt Creator
 build/
 build_check/
-*.user
-.qtcreator/
-CMakeLists.txt.user*
-drivers/gas_sensor/*.o
-drivers/gas_sensor/*.ko
-drivers/gas_sensor/*.mod
-drivers/gas_sensor/*.mod.c
-drivers/gas_sensor/*.mod.o
-drivers/gas_sensor/*.symvers
-drivers/gas_sensor/*.order
-drivers/gas_sensor/.*.cmd
-drivers/gas_sensor/.tmp_versions/
-drivers/gas_sensor/*.dtbo
-drivers/gas_sensor/Module.symvers
-
-# Windows shell folder settings
-desktop.ini
-# TLS 인증서·키 (개인키는 커밋 금지)
-*.key
-*.crt
-auto.*
-*.dtbo
-
-# drivers/stm_uart_display 테스트용 프로그램 컴파일 산출물 (소스만 추적, 바이너리는 각자 빌드)
-drivers/stm_uart_display/send_test_uart
-drivers/stm_uart_display/sensor_uart_driver
-drivers/stm_uart_display/test_alert_uart
-
-# server/evac_map_tools 대피경로 데모 실행 파일 (같은 이유) 
-server/evac_map_tools/evac_server
-
-#DB
-*.db
-# 스냅샷 이미지 (실행 중 생성되는 데이터)
-**/snapshots/
-**/clips/
-
-# ROI 설정 (현장마다 다름, 실행 중 생성)
-server/roi/roi_config.json
-
-# 평면도 (현장마다 다름, 실행 중 생성)
-server/floormap/uploaded_map.png
-server/floormap/floor_map.json
-server/floormap/floor_map_meta.json 
-
-# 현장마다 다시 생성되는 카메라/좌표 파일
-server/detection/homography_ch*.yml
-server/detection/homography_ch*.yml.bak
-
-# TLS 인증서/개인키 (현장마다 다름, 직접 배치 — 절대 커밋 금지)
-server/net/server_cert.pem
-server/net/server_private.pem
-server/detection/homography_ch*.yml.*.bak
-server/detection/aruco_board_config.txt.*.bak
-server/detection/camera.env
 **/out/
 **/bin/
 **/obj/
+*.user
+CMakeLists.txt.user*
+.qtcreator/
 
-# Local smoke-training datasets, rendered reviews, and Python caches
+# 테스트·데모 실행 파일 (소스만 추적, 바이너리는 각자 빌드)
+drivers/stm_uart_display/send_test_uart
+drivers/stm_uart_display/sensor_uart_driver
+drivers/stm_uart_display/test_alert_uart
+server/evac_map_tools/evac_server
+
+# ─────────────────────────────────────────────
+#  실행 중 생성되는 데이터
+# ─────────────────────────────────────────────
+
+# DB · 스냅샷 · 이벤트 클립
+*.db
+**/snapshots/
+**/clips/
+
+# 대피경로 도구 산출물 (evac_server 실행 시 생성)
+server/evac_map_tools/evac_bitmap.txt
+server/evac_map_tools/evac_preview.png
+server/evac_map_tools/evac_routes.txt
+server/evac_map_tools/evac_debug_start_*.txt
+
+# ─────────────────────────────────────────────
+#  현장마다 다른 설정 (장비별로 직접 배치·생성)
+# ─────────────────────────────────────────────
+
+# 감지 제외 영역
+server/roi/roi_config.json
+
+# 평면도 등록 결과
+server/floormap/uploaded_map.png
+server/floormap/floor_map.json
+server/floormap/floor_map_meta.json
+
+# 좌표 보정 결과 · 백업본 · 카메라 접속 정보
+# (aruco_board_config.txt 와 camera_calibration_ch*.yml 은 시연 장비 기준값으로 커밋한다)
+server/detection/homography_ch*.yml
+server/detection/*.bak
+server/detection/camera.env
+
+# ─────────────────────────────────────────────
+#  인증정보 — 절대 커밋 금지
+# ─────────────────────────────────────────────
+*.key
+*.crt
+auto.*
+server/net/server_cert.pem
+server/net/server_private.pem
+
+# ─────────────────────────────────────────────
+#  연기 모델 학습 (server/detection/training)
+# ─────────────────────────────────────────────
+
+# 가중치 · 학습 로그 — 용량이 커서 저장소에 넣지 않는다
+*.pt
+*.pth
+*.onnx
+runs/
+
+# 데이터셋 · 검수 산출물 · Python 환경
 .work/
 smoke_label_review/
+.venv/
+venv/
 **/__pycache__/
+
+# ─────────────────────────────────────────────
+#  개인 환경 (사람마다 다름)
+# ─────────────────────────────────────────────
+desktop.ini
+.claude/
