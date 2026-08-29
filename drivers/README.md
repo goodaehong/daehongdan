@@ -17,7 +17,7 @@
 
 | 폴더 | 종류 | 대상 하드웨어 |
 | --- | --- | --- |
-| `gas_sensor/` | 커널 모듈 | MQ-9(CO) · MQ-2(연소성 가스) via ADS1115 (I2C) |
+| `gas_sensor/` | 커널 모듈 | MQ-9(LPG) · MQ-2(연소성 가스) · 불꽃센서(DFR0076) via ADS1115 (I2C) |
 | `dht22/` | 커널 모듈 | DHT22 온습도 (GPIO 단일버스) |
 | `stm_uart_actuator/` | 프로토콜 + 테스트 | STM32 액추에이터 보드 (밸브 · 팬 · 사이렌) |
 | `stm_uart_display/` | 프로토콜 + 테스트 | STM32 LED 매트릭스 보드 |
@@ -43,7 +43,7 @@
 | 파일 | 하는 일 |
 | --- | --- |
 | `dht22/dht22_driver.c` | DHT22 커널 모듈 — 단일버스 타이밍 · 캐시 |
-| `gas_sensor/ads1115_driver.c` | ADS1115 커널 모듈 — I2C · 채널별 원시값 |
+| `gas_sensor/ads1115_driver.c` | ADS1115 커널 모듈 — I2C · 3채널(mq9/mq2/flame) 원시값 |
 | `stm_uart_actuator/stm_actuator_protocol.c/h` | 액추에이터 패킷 조립 · 체크섬 |
 | `stm_uart_actuator/test_stm_actuator.c` | 액추에이터 수동 제어 테스트 |
 | `stm_uart_display/stm_display_protocol.c/h` | 전광판 패킷 조립 — **서버가 링크** |
