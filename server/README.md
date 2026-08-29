@@ -38,7 +38,7 @@
 | 연기 (MQ-2) | 150 ppm |
 | 불꽃 (DFR0076) | 1.0 V |
 | 영상 — 화재 | **OpenCV 룰 기반** — 색 · 밝기 · 움직임 · 형태 조합, 연속 프레임 확정 |
-| 영상 — 연기 | **NCNN YOLOv8n** — 모델 검출 + 움직임 확인 + 연속 누적 |
+| 영상 — 연기 | **NCNN YOLOv8n** — 모델 검출 + 대형 박스 움직임 확인, 최초 양성 1회 확정 |
 
 - 영상 단독은 **경고**까지만 — 피부·노란 물체를 화염으로 오인할 수 있음
 - 센서와 교차 확인돼야 **위험**으로 승격
@@ -185,6 +185,20 @@ cd server && stdbuf -oL ./build/server_main
 | `ACTUATOR_DEVICE` | `/dev/stm_actuator` |
 | `STM_DISPLAY_DEVICE` | `/dev/stm_display` |
 | `SPEAKER_ALSA_DEVICE` | `hw:2,0` |
+
+---
+
+## 🛠 문제 해결
+
+| 증상 | 확인할 것 |
+| --- | --- |
+| 카메라 연결 실패 | MediaMTX가 먼저 실행됐는지와 `RTSP_BASE_URL` 확인 |
+| 연기 모델 로드 실패 | `ENABLE_SMOKE_NCNN`, NCNN 설치 경로, `detection/models/` 복사 여부 확인 |
+| 감지는 되지만 공장 좌표가 없음 | 채널별 ArUco 설정과 `homography_ch*.yml` 생성 여부 확인 |
+| ROI가 재시작 후 사라짐 | `ROI_CONFIG_PATH`와 `roi/roi_config.json` 쓰기 권한 확인 |
+| Qt가 연결되지 않음 | 서버·Qt의 TLS 사용 여부와 포트가 서로 같은지 확인 |
+
+로그를 파일로 받을 때는 `stdbuf -oL`을 사용해야 성공 로그도 즉시 기록됩니다.
 
 ---
 

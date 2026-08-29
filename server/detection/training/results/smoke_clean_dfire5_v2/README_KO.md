@@ -8,7 +8,7 @@
 - 기반 모델: D-Fire YOLOv8n (`smoke`, `fire`)
 - 입력 크기: 416×256
 - 최종 배포 형식: NCNN
-- 당시 모델 경로: `server/opencv/models/smoke_yolov8n_clean_dfire5_v2_20260827_416x256_ncnn_model` (현재 제거됨)
+- 당시 모델 경로: `server/detection/models/smoke_yolov8n_clean_dfire5_v2_20260827_416x256_ncnn_model` (현재 제거됨)
 
 ## 검증 결과
 
@@ -20,11 +20,11 @@
 PyTorch와 NCNN의 다섯 영상 감사 결과는 동일했다. 당시 생성한 상세 프레임별
 신뢰도 CSV는 최종 운영에 사용하지 않아 저장소에서 제거했다.
 
-## 운영 권장값
+## 당시 권장값 (현재 운영값 아님)
 
 - smoke confidence: `0.60`
 - 0.5초 간격 기준 2회 연속 검출 후 경보 확정
 - 새 검증 영상에서는 15.5초의 단발 오탐이 후보 단계에서 해제되고, 실제 연기는 28.0초에 확정됐다.
 
-현재 `AppConfig.h`의 운영 모델 경로는 자동으로 변경하지 않았다. 실제 4채널 순환 추론
-주기에서 2회 확인 지연을 점검한 뒤 교체해야 한다.
+현재는 Round 8 모델로 교체됐으며 운영 설정은 confidence `0.40`, 채널별 제출 간격
+`1000ms`, 최초 양성 `1회` 확정이다. 최신 값은 반드시 `AppConfig.h`를 기준으로 확인한다.
