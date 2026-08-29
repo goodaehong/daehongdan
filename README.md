@@ -1,11 +1,9 @@
-# 🔥 SafeVision
-
-**지능형 통합 관제 시스템**
+# 🔥 SafeVision - 지능형 통합 관제 시스템
 
 ![SafeVision](.github/images/대홍단감자.jpg)
 
 공장의 가스·화재를 카메라 영상과 센서로 **함께** 판정한 뒤,
-**원인에 맞는 대응을 자동으로 실행**
+**원인에 맞는 대응을 자동으로 실행하는 지능형 통합 관제 시스템**
 
 `Raspberry Pi 4` · `C++17` · `OpenCV` · `NCNN` · `STM32` · `Qt6` · `SQLite`
 
