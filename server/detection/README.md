@@ -70,7 +70,7 @@
 | `DetectionTypes.h` | 공용 타입 |
 | `models/` | 연기 모델 파일 |
 | `camera_calibration_ch1~4.yml` | 채널별 렌즈 보정값 |
-| `aruco_board_config.txt` | 마커 배치 설정 — 현장마다 다름, 커밋 안 함 |
+| `aruco_board_config.txt` | 마커 배치 설정 — 시연 장비 기준값이 커밋되어 있음 |
 
 **하위 폴더**
 

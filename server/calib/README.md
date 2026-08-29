@@ -43,7 +43,12 @@ Qt 보정 실행 ──▶ 별도 스레드에서 스크립트 실행 ──▶ 
 | `calib_store.cpp/h` | 채널별 보정 단계 · 실시간 마커 상태 · Qt 조회 응답 |
 
 설정·결과 파일 위치 — `server/detection/`
-(`aruco_board_config.txt` · `homography_ch*.yml`, 실행 중 생성, 커밋 안 함)
+
+| 파일 | 저장소 포함 |
+| --- | --- |
+| `aruco_board_config.txt` | 시연 장비 기준값 커밋됨 (백업본은 제외) |
+| `camera_calibration_ch1~4.yml` | 커밋됨 |
+| `homography_ch*.yml` | 실행 중 생성, 커밋 안 함 |
 
 ---
 
