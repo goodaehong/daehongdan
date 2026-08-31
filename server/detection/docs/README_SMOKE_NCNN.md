@@ -74,15 +74,17 @@ increase `INFERENCE_INTERVAL_MS` before reducing the image size.
 
 ---
 
-## 🛠 문제 해결
+## ✅ 해결한 문제
 
-| 증상 | 확인할 것 |
-| --- | --- |
-| `[연기] 모델 로드 실패` | `AppConfig.h` 경로와 실행 파일 옆 `models/` 복사 여부 확인 |
-| NCNN을 찾지 못함 | `-Dncnn_DIR=/usr/local/lib/cmake/ncnn` 지정 |
-| 박스가 전혀 없음 | BGR→RGB, letterbox 416×256, `in0/out0`, class 0 확인 |
-| 처리 지연이 큼 | 실제 Pi 추론 시간과 CPU 온도를 측정하고 제출 주기 조정 |
-| 박스가 바로 사라짐 | `CONFIRM_HITS=1`, `RELEASE_HOLD_MS=5000`이 빌드에 반영됐는지 확인 |
+### 현장 연기를 놓치고 회색 구조물을 연기로 오인하던 문제
+
+기존 D-Fire 기반 모델은 학습 환경과 다른 세트장의 옅은 연기를 놓치고, 회색 벽과
+고정 구조물을 연기로 판단했다. 채널 확대 화면에서 얻은 좌표를 전체 화면 라벨에
+잘못 적용한 데이터와 연기 주변 물체까지 포함한 박스를 제거한 뒤, 실제 카메라 영상의
+연기 프레임을 다시 라벨링했다. 무연기 채널과 오탐 구조물은 hard negative로 추가해
+Round 8 모델을 재학습했다. 운영에서는 원본 비율을 유지한 416×256 letterbox,
+class 0(smoke), confidence 0.40을 사용하고 최초 양성 1회에 확정하되 결과를 최대
+5초 유지해 공유 worker의 채널 순회 사이에도 박스가 끊기지 않도록 해결했다.
 
 ---
 
