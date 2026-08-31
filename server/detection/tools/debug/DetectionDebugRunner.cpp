@@ -1,3 +1,6 @@
+// 감지 디버그 실행기. 서버와 Qt 없이 검출 결과와 좌표 변환을 화면으로 확인한다.
+// 서버 빌드에는 포함되지 않는다.
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>

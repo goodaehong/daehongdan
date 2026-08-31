@@ -1,4 +1,8 @@
 #pragma once
+
+// 전광판 제어 인터페이스. 평상 화면 갱신과 대피 화면 전환을 정의한다.
+// 실물(stm_display.cpp)과 mock 이 같은 인터페이스를 구현한다.
+
 #include <cstdint>
 #include <string>
 

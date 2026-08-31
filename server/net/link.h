@@ -1,8 +1,10 @@
 #pragma once
-#include <string>
 
 // Qt 연결. 평문/TLS를 같은 얼굴로 쓰기 위한 인터페이스
 // 전송은 큐에 넣고 즉시 리턴 — Qt가 느려도 감지·센서 스레드가 안 멈추게
+
+#include <string>
+
 class Link {
 public:
     virtual ~Link() = default;

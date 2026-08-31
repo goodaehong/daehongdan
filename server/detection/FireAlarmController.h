@@ -1,5 +1,9 @@
 #pragma once
 
+// 화재 알람 확정. 검출이 연속으로 쌓여야 알람을 켜고, 한두 번 끊겨도 바로 끄지 않는다.
+// 검출이 깜빡일 때 경보가 함께 요동치는 것을 막기 위한 계층이다.
+
+
 #include <chrono>
 
 #include "DetectionTypes.h"

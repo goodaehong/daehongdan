@@ -1,3 +1,5 @@
+// SmokeDetector.h 구현. 모델 로드와 추론, 후보 박스 디코딩을 담당한다.
+
 #include "SmokeDetector.h"
 
 #include <algorithm>

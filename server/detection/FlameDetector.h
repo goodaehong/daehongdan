@@ -1,5 +1,9 @@
 #pragma once
 
+// RGB/HSV 색상, MOG2 움직임, 형태·질감 특징과 시간 추적을 결합한 화염 검출기다.
+// 연기 검출은 포함하지 않으며 SmokeDetector가 별도로 담당한다.
+
+
 #include <deque>
 #include <vector>
 
@@ -9,8 +13,6 @@
 #include "DetectionTypes.h"
 #include "IgnoreRegionFilter.h"
 
-// RGB/HSV 색상, MOG2 움직임, 형태·질감 특징과 시간 추적을 결합한 화염 검출기다.
-// 연기 검출은 포함하지 않으며 SmokeDetector가 별도로 담당한다.
 class FlameDetector
 {
 public:

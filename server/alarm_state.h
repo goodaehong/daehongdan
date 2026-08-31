@@ -1,4 +1,9 @@
 #pragma once
+
+// 경보 단계 관리. 판정 결과를 받아 경고 · 위험 · 비상 전환을 결정한다.
+// 경고 무응답 타이머, 사태(incident) 생명주기, 비상 래치를 여기서 다룬다.
+// 감지가 깜빡여도 경보가 흔들리지 않도록 순간값이 아닌 타이머 기준으로 판정한다.
+
 #include <atomic>
 #include <mutex>
 #include <string>

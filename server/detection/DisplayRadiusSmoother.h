@@ -1,12 +1,14 @@
 #pragma once
 
+// 화재 박스 폭이 한두 프레임 흔들릴 때 전광판 반경이 매번 바뀌지 않도록
+// 최근 반경의 중앙값을 구하고, 같은 변경 후보가 연속으로 확인된 뒤 적용한다.
+
+
 #include <algorithm>
 #include <cstddef>
 #include <deque>
 #include <vector>
 
-// 화재 박스 폭이 한두 프레임 흔들릴 때 전광판 반경이 매번 바뀌지 않도록
-// 최근 반경의 중앙값을 구하고, 같은 변경 후보가 연속으로 확인된 뒤 적용한다.
 class DisplayRadiusSmoother
 {
 public:

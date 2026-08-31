@@ -1,3 +1,5 @@
+// qt_link.h 구현. 송신 JSON 조립과 수신 메시지 분기를 담당한다.
+
 #include "qt_link.h"
 #include "db/query_handler.h"
 #include "roi/roi_store.h"   

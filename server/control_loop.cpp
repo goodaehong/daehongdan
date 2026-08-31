@@ -1,3 +1,5 @@
+// control_loop.h 구현. 1초 주기로 판정 · 대응 · 기록 · 전송을 순서대로 실행한다.
+
 #include "control_loop.h"
 
 #include <opencv2/opencv.hpp>

@@ -1,11 +1,12 @@
+// TLS 버전. Link 인터페이스를 TlsServer 위에 얇게 얹는다.
+// ENABLE_TLS 켜면 link_plain.cpp 대신 이 파일이 빌드에 들어감 (CMakeLists.txt 참고)
+
 #include "link.h"
 #include "tls_server.h"
 #include <memory>
 #include <thread>
 #include <iostream>
 
-// TLS 버전. Link 인터페이스를 TlsServer 위에 얇게 얹는다.
-// ENABLE_TLS 켜면 link_plain.cpp 대신 이 파일이 빌드에 들어감 (CMakeLists.txt 참고)
 class TlsLink : public Link {
 public:
     ~TlsLink() override { stop(); }

@@ -1,7 +1,8 @@
+// mock 센서. 부품 오면 sensor_reader_hw.cpp로 교체 (CMake 옵션)
+
 #include "sensor_reader.h"
 #include <random>
 
-// mock 센서. 부품 오면 sensor_reader_hw.cpp로 교체 (CMake 옵션)
 bool SensorReader_Read(SensorReading& out) {
     static std::mt19937 rng(std::random_device{}());
     static std::uniform_real_distribution<float> jitter(-1.0f, 1.0f);

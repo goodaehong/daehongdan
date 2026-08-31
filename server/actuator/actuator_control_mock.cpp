@@ -1,3 +1,6 @@
+// 액추에이터 mock 구현. 보드 없이 개발 · 시연할 때 쓴다.
+// 상태만 들고 있고 UART 전송은 하지 않는다 (CMake USE_MOCK_ACTUATOR).
+
 #include "actuator_control.h"
 #include <atomic>
 #include <mutex>

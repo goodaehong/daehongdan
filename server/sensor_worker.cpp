@@ -1,3 +1,5 @@
+// sensor_worker.h 구현. 1초마다 센서를 읽어 최신값을 갱신한다.
+
 #include "sensor_worker.h"
 
 #include <chrono>

@@ -1,3 +1,6 @@
+// 좌표 변환 단위 테스트. 서버 없이 마커 인식과 격자 변환 결과가 맞는지 확인한다.
+// 서버 빌드에는 포함되지 않는다.
+
 #include "GridCoordinateMapper.h"
 #include "GroundFootprintEstimator.h"
 #include "DisplayRadiusSmoother.h"

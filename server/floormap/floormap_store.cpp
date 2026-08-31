@@ -1,3 +1,5 @@
+// floormap_store.h 구현. 평면도 저장 · 경로 변환 호출 · 결과 보관을 담당한다.
+
 #include "floormap_store.h"
 #include "../json_util.h"
 #include "EvacPlanner.h" 

@@ -1,3 +1,6 @@
+// 좌표 변환식 산출 도구. 마커의 실제 공장 좌표와 화면 위치를 짝지어
+// 호모그래피를 계산하고 homography_chN.yml 로 저장한다.
+
 #include <algorithm>
 #include <cctype>
 #include <cstdint>

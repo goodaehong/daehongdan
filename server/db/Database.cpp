@@ -1,3 +1,5 @@
+// Database.h 구현. 표 생성 · 기록 저장 · 사태 처리 · 조회를 담당한다.
+
 #include "Database.h"
 #include <iostream>
 

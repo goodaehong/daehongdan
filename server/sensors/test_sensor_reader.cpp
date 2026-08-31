@@ -1,3 +1,5 @@
+// 센서 읽기 단독 테스트. 서버를 띄우지 않고 값이 제대로 들어오는지 확인한다.
+
 #include "sensor_reader.h"
 #include <iostream>
 

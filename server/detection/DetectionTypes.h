@@ -1,5 +1,9 @@
 #pragma once
 
+// 감지 결과 공용 타입. 화재 · 연기 · 사람 검출 결과를 서버로 넘기는 형식으로 정의한다.
+// 검출기마다 다른 내부 타입에 서버가 묶이지 않도록 중립 구조체로 둔다.
+
+
 #include <opencv2/opencv.hpp>
 #include <cstdint>
 #include <limits>

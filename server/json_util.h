@@ -1,9 +1,11 @@
 #pragma once
+
+// JSON 필드 추출 헬퍼 (라이브러리 없이 문자열 검색으로)
+
 #include <string>
 #include <vector>
 #include <cstdlib>
 
-// JSON 필드 추출 헬퍼 (라이브러리 없이 문자열 검색으로)
 inline std::string jsonStr(const std::string& j, const std::string& key) {
     std::string pat = "\"" + key + "\":\"";
     size_t s = j.find(pat);

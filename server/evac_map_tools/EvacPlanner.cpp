@@ -1,3 +1,5 @@
+// EvacPlanner.h 구현. 이미지 분석 · 격자 변환 · 경로 탐색을 담당한다.
+
 #include "EvacPlanner.h"
 #include <opencv2/opencv.hpp>
 #include <cstdint>

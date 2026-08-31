@@ -1,3 +1,5 @@
+// FireDetectionRuntime.h 구현. 워커 스레드 관리와 결과 스냅샷 갱신을 담당한다.
+
 #include "FireDetectionRuntime.h"
 
 #include <algorithm>

@@ -1,4 +1,9 @@
 #pragma once
+
+// 스레드 경계를 넘기는 상태만 여기 모은다.
+// 입력 스레드(sensorWorker · cameraWorker)가 채우고, 제어 루프(controlLoop)가 읽는다.
+// 판단·대응은 controlLoop 한 곳에서만 하므로 순서가 어긋날 일이 없다.
+
 #include <opencv2/opencv.hpp>
 #include <atomic>
 #include <mutex>
@@ -8,10 +13,6 @@
 #include "net/link.h"
 #include "sensors/sensor_reader.h"
 #include "db/Database.h"
-
-// 스레드 경계를 넘기는 상태만 여기 모은다.
-// 입력 스레드(sensorWorker · cameraWorker)가 채우고, 제어 루프(controlLoop)가 읽는다.
-// 판단·대응은 controlLoop 한 곳에서만 하므로 순서가 어긋날 일이 없다.
 
 // 4채널 프레임 공유 저장소. 채널별 mutex로 워커/제어 스레드 간 경합 방지
 struct FrameStore {

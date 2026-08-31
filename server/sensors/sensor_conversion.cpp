@@ -1,3 +1,6 @@
+// sensor_conversion.h 구현. ADC 원시값을 ppm · 전압으로 환산한다.
+// 환산식은 각 소자 데이터시트의 특성 곡선을 근거로 한다.
+
 #include "sensor_conversion.h"
 #include <cmath>
 

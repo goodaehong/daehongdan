@@ -1,3 +1,5 @@
+// clip_recorder.h 구현. 링 버퍼 관리와 별도 스레드에서의 mp4 인코딩을 담당한다.
+
 #include "clip_recorder.h"
 
 #include <opencv2/opencv.hpp>
