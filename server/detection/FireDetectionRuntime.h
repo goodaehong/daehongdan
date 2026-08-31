@@ -1,5 +1,9 @@
 #pragma once
 
+// 화재 감지 파이프라인. 프레임 제출 → 검출 → 좌표 변환 → 결과 보관까지를
+// 워커 스레드에서 처리한다. 호출하는 쪽은 제출과 조회만 하면 된다.
+
+
 #include <chrono>
 #include <cstddef>
 #include <cstdint>

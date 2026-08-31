@@ -1,3 +1,6 @@
+// 렌즈 왜곡 보정 도구. ChArUco 보드를 여러 자세로 촬영해 카메라 내부 파라미터를 구한다.
+// 결과는 camera_calibration_chN.yml 로 저장되고 서버가 기동 시 읽는다.
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>

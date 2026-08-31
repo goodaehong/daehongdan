@@ -1,3 +1,5 @@
+// FireAlarmController.h 구현. 연속 검출 누적과 해제 유지 시간을 계산한다.
+
 #include "FireAlarmController.h"
 
 #include <algorithm>

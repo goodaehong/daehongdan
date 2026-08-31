@@ -1,3 +1,6 @@
+// 액추에이터 실물 구현. UART 로 명령 패킷을 보내고 응답으로 링크 생존을 판정한다.
+// 보드를 뽑았다 꽂아도 재시작 없이 붙도록 주기적으로 재연결을 시도한다.
+
 #include "actuator_control.h"
 #include <iostream>
 #include <unistd.h>

@@ -1,5 +1,9 @@
 #pragma once
 
+// 한화비전 RTSP 프로필의 ONVIF 분석 XML 데이터 트랙에서 사람 박스를 읽는다.
+// FFmpeg는 영상을 다시 디코딩하지 않고 메타데이터 패킷만 복사한다.
+
+
 #include <memory>
 #include <string>
 
@@ -7,8 +11,6 @@
 
 #include "DetectionTypes.h"
 
-// 한화비전 RTSP 프로필의 ONVIF 분석 XML 데이터 트랙에서 사람 박스를 읽는다.
-// FFmpeg는 영상을 다시 디코딩하지 않고 메타데이터 패킷만 복사한다.
 class PersonMetadataReceiver
 {
 public:

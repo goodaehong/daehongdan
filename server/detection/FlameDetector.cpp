@@ -1,3 +1,5 @@
+// FlameDetector.h 구현. 색 · 밝기 · 움직임 · 형태 특징을 계산해 화염 후보를 가려낸다.
+
 #include "FlameDetector.h"
 
 #include <algorithm>

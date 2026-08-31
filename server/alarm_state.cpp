@@ -1,3 +1,5 @@
+// alarm_state.h 구현. 단계 전환 판정과 사태 번호 발급을 담당한다.
+
 #include "alarm_state.h"
 #include <iostream>
 

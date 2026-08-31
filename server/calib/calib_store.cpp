@@ -1,3 +1,5 @@
+// calib_store.h 구현. 보정 단계 · 실시간 마커 상태를 보관하고 조회 응답을 만든다.
+
 #include "calib_store.h"
 
 #include <mutex>

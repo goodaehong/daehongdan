@@ -1,3 +1,5 @@
+// GridCoordinateMapper.h 구현. 마커 인식과 좌표 변환을 담당한다.
+
 #include "GridCoordinateMapper.h"
 
 #include <algorithm>

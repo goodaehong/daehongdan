@@ -1,3 +1,5 @@
+// tls_server.h 구현. 인증서 로드 · 핸드셰이크 · 송수신 스레드를 담당한다.
+
 #include "tls_server.h"
 #include <iostream>
 #include <unistd.h>

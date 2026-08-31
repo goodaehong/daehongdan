@@ -1,3 +1,5 @@
+// query_handler.h 구현. 조회 종류별로 SQL 을 고르고 응답 JSON 을 조립한다.
+
 #include "query_handler.h"
 #include "../json_util.h"
 #include <sstream>

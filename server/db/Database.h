@@ -1,5 +1,10 @@
 #pragma once
 
+// SQLite 접근. 1초 주기 센서 이력과 불규칙한 사건 기록을 각각 다른 표에 저장한다.
+// 조회 패턴이 정반대라 한 표에 넣으면 양쪽 다 느려지기 때문이다.
+// 경고 → 위험 → 해제는 하나의 사태(incident)로 묶어 일괄 처리한다.
+
+
 #include <string>
 #include <vector>
 #include <mutex>

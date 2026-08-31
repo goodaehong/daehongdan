@@ -1,4 +1,9 @@
 #pragma once
+
+// Qt 관제 화면과 주고받는 메시지 조립 · 해석.
+// 서버가 미는 주기 전송(센서 · 감지 · 장치 상태)과
+// Qt 가 요청하는 조회 · 제어 · 설정을 모두 여기서 다룬다.
+
 #include <string>
 #include <vector>
 #include "json_util.h"          // JSON 헬퍼 (jsonStr/jsonInt/jsonEscape)

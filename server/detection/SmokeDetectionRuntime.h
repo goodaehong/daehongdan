@@ -1,5 +1,9 @@
 #pragma once
 
+// 연기 감지 파이프라인. 모델 추론 결과에 움직임 확인과 시간 누적을 더해
+// 최종 연기 판정을 만든다. 모델 검출만으로는 오탐이 남기 때문이다.
+
+
 #include <chrono>
 #include <cstddef>
 #include <cstdint>

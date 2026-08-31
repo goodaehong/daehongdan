@@ -1,3 +1,5 @@
+// 평문 TCP. Qt가 직접 접속(listen 모드). TLS 켜면 link_tls.cpp로 교체됨
+
 #include "link.h"
 #include <queue>
 #include <mutex>
@@ -12,7 +14,6 @@
 #include <netinet/in.h>
 #include <cerrno>
 
-// 평문 TCP. Qt가 직접 접속(listen 모드). TLS 켜면 link_tls.cpp로 교체됨
 class PlainLink : public Link {
 public:
     ~PlainLink() override { stop(); }

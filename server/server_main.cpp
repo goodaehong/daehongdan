@@ -1,3 +1,6 @@
+// 서버 진입점. 장치 · DB · 링크를 초기화하고 스레드를 띄우는 일만 한다.
+// 판단 · 대응 로직은 control_loop 에 있고 여기에는 두지 않는다.
+
 #include <opencv2/opencv.hpp>
 #include <thread>
 #include <mutex>

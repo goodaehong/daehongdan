@@ -1,3 +1,6 @@
+// 대피 안내 음성 재생. aplay 를 별도 프로세스로 띄워 반복 재생하고 해제 시 종료한다.
+// 제어 루프를 막지 않으려고 프로세스를 분리했다.
+
 #include "speaker_alert.h"
 #include <atomic>
 #include <thread>

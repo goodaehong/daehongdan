@@ -1,3 +1,5 @@
+// roi_store.h 구현. 감지 제외 영역의 검증 · 저장 · 복원과 버전 관리를 담당한다.
+
 #include "roi_store.h"
 #include "../json_util.h"
 

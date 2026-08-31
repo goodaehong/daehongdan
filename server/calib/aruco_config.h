@@ -1,10 +1,12 @@
 #pragma once
-#include <string>
 
 // Qt가 보낸 좌표 값으로 aruco_board_config.txt 를 만든다.
 // 다른 채널의 BOARD/MARKER 줄은 그대로 보존하고, 저장 전 백업을 남긴다.
 // 좌표가 바뀌면 기존 변환표(homography)는 무효라 함께 치운다.
 // 실패 시 false + reason (Qt에 그대로 보여줄 한글 사유)
+
+#include <string>
+
 bool ArucoConfig_Apply(const std::string& line, int* chOut, std::string* reason);
 
 // 저장된 좌표를 Qt 폼에 되돌려준다. 재보정할 때 처음부터 다시 입력하지 않게.

@@ -1,3 +1,5 @@
+// IgnoreRegionFilter.h 구현. 영역 마스크 생성과 겹침 비율 계산을 담당한다.
+
 #include "IgnoreRegionFilter.h"
 
 #include <algorithm>

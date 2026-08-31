@@ -1,3 +1,7 @@
+// TLS 세션 관리. OpenSSL 컨텍스트와 인증서를 준비하고
+// 접속 대기 · 핸드셰이크 · 송수신을 담당한다.
+// link_tls.cpp 가 이 위에 Link 인터페이스를 얹는다.
+
 #ifndef TLS_SERVER_H
 #define TLS_SERVER_H
 

@@ -1,3 +1,7 @@
+// 센서 실물 구현. 커널 드라이버가 노출한 sysfs 값을 읽어 물리 단위로 환산한다.
+// 읽기에 실패하면 0 을 채우지 않고 실패를 그대로 알린다 —
+// 0 을 넣으면 「가스 0ppm = 안전」이 되어 위험이 저절로 풀리기 때문이다.
+
 #include "sensor_reader.h"
 #include "sensor_conversion.h"
 #include <fstream>

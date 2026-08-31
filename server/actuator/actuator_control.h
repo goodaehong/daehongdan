@@ -1,4 +1,8 @@
 #pragma once
+
+// 액추에이터 제어 인터페이스. 밸브 · 환기팬 · 사이렌 명령과 상태 조회를 정의한다.
+// 실물(actuator_controller.cpp)과 mock 이 같은 인터페이스를 구현한다.
+
 #include <string>
 #include <vector>
 #include <cstdint>

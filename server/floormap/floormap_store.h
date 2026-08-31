@@ -1,10 +1,11 @@
 #pragma once
-#include <string>
-#include <vector>
-#include "EvacPlanner.h"   // Point 구조체 (좌표는 {y, x} 순서)
 
 // Qt가 올린 평면도(base64 PNG)를 파일로 저장하고, 변환 결과를 보관한다.
 // 결과는 Qt 응답용 JSON 글자와, 전광판 전송용 숫자 두 형태로 들고 있다.
+
+#include <string>
+#include <vector>
+#include "EvacPlanner.h"   // Point 구조체 (좌표는 {y, x} 순서)
 
 // 전광판 하나에서 출구 하나로 가는 경로
 struct EvacRoute {

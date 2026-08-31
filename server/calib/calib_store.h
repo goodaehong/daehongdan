@@ -1,4 +1,8 @@
 #pragma once
+
+// 채널별 보정 상태 보관소. 워커가 기록한 보정 단계와 실시간 마커 인식 상태를
+// 모아 두었다가 Qt 조회에 응답한다. 재로드 요청도 여기를 통해 워커에 전달된다.
+
 #include <string>
 #include "detection/GridCoordinateMapper.h"   // ArucoMappingStatus
 

@@ -1,3 +1,5 @@
+// SmokeDetectionRuntime.h 구현. 채널 순회 · 트랙 관리 · 박스 병합을 담당한다.
+
 #include "SmokeDetectionRuntime.h"
 
 #include <algorithm>

@@ -1,4 +1,9 @@
 #pragma once
+
+// 이벤트 영상 클립 저장. 평소 직전 3초를 채널별 링 버퍼에 쌓아두고,
+// 경보가 나면 이후 10초까지 합쳐 13초짜리 mp4 로 저장한다.
+// 경보 이후만 녹화하면 원인이 되는 장면이 빠지기 때문이다.
+
 #include <functional>
 #include <string>
 #include <opencv2/core.hpp>

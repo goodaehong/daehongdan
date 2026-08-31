@@ -1,3 +1,5 @@
+// PersonMetadataReceiver.h 구현. ffmpeg 프로세스 관리와 메타데이터 파싱을 담당한다.
+
 #include "PersonMetadataReceiver.h"
 
 #include <algorithm>

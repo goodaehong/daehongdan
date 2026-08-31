@@ -1,3 +1,5 @@
+// aruco_config.h 구현. 마커 설정 저장과 보정 스크립트 실행 관리를 담당한다.
+
 #include "aruco_config.h"
 #include "../json_util.h"
 

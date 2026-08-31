@@ -1,3 +1,6 @@
+// 전광판 실물 구현. UART 로 화면 갱신 · 대피 화면 · 대피경로 패킷을 보내고,
+// 보드 응답 수신 여부로 링크 상태를 판정한다.
+
 #include "stm_display.h"
 #include "../../drivers/stm_uart_display/stm_display_protocol.h"
 

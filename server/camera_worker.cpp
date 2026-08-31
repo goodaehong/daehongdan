@@ -1,3 +1,5 @@
+// camera_worker.h 구현. 채널별 RTSP 수신 · 감지 제출 · 결과 전송을 담당한다.
+
 #include "camera_worker.h"
 
 #include <opencv2/opencv.hpp>
