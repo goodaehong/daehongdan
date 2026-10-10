@@ -29,7 +29,7 @@
 #endif
 
 #ifndef RTSP_PASSWORD
-#define RTSP_PASSWORD "5hanwha!"
+#define RTSP_PASSWORD "" // 실제 값은 빌드 시 -D로 주입 (저장소에 넣지 않음)
 #endif
 
 #ifndef RTSP_PROFILE_PATH
